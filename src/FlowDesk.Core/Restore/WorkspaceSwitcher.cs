@@ -17,8 +17,9 @@ public sealed class WorkspaceSwitcher(IWindowSystem windows, SessionTracker trac
     public string? ActiveWorkspaceId { get; private set; }
 
     public async Task<RestoreReport> SwitchToAsync(Workspace target, Workspace? current, LeaveAction leave = LeaveAction.Minimize,
-        IProgress<ItemResult>? progress = null, CancellationToken ct = default)
+        IProgress<ItemResult>? progress = null, CancellationToken ct = default, RestoreOptions? options = null)
     {
+        // options: caller's settings (e.g. LaunchTimeout from app settings); Overrides is always the session snapshot.
         HashSet<long> currentHandles = [];
         if (current is not null && current.Id != target.Id)
         {
@@ -27,7 +28,13 @@ public sealed class WorkspaceSwitcher(IWindowSystem windows, SessionTracker trac
         }
 
         var session = tracker.GetSession(target.Id);
-        var report = await restorer.RestoreAsync(target, new RestoreOptions { Overrides = session }, progress, ct).ConfigureAwait(false);
+        var o = options ?? new RestoreOptions();
+        var effective = new RestoreOptions
+        {
+            ReuseOpenWindows = o.ReuseOpenWindows, LaunchTimeout = o.LaunchTimeout, PollInterval = o.PollInterval,
+            SettleDelay = o.SettleDelay, Activate = o.Activate, Overrides = session,
+        };
+        var report = await restorer.RestoreAsync(target, effective, progress, ct).ConfigureAwait(false);
 
         if (leave == LeaveAction.Minimize && currentHandles.Count > 0)
         {

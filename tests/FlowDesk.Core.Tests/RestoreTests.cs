@@ -129,6 +129,17 @@ public class RestoreTests
         Assert.Equal(new PixelRect(1000, 0, 600, 600), _sys.Get(spotify.Handle)!.NormalRect);
     }
 
+    [Fact]
+    public async Task Switch_passes_caller_launch_timeout_to_the_restorer()
+    {
+        var switcher = new WorkspaceSwitcher(_sys, _tracker, new WorkspaceCapture(_sys, _tracker, new NoFolders()), _restorer);
+        var slow = Build.App(@"C:\apps\slow.exe", "Slow");
+        _launcher.Behaviour[slow.Id] = (@"C:\apps\slow.exe", "Slow", 4); // window appears on poll 4
+        var shortWait = await switcher.SwitchToAsync(new Workspace { Items = [slow] }, null,
+            options: Build.Fast(maxPolls: 2));
+        Assert.Equal(ItemOutcome.LaunchedNoWindow, shortWait.Items[0].Outcome);
+    }
+
     private sealed class NoFolders : IFolderPathSource
     {
         public IReadOnlyDictionary<long, string> GetOpenFolders() => new Dictionary<long, string>();
