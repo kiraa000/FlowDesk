@@ -6,12 +6,12 @@ and runs focus sessions that close distracting apps.
 
 ## Projects
 
-| Project | What it is | Who writes it |
-| --- | --- | --- |
-| `src/FlowDesk.Core` | Window capture/restore, matching, layouts, A->B->A switching, focus enforcement, JSON storage. No UI dependency. | Lead (done, tested) |
-| `src/FlowDesk.App` | WinUI 3 app: shell, pages, view models, notifications, tray, onboarding tour. | Sol |
-| `tests/FlowDesk.Core.Tests` | xUnit tests for the core against a fake window system. | Lead; Sol adds view-model tests |
-| `tools/FlowDesk.Probe` | Console harness to run the core on the real desktop (`list`, `capture`, `restore`, `layout`, `focus`). | Lead |
+| Project | What it is |
+| --- | --- |
+| `src/FlowDesk.Core` | Window capture/restore, matching, layouts, A->B->A switching, focus enforcement, JSON storage. No UI dependency. |
+| `src/FlowDesk.App` | WinUI 3 app: shell, pages, view models, notifications, tray, onboarding tour. |
+| `tests/FlowDesk.Core.Tests` | xUnit tests for the core against a fake window system. |
+| `tools/FlowDesk.Probe` | Console harness to run the core on the real desktop (`list`, `capture`, `restore`, `layout`, `focus`). |
 
 Build/test: `dotnet build FlowDesk.slnx`, `dotnet test tests/FlowDesk.Core.Tests`.
 
@@ -105,8 +105,8 @@ tour again", data folder link, About/version.
 **Onboarding tour** (first run, and from Settings). A chain of `TeachingTip`s targeting real controls, one
 open at a time, "Step 2 of 6", Back / Next / Skip tour; ends on "Restart tour" in Settings. Steps: welcome
 (no target) -> New workspace button -> a workspace's Open button -> Layouts nav item -> Focus nav item ->
-Settings. State: `FlowDeskData.TourCompleted`. Port the step/state-machine idea from
-`flowdesk-blazor/Services/TutorialService.cs` (no Blazor code).
+Settings. State: `FlowDeskData.TourCompleted`. Keep the steps and state machine in a plain, unit-tested
+C# class.
 
 ## Known limits (by design, tell the user in UI copy where relevant)
 - Browser tabs can't be read; websites are reopened from saved links in a new browser window.

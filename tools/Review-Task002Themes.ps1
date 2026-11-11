@@ -6,8 +6,8 @@ param(
 $ErrorActionPreference = 'Stop'
 $smoke = Join-Path $PSScriptRoot 'Smoke-App.ps1'
 $verify = Join-Path $PSScriptRoot 'Verify-Task002.ps1'
-$shots = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../sol-tasks/shots-002'))
-if (-not (Test-Path -LiteralPath $shots)) { throw 'Expected existing shots-002 directory.' }
+$shots = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../artifacts/screenshots'))
+New-Item -ItemType Directory -Force -Path $shots | Out-Null
 
 function Invoke-Smoke {
     param([Parameter(Mandatory)][string]$Action, [string]$Name, [string]$Value, [string]$OutputPath)

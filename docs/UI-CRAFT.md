@@ -1,14 +1,8 @@
----
-name: ui-craft
-description: Rules for building UI that looks crafted and native instead of generic "AI slop" - general craft rules, a self-review checklist, and WinUI 3 / Fluent 2 / Windows 11 specifics (type ramp, spacing, Mica, title bar, NavigationView, theme brushes, Segoe Fluent icons, settings-page patterns). Load before designing or reviewing any user-facing screen, and give its path to any worker (Sol, Luna) that builds UI.
----
+# UI craft rules
 
-# ui-craft
-
-Sources: Luna web research 2026-11-10 (learn.microsoft.com Windows design pages, fluent2.microsoft.design,
-CommunityToolkit docs, two critiques of AI-generated UI); full cited report in
-`D:\Workspace\_projects\FlowDesk\research\ui-research-winui-crafted-luna-2026-11-10.md`.
-Items marked (convention) are common practice in WinUI Gallery / PowerToys, not a Microsoft rule.
+Rules every FlowDesk screen follows so the app looks crafted and native to Windows 11. Based on Microsoft's
+Windows design guidance (learn.microsoft.com/windows/apps/design), Fluent 2 (fluent2.microsoft.design) and the
+Windows Community Toolkit docs.
 
 ## 1. What "AI slop" looks like (avoid all of these)
 

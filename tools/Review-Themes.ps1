@@ -1,8 +1,8 @@
 param([ValidateSet('Light','Dark')] [string]$Theme, [string]$EvidenceTag = 'r3')
 $ErrorActionPreference = 'Stop'
 $smoke = Join-Path $PSScriptRoot 'Smoke-App.ps1'
-$shots = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../sol-tasks/shots-001'))
-if (-not (Test-Path -LiteralPath $shots)) { throw 'Expected existing shots-001 directory.' }
+$shots = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../artifacts/screenshots'))
+New-Item -ItemType Directory -Force -Path $shots | Out-Null
 function TakeShot([string]$page) {
  $path = Join-Path $shots "$page-$($Theme.ToLowerInvariant())-$EvidenceTag.png"
  if (Test-Path -LiteralPath $path) { throw "Preserve existing evidence; choose another screenshot name: $path" }
