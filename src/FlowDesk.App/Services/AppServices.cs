@@ -11,13 +11,21 @@ namespace FlowDesk.App.Services;
 
 public sealed class AppSettings
 {
+    public const int MinLaunchTimeoutSeconds = LaunchTimeoutValue.Min;
+    public const int MaxLaunchTimeoutSeconds = LaunchTimeoutValue.Max;
+    public const int DefaultLaunchTimeoutSeconds = LaunchTimeoutValue.Default;
+
     public string Theme { get; set; } = "System";
     public bool MinimizePrevious { get; set; } = true;
+    /// <summary>How long to wait for a launched app's window, in seconds (Settings: 10-60).</summary>
+    public int LaunchTimeoutSeconds { get; set; } = DefaultLaunchTimeoutSeconds;
     public int Width { get; set; } = 1100;
     public int Height { get; set; } = 720;
     public int? X { get; set; }
     public int? Y { get; set; }
     public Dictionary<string, string> FocusIconPaths { get; set; } = [];
+
+    public static int ClampLaunchTimeout(int seconds) => LaunchTimeoutValue.Clamp(seconds);
 }
 
 // UI owns mutable state. Save workers receive immutable snapshots; a single writer orders writes.

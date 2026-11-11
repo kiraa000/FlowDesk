@@ -83,6 +83,7 @@
                                         </Canvas>
                                     </Border>
                                     <TextBlock Text="{Binding Name}"
+                                               Margin="4,0,0,0"
                                                Style="{StaticResource BodyTextBlockStyle}"
                                                Foreground="{ThemeResource TextFillColorPrimaryBrush}"
                                                TextWrapping="Wrap" MinHeight="40" />

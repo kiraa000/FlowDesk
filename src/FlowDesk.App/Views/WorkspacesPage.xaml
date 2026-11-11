@@ -29,7 +29,8 @@
                            Style="{StaticResource BodyTextBlockStyle}"
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                            TextWrapping="Wrap" />
-                <Button Content="Save open windows" Command="{Binding NewFromWindowsCommand}"
+                <Button x:Name="EmptyStateButton" Content="Save open windows"
+                        Command="{Binding NewFromWindowsCommand}"
                         Style="{StaticResource AccentButtonStyle}" />
             </StackPanel>
             <ItemsControl ItemsSource="{Binding Workspaces}"

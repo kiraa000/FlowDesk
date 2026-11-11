@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using FlowDesk.App.Services;
+using FlowDesk.App.Tour;
 using FlowDesk.Core.Model;
 using FlowDesk.Core.Restore;
 
@@ -21,8 +22,11 @@ public partial class AppViewModels : ObservableObject
     public SettingsViewModel Settings { get; }
     public LayoutsViewModel Layouts { get; }
     public FocusViewModel Focus { get; }
+    public TourStateMachine Tour { get; } = new();
     public event Action<AppPage>? NavigationRequested;
     public event Action? ThemeChanged;
+    /// <summary>Raised when the tour should (re)start: first run, or "Show the tour again".</summary>
+    public event Action? TourRequested;
     [ObservableProperty] public partial bool IsBusy { get; set; }
     [ObservableProperty] public partial bool StatusOpen { get; set; }
     [ObservableProperty] public partial string StatusMessage { get; set; } = "";
@@ -36,6 +40,17 @@ public partial class AppViewModels : ObservableObject
         Workspaces = new(this); Details = new(this); Capture = new(this); Settings = new(this);
         Layouts = new(this); Focus = new(this);
         Services.SaveFailed += message => Ui.Enqueue(() => ShowStatus(message, StatusKind.Error));
+        Tour.Finished += () =>
+        {
+            Services.Data.TourCompleted = true;
+            Services.Changed();
+        };
+    }
+    /// <summary>Starts the tour at step 1 and lets the shell show the first tip.</summary>
+    public void RequestTour()
+    {
+        Tour.Start();
+        TourRequested?.Invoke();
     }
     public async Task LoadAsync()
     {
@@ -91,7 +106,12 @@ public partial class AppViewModels : ObservableObject
         try
         {
             var leave = Services.Settings.MinimizePrevious ? LeaveAction.Minimize : LeaveAction.Leave;
-            report = await Task.Run(() => Services.Switcher.SwitchToAsync(target, previous, leave, progress));
+            // Launch timeout comes from Settings; the switcher forwards it through RestoreOptions.
+            var options = new RestoreOptions
+            {
+                LaunchTimeout = TimeSpan.FromSeconds(AppSettings.ClampLaunchTimeout(Services.Settings.LaunchTimeoutSeconds))
+            };
+            report = await Task.Run(() => Services.Switcher.SwitchToAsync(target, previous, leave, progress, default, options));
             workspace.Model.LastUsed = target.LastUsed;
             foreach (var vm in WorkspacesCollection) vm.RefreshSummary();
             Services.Changed(); HasReport = true;

@@ -4,6 +4,7 @@
     <Project Path="src/FlowDesk.Core/FlowDesk.Core.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/FlowDesk.App.Tests/FlowDesk.App.Tests.csproj" />
     <Project Path="tests/FlowDesk.Core.Tests/FlowDesk.Core.Tests.csproj" />
   </Folder>
   <Folder Name="/tools/">

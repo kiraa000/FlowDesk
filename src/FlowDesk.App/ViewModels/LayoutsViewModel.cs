@@ -10,10 +10,11 @@ public sealed record LayoutChoice(string Name, LayoutPreset Preset)
 {
     public override string ToString() => Name;
 }
-public partial class MonitorChoice(string name, string device) : ObservableObject
+public partial class MonitorChoice(string name, string device, bool isPrimary) : ObservableObject
 {
     public string Name => name;
     public string Device => device;
+    public bool IsPrimary => isPrimary;
     [ObservableProperty] public partial bool IsSelected { get; set; }
     public override string ToString() => Name;
 }
@@ -35,6 +36,18 @@ public partial class LayoutsViewModel(AppViewModels owner) : ObservableObject
     [ObservableProperty] public partial bool CanSave { get; set; }
     public bool IsEmpty => !HasWindows;
     public bool MultipleMonitors => Monitors.Length > 1;
+
+    /// <summary>"Display 2 · 2560 × 1440 · Main" instead of the raw device name \\.\DISPLAY2.</summary>
+    public static string MonitorLabel(string device, bool isPrimary, int width, int height)
+    {
+        string name = device;
+        int index = device.LastIndexOf("DISPLAY", StringComparison.OrdinalIgnoreCase);
+        if (index >= 0 && int.TryParse(device[(index + "DISPLAY".Length)..], out int number))
+            name = $"Display {number}";
+        string label = $"{name} · {width} × {height}";
+        return isPrimary ? label + " · Main" : label;
+    }
+
     private WorkspaceViewModel? workspace;
     partial void OnHasWindowsChanged(bool value) => OnPropertyChanged(nameof(IsEmpty));
     [RelayCommand] private void OpenWorkspace() => owner.Navigate(AppPage.Workspaces);
@@ -45,7 +58,8 @@ public partial class LayoutsViewModel(AppViewModels owner) : ObservableObject
         var result = await Task.Run(() => (monitors: owner.Services.Windows.GetMonitors(),
             live: model is null ? new Dictionary<string, WindowInfo>() : owner.Services.Capture.LiveWindowsFor(model)));
         var device = Monitors.FirstOrDefault(m => m.IsSelected)?.Device;
-        var monitors = result.monitors.Select(m => new MonitorChoice($"{m.Device} · {m.Bounds.Width} × {m.Bounds.Height}", m.Device)).ToArray();
+        var monitors = result.monitors.Select(m =>
+            new MonitorChoice(MonitorLabel(m.Device, m.IsPrimary, m.Bounds.Width, m.Bounds.Height), m.Device, m.IsPrimary)).ToArray();
         if (monitors.Length > 0) (monitors.FirstOrDefault(m => m.Device == device) ?? monitors[0]).IsSelected = true;
         Monitors = monitors;
         Windows.Clear();

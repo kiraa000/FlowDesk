@@ -53,6 +53,7 @@ public sealed partial class MainWindow : Window
         Root.DataContext = App.ViewModels;
         App.ViewModels.NavigationRequested += Navigate;
         App.ViewModels.ThemeChanged += ApplyTheme;
+        InitializeTour();
         Root.ActualThemeChanged += (_, _) => DispatcherQueue.TryEnqueue(UpdateCaptionColors);
         App.ViewModels.PropertyChanged += (_, args) =>
         {
@@ -95,6 +96,7 @@ public sealed partial class MainWindow : Window
             int y = Math.Clamp(s.Y ?? area.Y + 80, area.Y, Math.Max(area.Y, area.Y + area.Height - height));
             AppWindow.MoveAndResize(new RectInt32(x, y, width, height));
             Navigation.IsEnabled = true; Navigate(AppPage.Workspaces);
+            if (!services.Data.TourCompleted) App.ViewModels.RequestTour();
         }
         catch (Exception ex)
         {
@@ -152,6 +154,7 @@ public sealed partial class MainWindow : Window
     }
     private async void OnClosing(AppWindow sender, AppWindowClosingEventArgs args)
     {
+        StopTour();
         if (allowClose) return;
         args.Cancel = true;
         if (closing) return;

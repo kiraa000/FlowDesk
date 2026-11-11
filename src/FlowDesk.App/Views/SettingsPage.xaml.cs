@@ -8,5 +8,7 @@ public sealed partial class SettingsPage : Page
     {
         InitializeComponent();
         DataContext = App.ViewModels.Settings;
+        // Re-read registry-backed state (Start with Windows) every time Settings is shown.
+        App.ViewModels.Settings.Load();
     }
 }

@@ -17,6 +17,26 @@
                 <ToggleSwitch IsOn="{Binding MinimizePrevious, Mode=TwoWay}"
                               AutomationProperties.Name="Minimize previous workspace windows" />
             </settings:SettingsCard>
+            <settings:SettingsCard Header="Launch timeout"
+                Description="Seconds to wait for each app to show its window when opening a workspace.">
+                <NumberBox Value="{Binding LaunchTimeout, Mode=TwoWay}" Minimum="10" Maximum="60"
+                           SmallChange="1" LargeChange="5" SpinButtonPlacementMode="Compact"
+                           Width="140" AutomationProperties.Name="Launch timeout in seconds" />
+            </settings:SettingsCard>
+            <settings:SettingsCard Header="Start with Windows"
+                Description="Open FlowDesk when you sign in.">
+                <ToggleSwitch IsOn="{Binding StartWithWindows, Mode=TwoWay}"
+                              AutomationProperties.Name="Start FlowDesk when I sign in" />
+            </settings:SettingsCard>
+            <settings:SettingsCard Header="Onboarding tour"
+                Description="Walk through the main screens again.">
+                <Button Content="Show the tour again" Command="{Binding ReplayTourCommand}" MinHeight="32" />
+            </settings:SettingsCard>
+            <settings:SettingsCard Header="Data folder"
+                Description="Workspaces, focus sessions and app settings.">
+                <Button Content="Open folder" Command="{Binding OpenDataFolderCommand}" MinHeight="32" />
+            </settings:SettingsCard>
+            <settings:SettingsCard Header="About" Description="{Binding VersionText}" />
         </StackPanel>
     </ScrollViewer>
 </Page>

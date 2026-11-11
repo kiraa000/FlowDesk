@@ -1,6 +1,9 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
+using System.Reflection;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using FlowDesk.App.Services;
 using FlowDesk.Core.Capture;
 using FlowDesk.Core.Model;
 
@@ -160,11 +163,20 @@ public partial class SettingsViewModel(AppViewModels owner) : ObservableObject
     public string[] Themes { get; } = ["System", "Light", "Dark"];
     [ObservableProperty] public partial string Theme { get; set; } = "System";
     [ObservableProperty] public partial bool MinimizePrevious { get; set; } = true;
+    [ObservableProperty] public partial double LaunchTimeout { get; set; } = AppSettings.DefaultLaunchTimeoutSeconds;
+    [ObservableProperty] public partial bool StartWithWindows { get; set; }
+    /// <summary>One line for the About card, read from the app assembly.</summary>
+    public string VersionText { get; } =
+        $"FlowDesk {Assembly.GetEntryAssembly()?.GetName().Version?.ToString(3) ?? "1.0.0"}";
     private bool loading;
     internal void Load()
     {
-        loading = true; Theme = owner.Services.Settings.Theme;
-        MinimizePrevious = owner.Services.Settings.MinimizePrevious; loading = false; owner.ApplyTheme();
+        loading = true;
+        Theme = owner.Services.Settings.Theme;
+        MinimizePrevious = owner.Services.Settings.MinimizePrevious;
+        LaunchTimeout = AppSettings.ClampLaunchTimeout(owner.Services.Settings.LaunchTimeoutSeconds);
+        StartWithWindows = StartupRegistration.IsEnabled();
+        loading = false; owner.ApplyTheme();
     }
     partial void OnThemeChanged(string value)
     {
@@ -175,6 +187,46 @@ public partial class SettingsViewModel(AppViewModels owner) : ObservableObject
     {
         owner.Services.Settings.MinimizePrevious = value;
         if (!loading) owner.Services.Changed();
+    }
+    partial void OnLaunchTimeoutChanged(double value)
+    {
+        // NumberBox can hand over NaN (cleared box), infinity, out-of-range or fractional values.
+        // Fall back to the last valid setting, then snap the box to the supported range.
+        int seconds = LaunchTimeoutValue.Normalize(value, owner.Services.Settings.LaunchTimeoutSeconds);
+        bool wasLoading = loading;
+        if (!double.IsFinite(value) || Math.Abs(value - seconds) > 0.001)
+        {
+            loading = true; LaunchTimeout = seconds; loading = wasLoading;
+        }
+        owner.Services.Settings.LaunchTimeoutSeconds = seconds;
+        if (!wasLoading) owner.Services.Changed();
+    }
+    partial void OnStartWithWindowsChanged(bool value)
+    {
+        if (loading) return;
+        if (StartupRegistration.SetEnabled(value)) return;
+        loading = true; StartWithWindows = !value; loading = false;
+        owner.ShowStatus("FlowDesk could not change the Windows startup setting. Check access to your user registry.",
+            StatusKind.Error);
+    }
+    [RelayCommand] private void ReplayTour() => owner.RequestTour();
+    [RelayCommand]
+    private void OpenDataFolder()
+    {
+        try
+        {
+            Directory.CreateDirectory(owner.Services.Store.Folder);
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "explorer.exe",
+                Arguments = $"\"{owner.Services.Store.Folder}\"",
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            owner.ShowStatus("The data folder could not be opened. " + ex.Message, StatusKind.Error);
+        }
     }
 }
 
