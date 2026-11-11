@@ -68,3 +68,7 @@ Data is stored in `%LOCALAPPDATA%\FlowDesk\` (`flowdesk.json` for workspaces and
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
+
+[MIT](LICENSE)
