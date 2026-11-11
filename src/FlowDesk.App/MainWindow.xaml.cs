@@ -16,6 +16,7 @@ public sealed partial class MainWindow : Window
     private bool loaded, closing, allowClose, navigating;
     private readonly FocusNotifications notifications;
     private readonly DispatcherTimer focusTimer = new() { Interval = TimeSpan.FromSeconds(1) };
+    private readonly DispatcherTimer autosaveTimer = new() { Interval = TimeSpan.FromSeconds(30) };
     private bool sampling;
     private bool trayReady;
 #if DEBUG
@@ -49,7 +50,8 @@ public sealed partial class MainWindow : Window
         TrayPause.Command = App.ViewModels.Focus.PauseCommand;
         TrayExit.Command = new CommunityToolkit.Mvvm.Input.AsyncRelayCommand(ExitFromTrayAsync);
         focusTimer.Tick += async (_, _) => await UpdateFocusAsync();
-        Closed += (_, _) => { focusTimer.Stop(); notifications.Dispose(); TrayIcon.Dispose(); };
+        autosaveTimer.Tick += (_, _) => App.ViewModels.RefreshAutoSaveAge();
+        Closed += (_, _) => { focusTimer.Stop(); autosaveTimer.Stop(); notifications.Dispose(); TrayIcon.Dispose(); };
         Root.DataContext = App.ViewModels;
         App.ViewModels.NavigationRequested += Navigate;
         App.ViewModels.ThemeChanged += ApplyTheme;
@@ -89,6 +91,8 @@ public sealed partial class MainWindow : Window
             try { TrayIcon.ForceCreate(enablesEfficiencyMode: false); trayReady = true; }
             catch (Exception) { App.ViewModels.ShowStatus("The tray icon could not be created. Keep this window open during focus.", StatusKind.Warning); }
             focusTimer.Start();
+            App.ViewModels.AutoSave.Start();
+            autosaveTimer.Start();
             var s = services.Settings; var area = DisplayArea.Primary.WorkArea;
             int width = Math.Clamp(s.Width, 720, Math.Max(720, area.Width));
             int height = Math.Clamp(s.Height, 520, Math.Max(520, area.Height));
@@ -174,15 +178,17 @@ public sealed partial class MainWindow : Window
         if (App.ViewModels.IsBusy) { App.ViewModels.ShowStatus("Wait for the current operation to finish before closing."); return; }
         if (!loaded) { allowClose = true; Close(); return; }
         closing = true;
-        // Do not let a new focus session start while the final persistence await is in flight.
-        PageFrame.IsEnabled = false; Navigation.IsEnabled = false; focusTimer.Stop();
+        // Do not let a new focus session or autosave tick start while the final persistence await is in flight.
+        PageFrame.IsEnabled = false; Navigation.IsEnabled = false; focusTimer.Stop(); autosaveTimer.Stop();
+        await App.ViewModels.AutoSave.StopAsync();
         var s = services.Settings;
         s.Width = AppWindow.Size.Width; s.Height = AppWindow.Size.Height;
         s.X = AppWindow.Position.X; s.Y = AppWindow.Position.Y;
         await services.FlushAsync();
         if (!services.LastSaveSucceeded)
         {
-            closing = false; PageFrame.IsEnabled = true; Navigation.IsEnabled = true; focusTimer.Start(); return;
+            closing = false; PageFrame.IsEnabled = true; Navigation.IsEnabled = true;
+            focusTimer.Start(); autosaveTimer.Start(); App.ViewModels.AutoSave.Start(); return;
         }
         await Task.Run(() => services.Focus.Dispose());
         allowClose = true; Close();

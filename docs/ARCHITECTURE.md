@@ -108,6 +108,37 @@ open at a time, "Step 2 of 6", Back / Next / Skip tour; ends on "Restart tour" i
 Settings. State: `FlowDeskData.TourCompleted`. Keep the steps and state machine in a plain, unit-tested
 C# class.
 
+## Autosave and browser session restore (TASK-004)
+
+- **Autosave** is per workspace ("Keep this workspace up to date", default on; always-add is opt-in). The flags
+  live in `AppSettings` id maps, not in the frozen core model. `AutoSaveCoordinator` (App, no WinUI dependency)
+  polls the active workspace every 2 s off the UI thread, compares item-placements plus bound handles, waits for
+  3 s with no changes, then has `AppAutoSaveHost` clone the workspace, run `capture.SaveLayout` on the clone,
+  apply only `Window`/`LayoutSavedAt` back on the UI thread, and `SaveNowAsync`. A status is "saved" only after
+  that write succeeds; failures retry on the next tick. Every activation has a generation epoch:
+  `SuspendAsync` invalidates it, cancels the poll and waits for in-flight work before a core switch/manual save/
+  layout apply starts. Ordinary quiesced commands call `Resume` for the SAME activation: a new token/epoch, but
+  baseline, Not-now/handled handles and pending settle/failure state survive; only an actual switch calls
+  `Activate` fresh. UI commits and queued statuses re-check epoch, the active workspace identity and busy state;
+  offers also carry their epoch, and a stale dismissal cannot close a newer one. The first observation after
+  activation is treated as changed, so movement between activation and the first 2 s poll is still saved after
+  the settle window. All rows show on/off plus the last saved age, including inactive workspaces; pending
+  changes show "changes pending", not a stale saved. A failed write restores the previous `LayoutSavedAt`, so
+  only durable times feed that age.
+- **New windows** are offered non-modally (Add / Not now / Always add new windows). The gate excludes FlowDesk's
+  own windows, windows bound to an item, and any window that scores >= `WindowMatcher.Threshold` against ANY
+  missing-live item (not just the restorer's one best assignment), via `NewWindowEligibility`, plus every handle
+  in the activation baseline captured after restore. Adding re-checks the same rule and generation off the UI,
+  then commits once on the UI. A persistence failure keeps the added item, marks the save dirty and reports/
+  retries the write; the host persists the current model even when SaveLayout reports zero updated positions.
+- **Browser items** use the browser's own session restore: `BrowserSession.Applies` (App item,
+  `ReopenLastTabs`, Chromium/Gecko exe, no AUMID). The details toggle is shown based on the browser identity, not
+  the current toggle value, and is persisted. A one-time per-family InfoBar in the app shell gives the exact
+  setting for Edge, Chrome and Firefox (generic guidance for other browser families); it appears when a
+  workspace with such items is opened/edited and is acknowledged explicitly. Only keys on a visible notice can
+  be marked seen; they are persisted in `AppSettings`.
+- Restore reports render `ItemOutcome.Skipped` as informational with its detail, never as a failure.
+
 ## Known limits (by design, tell the user in UI copy where relevant)
 - Browser tabs can't be read; websites are reopened from saved links in a new browser window.
 - Windows of apps running as administrator can't be moved unless FlowDesk runs as administrator.

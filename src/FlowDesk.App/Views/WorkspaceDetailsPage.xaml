@@ -37,6 +37,22 @@
                            DisplayMemberPath="Label" SelectedValuePath="Glyph"
                            SelectedValue="{Binding Workspace.Glyph, Mode=TwoWay}" />
             </Grid>
+            <StackPanel Spacing="4">
+                <ToggleSwitch Header="Keep this workspace up to date"
+                              IsOn="{Binding Workspace.AutosaveEnabled, Mode=TwoWay}"
+                              AutomationProperties.Name="Keep this workspace up to date" />
+                <TextBlock Text="Saves window positions after they settle. New windows are offered before they are added."
+                           Style="{StaticResource CaptionTextBlockStyle}"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           TextWrapping="Wrap" />
+                <ToggleSwitch Header="Always add new windows"
+                              IsOn="{Binding Workspace.AlwaysAddNewWindows, Mode=TwoWay}"
+                              AutomationProperties.Name="Always add new windows to this workspace" />
+                <TextBlock Text="Adds a newly opened window to this workspace without asking."
+                           Style="{StaticResource CaptionTextBlockStyle}"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           TextWrapping="Wrap" />
+            </StackPanel>
             <StackPanel Orientation="Horizontal" Spacing="8">
                 <DropDownButton Content="Add" MinWidth="72">
                     <DropDownButton.Flyout>
@@ -100,6 +116,16 @@
                                         Style="{StaticResource CaptionTextBlockStyle}"
                                         Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                         TextWrapping="Wrap" />
+                                    <StackPanel Spacing="2"
+                                        Visibility="{Binding IsBrowser, Converter={StaticResource BoolVisibility}}">
+                                        <ToggleSwitch Header="Reopen my last tabs"
+                                                      IsOn="{Binding ReopenLastTabs, Mode=TwoWay}"
+                                                      AutomationProperties.Name="Reopen my last browser tabs" />
+                                        <TextBlock Text="Starts the browser with its profile so it restores its own last session."
+                                            Style="{StaticResource CaptionTextBlockStyle}"
+                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                            TextWrapping="Wrap" />
+                                    </StackPanel>
                                 </StackPanel>
                                 <Button Grid.Column="2" Content="Remove"
                                         Command="{Binding RemoveCommand}" />

@@ -3,7 +3,8 @@
        The source file is linked rather than referencing the WinUI app project, so this suite
        runs without Windows App SDK or XAML tooling. -->
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
     <IsPackable>false</IsPackable>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -14,8 +15,18 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\..\src\FlowDesk.Core\FlowDesk.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
     <Compile Include="..\..\src\FlowDesk.App\Tour\TourStateMachine.cs" Link="TourStateMachine.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\LaunchTimeoutValue.cs" Link="LaunchTimeoutValue.cs" />
+    <Compile Include="..\..\src\FlowDesk.App\Services\AppSettings.cs" Link="AppSettings.cs" />
+    <Compile Include="..\..\src\FlowDesk.App\Services\BrowserRestoreHelp.cs" Link="BrowserRestoreHelp.cs" />
+    <Compile Include="..\..\src\FlowDesk.App\Services\RestoreReportText.cs" Link="RestoreReportText.cs" />
+    <Compile Include="..\..\src\FlowDesk.App\Services\NewWindowEligibility.cs" Link="NewWindowEligibility.cs" />
+    <Compile Include="..\..\src\FlowDesk.App\Services\BrowserNoticeSelection.cs" Link="BrowserNoticeSelection.cs" />
+    <Compile Include="..\..\src\FlowDesk.App\Autosave\AutoSaveCoordinator.cs" Link="AutoSaveCoordinator.cs" />
+    <Compile Include="..\..\src\FlowDesk.App\Autosave\AutoSaveText.cs" Link="AutoSaveText.cs" />
     <Using Include="Xunit" />
   </ItemGroup>
 </Project>

@@ -80,8 +80,8 @@ public sealed class UserInteraction(Window window, FrameworkElement root) : IUse
         var content = Ui.Stack();
         foreach (var item in report.Items)
         {
-            content.Children.Add(Ui.Text(item.Name + " · " + item.Outcome, "BodyStrongTextBlockStyle"));
-            content.Children.Add(Ui.Text(item.Detail ?? "Window is in place.", secondary: true));
+            content.Children.Add(Ui.Text(item.Name + " · " + RestoreReportText.Outcome(item.Outcome), "BodyStrongTextBlockStyle"));
+            content.Children.Add(Ui.Text(RestoreReportText.Detail(item), secondary: true));
         }
         await Dialog("Workspace results", Ui.Scroll(content), close: "Close").ShowAsync();
     }

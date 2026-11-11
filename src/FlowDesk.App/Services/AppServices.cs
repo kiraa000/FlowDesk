@@ -9,25 +9,6 @@ using FlowDesk.Core.Windows;
 
 namespace FlowDesk.App.Services;
 
-public sealed class AppSettings
-{
-    public const int MinLaunchTimeoutSeconds = LaunchTimeoutValue.Min;
-    public const int MaxLaunchTimeoutSeconds = LaunchTimeoutValue.Max;
-    public const int DefaultLaunchTimeoutSeconds = LaunchTimeoutValue.Default;
-
-    public string Theme { get; set; } = "System";
-    public bool MinimizePrevious { get; set; } = true;
-    /// <summary>How long to wait for a launched app's window, in seconds (Settings: 10-60).</summary>
-    public int LaunchTimeoutSeconds { get; set; } = DefaultLaunchTimeoutSeconds;
-    public int Width { get; set; } = 1100;
-    public int Height { get; set; } = 720;
-    public int? X { get; set; }
-    public int? Y { get; set; }
-    public Dictionary<string, string> FocusIconPaths { get; set; } = [];
-
-    public static int ClampLaunchTimeout(int seconds) => LaunchTimeoutValue.Clamp(seconds);
-}
-
 // UI owns mutable state. Save workers receive immutable snapshots; a single writer orders writes.
 public sealed class AppServices : ObservableObject
 {
@@ -45,7 +26,7 @@ public sealed class AppServices : ObservableObject
     public event Action<string>? SaveFailed;
     private readonly SemaphoreSlim writer = new(1, 1);
     private CancellationTokenSource? debounce;
-    private Task pending = Task.CompletedTask;
+    private Task<bool> pending = Task.FromResult(true);
     public bool LastSaveSucceeded { get; private set; } = true;
     private string SettingsPath => Path.Combine(Store.Folder, "app-settings.json");
 
@@ -78,10 +59,25 @@ public sealed class AppServices : ObservableObject
     public void Changed(bool immediate = false)
     {
         debounce?.Cancel(); debounce = new();
-        var snapshot = JsonSerializer.Deserialize<FlowDeskData>(JsonSerializer.Serialize(Data, JsonStore.Options), JsonStore.Options)!;
-        pending = PersistAsync(snapshot, JsonSerializer.Serialize(Settings, JsonStore.Options), immediate, debounce.Token);
+        pending = PersistAsync(SnapshotData(), JsonSerializer.Serialize(Settings, JsonStore.Options), immediate, debounce.Token);
     }
-    private async Task PersistAsync(FlowDeskData snapshot, string settings, bool immediate, CancellationToken token)
+
+    /// <summary>
+    /// Persists the current state now (no debounce) and reports whether it reached disk. Autosave uses this so
+    /// the "saved" indicator only appears after a successful write; ordinary edits keep their short debounce.
+    /// </summary>
+    public Task<bool> SaveNowAsync()
+    {
+        // Drop a pending debounced write (its snapshot is older) but never cancel a save already in flight:
+        // a later Changed write queues behind it on the same writer, so the newest snapshot still wins.
+        debounce?.Cancel(); debounce = null;
+        return PersistAsync(SnapshotData(), JsonSerializer.Serialize(Settings, JsonStore.Options), immediate: true, CancellationToken.None);
+    }
+
+    private FlowDeskData SnapshotData() =>
+        JsonSerializer.Deserialize<FlowDeskData>(JsonSerializer.Serialize(Data, JsonStore.Options), JsonStore.Options)!;
+
+    private async Task<bool> PersistAsync(FlowDeskData snapshot, string settings, bool immediate, CancellationToken token)
     {
         try
         {
@@ -99,14 +95,18 @@ public sealed class AppServices : ObservableObject
                     else File.Move(tmp, SettingsPath);
                 });
                 LastSaveSucceeded = true;
+                return true;
             }
             finally { writer.Release(); }
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException) { return false; }
         catch (Exception ex)
         {
+            bool wasSucceeding = LastSaveSucceeded;
             LastSaveSucceeded = false;
-            SaveFailed?.Invoke("Changes could not be saved. Check access to the data folder and try again. " + ex.Message);
+            if (wasSucceeding)
+                SaveFailed?.Invoke("Changes could not be saved. Check access to the data folder and try again. " + ex.Message);
+            return false;
         }
     }
     public async Task FlushAsync() { Changed(true); await pending; }

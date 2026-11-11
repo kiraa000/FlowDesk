@@ -67,6 +67,11 @@
                                                Visibility="{Binding IsOpening, Converter={StaticResource BoolVisibility}}"
                                                Style="{StaticResource CaptionTextBlockStyle}"
                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    <TextBlock Text="{Binding AutosaveText}"
+                                               Visibility="{Binding AutosaveVisible, Converter={StaticResource BoolVisibility}}"
+                                               Style="{StaticResource CaptionTextBlockStyle}"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                               TextWrapping="Wrap" />
                                 </StackPanel>
                                 <ProgressRing Grid.Column="2" IsActive="{Binding IsOpening}"
                                               Visibility="{Binding IsOpening, Converter={StaticResource BoolVisibility}}"

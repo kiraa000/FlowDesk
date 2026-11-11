@@ -42,6 +42,7 @@ public partial class WorkspaceDetailsViewModel(AppViewModels owner) : Observable
         if (oldValue is not null) oldValue.PropertyChanged -= WorkspaceChanged;
         if (newValue is not null) newValue.PropertyChanged += WorkspaceChanged;
         OnPropertyChanged(nameof(Breadcrumbs));
+        owner.RefreshBrowserNotice(newValue);
     }
     private void WorkspaceChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs args)
     {
@@ -59,6 +60,7 @@ public partial class WorkspaceDetailsViewModel(AppViewModels owner) : Observable
         var item = new WorkspaceItem { Kind = kind, Name = Path.GetFileName(path.TrimEnd('\\')) };
         if (kind == ItemKind.App) item.App = new AppRef { ExePath = path }; else item.Path = path;
         workspace.Model.Items.Add(item); workspace.ReloadItems(); owner.Services.Changed();
+        owner.RefreshBrowserNotice(workspace);
     });
     [RelayCommand]
     private async Task AddWebsiteAsync() => await owner.ExecuteAsync(async () =>
@@ -67,6 +69,7 @@ public partial class WorkspaceDetailsViewModel(AppViewModels owner) : Observable
         var item = await owner.Ui.NewWebsiteAsync();
         if (item is null) return;
         workspace.Model.Items.Add(item); workspace.ReloadItems(); owner.Services.Changed();
+        owner.RefreshBrowserNotice(workspace);
     });
     [RelayCommand]
     private async Task AddRunningAsync() => await owner.ExecuteAsync(async () =>
@@ -81,6 +84,7 @@ public partial class WorkspaceDetailsViewModel(AppViewModels owner) : Observable
         var selected = await owner.Ui.PickRunningAsync(available);
         if (selected is null) return;
         workspace.Model.Items.Add(selected.Item.Clone()); workspace.ReloadItems(); owner.Services.Changed();
+        owner.RefreshBrowserNotice(workspace);
     });
 }
 

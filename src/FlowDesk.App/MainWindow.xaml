@@ -50,6 +50,8 @@
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
                 <InfoBar AutomationProperties.AutomationId="AppStatusBar" Margin="32,12,32,0" IsOpen="{Binding StatusOpen, Mode=TwoWay}"
@@ -59,9 +61,28 @@
                             Visibility="{Binding HasReport, Converter={StaticResource BoolVisibility}}" />
                     </InfoBar.ActionButton>
                 </InfoBar>
-                <ProgressBar Grid.Row="1" IsIndeterminate="True" Margin="32,8,32,0"
+                <InfoBar AutomationProperties.AutomationId="NewWindowBar" Grid.Row="1" Margin="32,8,32,0"
+                    IsOpen="{Binding AutoSave.OfferOpen}" IsClosable="False" Severity="Informational"
+                    Title="New window" Message="{Binding AutoSave.OfferText}">
+                    <InfoBar.Content>
+                        <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
+                            <Button Content="Add" Command="{Binding AutoSave.AcceptOfferCommand}" />
+                            <Button Content="Not now" Command="{Binding AutoSave.DeclineOfferCommand}" />
+                            <Button Content="Always add new windows"
+                                Command="{Binding AutoSave.AlwaysAddOfferCommand}" />
+                        </StackPanel>
+                    </InfoBar.Content>
+                </InfoBar>
+                <InfoBar AutomationProperties.AutomationId="BrowserRestoreBar" Grid.Row="2" Margin="32,8,32,0"
+                    IsOpen="{Binding BrowserNotice.IsOpen}" IsClosable="False" Severity="Informational"
+                    Title="Reopen your last browser tabs" Message="{Binding BrowserNotice.NoticeText}">
+                    <InfoBar.ActionButton>
+                        <Button Content="Got it" Command="{Binding BrowserNotice.DismissCommand}" />
+                    </InfoBar.ActionButton>
+                </InfoBar>
+                <ProgressBar Grid.Row="3" IsIndeterminate="True" Margin="32,8,32,0"
                     Visibility="{Binding IsBusy, Converter={StaticResource BoolVisibility}}" />
-                <Frame x:Name="PageFrame" Grid.Row="2" />
+                <Frame x:Name="PageFrame" Grid.Row="4" />
             </Grid>
         </NavigationView>
         <TeachingTip x:Name="TourTip" Grid.RowSpan="2" IsOpen="False" IsLightDismissEnabled="False" ShouldConstrainToRootBounds="True"
