@@ -79,8 +79,43 @@ switch (cmd)
         break;
     }
 
+    case "switch":
+    {
+        // switch <titleSubstrA[,..]> <titleSubstrB[,..]>: A -> B -> A -> A on the matching open windows, printing states.
+        var all = capture.CaptureOpenWindows().Where(c => c.Problem is null).ToList();
+        Workspace Pick(string name, string filters)
+        {
+            var f = filters.Split(',', StringSplitOptions.RemoveEmptyEntries);
+            var items = all.Where(c => f.Any(x => (c.Window.Title ?? "").Contains(x, StringComparison.OrdinalIgnoreCase)))
+                .Select(c => c.Item).ToList();
+            return new Workspace { Name = name, Items = items, LayoutSavedAt = DateTimeOffset.Now };
+        }
+        var a = Pick("A", args[1]); var b = Pick("B", args[2]);
+        Console.WriteLine($"A={a.Items.Count} items, B={b.Items.Count} items");
+        if (args.Length > 3) { Console.WriteLine($"waiting {args[3]}s (close some A windows now)"); await Task.Delay(int.Parse(args[3]) * 1000); }
+        var switcher = new WorkspaceSwitcher(ws, tracker, capture, new WorkspaceRestorer(ws, new ShellLauncher(), tracker));
+        void Dump(string step)
+        {
+            Console.WriteLine($"-- {step}");
+            foreach (var (id, w) in capture.LiveWindowsFor(a, bindNewMatches: false))
+            {
+                var item = a.Items.First(i => i.Id == id);
+                var sess = tracker.GetSession(a.Id);
+                string s = sess is not null && sess.TryGetValue(id, out var sw) ? sw.Show.ToString() : "-";
+                Console.WriteLine($"   A.{item.Name}: live={ws.Get(w.Handle)?.Show} saved={item.Window?.Show} session={s}");
+            }
+        }
+        Dump("start");
+        var r1 = await switcher.SwitchToAsync(a, null); await Task.Delay(1500); Dump($"open A ({r1.Placed}/{r1.Items.Count})");
+        var r2 = await switcher.SwitchToAsync(b, a); await Task.Delay(1500); Dump($"A->B ({r2.Placed}/{r2.Items.Count})");
+        var r3 = await switcher.SwitchToAsync(a, b); await Task.Delay(1500); Dump($"B->A ({r3.Placed}/{r3.Items.Count})");
+        await Task.Delay(8000); Dump("B->A +9.5s");
+        var r4 = await switcher.SwitchToAsync(a, a); await Task.Delay(1500); Dump($"A->A ({r4.Placed}/{r4.Items.Count})");
+        break;
+    }
+
     default:
-        Console.WriteLine("usage: list | capture <f> | restore <f> | layout <preset> <f> | focus <exe> <sec> [mode]");
+        Console.WriteLine("usage: list | capture <f> | restore <f> | layout <preset> <f> | focus <exe> <sec> [mode] | switch <a> <b>");
         break;
 }
 
