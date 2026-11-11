@@ -14,7 +14,7 @@ public sealed class TourStateMachineTests
             steps.Select(s => s.Id));
         Assert.Equal([null, TourPage.Workspaces, TourPage.Workspaces, TourPage.Layouts, TourPage.Focus,
             TourPage.Settings], steps.Select(s => s.Page));
-        Assert.Equal([null, "NewWorkspace", "OpenWorkspace", "LayoutsNav", "FocusNav", "SettingsNav"],
+        Assert.Equal([null, "NewWorkspace", "OpenWorkspace", "LayoutsNav", "FocusNav", null],
             steps.Select(s => s.TargetId));
         Assert.All(steps, step =>
         {
@@ -23,6 +23,18 @@ public sealed class TourStateMachineTests
         });
         Assert.Null(steps[0].FallbackBody);
         Assert.False(string.IsNullOrWhiteSpace(steps[2].FallbackBody));
+    }
+
+    [Fact]
+    public void SettingsStep_IsCentredOnTheSettingsPage()
+    {
+        var steps = TourStateMachine.CreateSteps();
+
+        // The Settings nav item lives in the NavigationView footer, where an anchored tip can be placed
+        // off-screen. The final step therefore uses the same centred, targetless presentation as welcome.
+        var settings = steps[^1];
+        Assert.Equal(TourPage.Settings, settings.Page);
+        Assert.Null(settings.TargetId);
     }
 
     [Fact]

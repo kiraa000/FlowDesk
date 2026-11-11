@@ -64,7 +64,7 @@
                 <Frame x:Name="PageFrame" Grid.Row="2" />
             </Grid>
         </NavigationView>
-        <TeachingTip x:Name="TourTip" Grid.RowSpan="2" IsOpen="False" IsLightDismissEnabled="False"
+        <TeachingTip x:Name="TourTip" Grid.RowSpan="2" IsOpen="False" IsLightDismissEnabled="False" ShouldConstrainToRootBounds="True"
                      CloseButtonContent="Skip tour" CloseButtonClick="TourTip_CloseButtonClick"
                      Closed="TourTip_Closed">
             <StackPanel Spacing="12" KeyDown="TourContent_KeyDown">

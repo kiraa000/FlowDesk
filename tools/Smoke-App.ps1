@@ -169,14 +169,33 @@ if ($Action -eq 'AssertWorkspace') {
 if ($Action -eq 'Inspect') {
  foreach ($e in $all) { if ($e.Current.Name) { '{0} | {1} | enabled={2}' -f $e.Current.ControlType.ProgrammaticName,$e.Current.Name,$e.Current.IsEnabled } }; exit
 }
+$namedMatches = @($all | Where-Object { $_.Current.Name -eq $Name })
 $element = $null
-foreach ($e in $all) {
- if ($e.Current.Name -ne $Name) { continue }
- if ($Action -eq 'SetText' -and $e.Current.ControlType -ne [System.Windows.Automation.ControlType]::Edit) { continue }
- if ($Action -eq 'Choose' -and $e.Current.ControlType -ne [System.Windows.Automation.ControlType]::ComboBox) { continue }
- if ($Action -eq 'Select' -and $e.Current.ControlType -ne [System.Windows.Automation.ControlType]::ListItem) { continue }
- if ($Action -in @('Click','Invoke') -and $e.Current.ControlType -eq [System.Windows.Automation.ControlType]::Text) { continue }
- $element = $e; break
+# A SettingsCard exposes its Group with the accessible name before its content control. Prefer the
+# actionable control for the action, then keep the previous first-non-text fallback for the rest.
+if ($Action -eq 'Click') {
+ $element = $namedMatches | Where-Object {
+  $_.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button
+ } | Select-Object -First 1
+}
+elseif ($Action -eq 'Toggle') {
+ $element = $namedMatches | Where-Object {
+  $supportsToggle = $_.Current.ControlType -eq [System.Windows.Automation.ControlType]::CheckBox
+  if (-not $supportsToggle) {
+   $togglePattern = $null
+   $supportsToggle = $_.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern, [ref]$togglePattern)
+  }
+  $supportsToggle
+ } | Select-Object -First 1
+}
+if (-not $element) {
+ foreach ($e in $namedMatches) {
+  if ($Action -eq 'SetText' -and $e.Current.ControlType -ne [System.Windows.Automation.ControlType]::Edit) { continue }
+  if ($Action -eq 'Choose' -and $e.Current.ControlType -ne [System.Windows.Automation.ControlType]::ComboBox) { continue }
+  if ($Action -eq 'Select' -and $e.Current.ControlType -ne [System.Windows.Automation.ControlType]::ListItem) { continue }
+  if ($Action -in @('Click','Invoke') -and $e.Current.ControlType -eq [System.Windows.Automation.ControlType]::Text) { continue }
+  $element = $e; break
+ }
 }
 if (-not $element) { throw "Control not found: $Name" }
 switch ($Action) {

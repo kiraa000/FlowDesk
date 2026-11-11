@@ -42,6 +42,16 @@ public sealed partial class MainWindow
         if (!tourActive || !tour.IsRunning) { HideTour(); return; }
 
         var step = tour.Current;
+
+        // Target/placement changes on an already-open tip are not reliably re-applied. Close first and wait
+        // for the real Closed event before navigating, so the old anchor cannot be unloaded under a live tip
+        // and every step (including the targetless Settings step) is placed from scratch.
+        if (TourTip.IsOpen || tourTipClosed is not null)
+        {
+            await CloseTourTipAsync();
+            if (!tourActive || token != tourGeneration || !tour.IsRunning) return;
+        }
+
         if (step.Page is { } page) Navigate(page switch
         {
             TourPage.Layouts => AppPage.Layouts,
@@ -89,7 +99,6 @@ public sealed partial class MainWindow
     {
         "LayoutsNav" => FindNavItem("Layouts"),
         "FocusNav" => FindNavItem("Focus"),
-        "SettingsNav" => Navigation.SettingsItem as FrameworkElement,
         "NewWorkspace" => IsUsable(PageElement("NewWorkspace")) ? PageElement("NewWorkspace") : PageElement("EmptyStateButton"),
         "OpenWorkspace" => FindFirstOpenButton() ?? PageElement("EmptyStateButton"),
         _ => null,

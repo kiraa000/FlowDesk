@@ -37,7 +37,7 @@ public sealed class TourStateMachine
             TourPage.Focus, "FocusNav"),
         new("settings", "Make it yours",
             "Settings has the theme, launch timeout, start with Windows, the data folder and this tour. " +
-            "You can replay it from here at any time.", TourPage.Settings, "SettingsNav"),
+            "You can replay it from here at any time.", TourPage.Settings, null),
     ];
 
     private readonly List<TourStep> steps;
