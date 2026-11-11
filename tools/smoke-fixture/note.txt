@@ -1,0 +1,2 @@
+FlowDesk disposable desktop smoke-test fixture.
+This file contains no user data and may be opened in Notepad for workspace tests.

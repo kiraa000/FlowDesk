@@ -1,0 +1,68 @@
+<Window
+    x:Class="FlowDesk.App.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:tray="using:H.NotifyIcon">
+    <Grid x:Name="Root">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="32" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+        <tray:TaskbarIcon x:Name="TrayIcon" ToolTipText="FlowDesk" NoLeftClickDelay="True">
+            <tray:TaskbarIcon.IconSource>
+                <tray:GeneratedIconSource Text="&#xE916;" FontFamily="Segoe Fluent Icons"
+                    Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+            </tray:TaskbarIcon.IconSource>
+            <tray:TaskbarIcon.ContextFlyout>
+                <MenuFlyout>
+                    <MenuFlyoutItem x:Name="TrayOpen" Text="Open FlowDesk" />
+                    <MenuFlyoutItem x:Name="TrayPause" Text="Pause" />
+                    <MenuFlyoutSeparator />
+                    <MenuFlyoutItem x:Name="TrayExit" Text="Exit" />
+                </MenuFlyout>
+            </tray:TaskbarIcon.ContextFlyout>
+        </tray:TaskbarIcon>
+        <Grid x:Name="TitleBar" Margin="16,0,140,0" ColumnSpacing="8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="16" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <FontIcon Glyph="&#xE8A1;" FontSize="16" />
+            <TextBlock x:Name="TitleText" Grid.Column="1" Text="FlowDesk" VerticalAlignment="Center"
+                Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+        </Grid>
+        <NavigationView x:Name="Navigation" Grid.Row="1" PaneDisplayMode="Auto"
+            OpenPaneLength="280" ExpandedModeThresholdWidth="800"
+            IsSettingsVisible="True" IsBackButtonVisible="Collapsed"
+            SelectionChanged="Navigation_SelectionChanged" ItemInvoked="Navigation_ItemInvoked">
+            <NavigationView.MenuItems>
+                <NavigationViewItem Content="Workspaces" Tag="Workspaces">
+                    <NavigationViewItem.Icon><FontIcon Glyph="&#xE8A1;" /></NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Content="Layouts" Tag="Layouts">
+                    <NavigationViewItem.Icon><FontIcon Glyph="&#xE8A9;" /></NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Content="Focus" Tag="Focus">
+                    <NavigationViewItem.Icon><FontIcon Glyph="&#xE916;" /></NavigationViewItem.Icon>
+                </NavigationViewItem>
+            </NavigationView.MenuItems>
+            <Grid Background="{ThemeResource LayerFillColorDefaultBrush}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <InfoBar AutomationProperties.AutomationId="AppStatusBar" Margin="32,12,32,0" IsOpen="{Binding StatusOpen, Mode=TwoWay}"
+                    Message="{Binding StatusMessage}" Severity="{Binding StatusKind, Converter={StaticResource StatusKind}}">
+                    <InfoBar.ActionButton>
+                        <Button Content="Details" Command="{Binding ShowReportCommand}"
+                            Visibility="{Binding HasReport, Converter={StaticResource BoolVisibility}}" />
+                    </InfoBar.ActionButton>
+                </InfoBar>
+                <ProgressBar Grid.Row="1" IsIndeterminate="True" Margin="32,8,32,0"
+                    Visibility="{Binding IsBusy, Converter={StaticResource BoolVisibility}}" />
+                <Frame x:Name="PageFrame" Grid.Row="2" />
+            </Grid>
+        </NavigationView>
+    </Grid>
+</Window>

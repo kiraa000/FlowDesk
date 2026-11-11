@@ -1,0 +1,22 @@
+<Page
+    x:Class="FlowDesk.App.Views.SettingsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:settings="using:CommunityToolkit.WinUI.Controls">
+    <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="32,24" MaxWidth="1000" Spacing="4">
+            <TextBlock Text="Settings" Style="{StaticResource TitleTextBlockStyle}"
+                       Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+            <settings:SettingsCard Header="Theme" Description="Choose how FlowDesk appears." Margin="0,20,0,0">
+                <ComboBox ItemsSource="{Binding Themes}"
+                          AutomationProperties.Name="Theme"
+                          SelectedItem="{Binding Theme, Mode=TwoWay}" MinWidth="160" />
+            </settings:SettingsCard>
+            <settings:SettingsCard Header="When switching workspaces"
+                Description="Minimize the previous workspace's windows.">
+                <ToggleSwitch IsOn="{Binding MinimizePrevious, Mode=TwoWay}"
+                              AutomationProperties.Name="Minimize previous workspace windows" />
+            </settings:SettingsCard>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- WinUI 3 shell (unpackaged, self-contained, win-x64). UI only: desktop logic lives in FlowDesk.Core. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+    <RootNamespace>FlowDesk.App</RootNamespace>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <!-- Unpackaged, self-contained: no MSIX, Windows App SDK + .NET runtime ship beside the exe.
+         Docs: deploy-self-contained-apps (WindowsPackageType None + WindowsAppSDKSelfContained + SelfContained). -->
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <SelfContained>true</SelfContained>
+    <UseWinUI>true</UseWinUI>
+    <!-- WinUI project tooling (PRI/manifest validation, single-file checks). Required for
+         PublishSingleFile, harmless for the unpackaged build we ship. Never set it in libraries. -->
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <!-- Normal WinUI generated Main stays enabled; App.xaml.cs owns single-instance + window creation. -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Pinned exact versions, latest stable on nuget.org checked 2026-11-10:
+         WindowsAppSDK 2.6.5 (released 2026-11-02), BuildTools 10.0.28000.2957,
+         CommunityToolkit.Mvvm 8.4.2 (newest 8.x), SettingsControls 8.2.251219 (newest 8.2.x stable).
+         SettingsControls pulls WindowsAppSDK 1.6 transitively; the direct 2.6.5 reference wins (NuGet
+         takes the higher version). Do not downgrade. -->
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.6.5" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2957" />
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <PackageReference Include="H.NotifyIcon.WinUI" Version="2.4.1" />
+    <PackageReference Include="CommunityToolkit.WinUI.Controls.SettingsControls" Version="8.2.251219" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\FlowDesk.Core\FlowDesk.Core.csproj" />
+  </ItemGroup>
+</Project>

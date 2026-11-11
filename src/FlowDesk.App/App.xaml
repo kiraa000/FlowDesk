@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Application resources only. Behaviour (single instance, AppServices, MainWindow) lives in App.xaml.cs. -->
+<Application
+    x:Class="FlowDesk.App.App"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+                <!-- Shared app-wide styles go here as pages are added; see docs/UI-CRAFT.md (type ramp,
+                     theme brushes, 4 px grid, one accent action per view). No literal colours or fonts. -->
+            </ResourceDictionary.MergedDictionaries>
+            <views:BooleanToVisibilityConverter xmlns:views="using:FlowDesk.App.Views" x:Key="BoolVisibility" />
+            <views:StatusKindConverter xmlns:views="using:FlowDesk.App.Views" x:Key="StatusKind" />
+            <views:TagColorConverter xmlns:views="using:FlowDesk.App.Views" x:Key="TagColor" />
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

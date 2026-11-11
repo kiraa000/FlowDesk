@@ -1,0 +1,9 @@
+<Project>
+  <PropertyGroup>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <Authors>FlowDesk</Authors>
+    <Company>FlowDesk</Company>
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,147 @@
+<Page
+    x:Class="FlowDesk.App.Views.LayoutsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:services="using:FlowDesk.App.Services"
+    xmlns:vm="using:FlowDesk.App.ViewModels">
+    <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="32,24" MaxWidth="1000" Spacing="16">
+            <Grid>
+                <TextBlock Text="Layouts" Style="{StaticResource TitleTextBlockStyle}"
+                           Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                <Button Content="Refresh" Command="{Binding RefreshCommand}" AccessKey="R"
+                        HorizontalAlignment="Right" />
+            </Grid>
+            <StackPanel Orientation="Horizontal" Spacing="8"
+                        Visibility="{Binding HasWindows, Converter={StaticResource BoolVisibility}}">
+                <Button Content="Apply layout" Command="{Binding ApplyCommand}"
+                        Style="{StaticResource AccentButtonStyle}"
+                        AccessKey="A" IsEnabled="{Binding HasWindows}" />
+                <Button Content="Save as workspace positions" Command="{Binding SaveCommand}"
+                        IsEnabled="{Binding CanSave}"
+                        ToolTipService.ToolTip="Apply a layout first to enable saving." />
+            </StackPanel>
+
+            <StackPanel Spacing="12" Margin="0,24,0,0"
+                        Visibility="{Binding IsEmpty, Converter={StaticResource BoolVisibility}}">
+                <FontIcon Glyph="&#xE8A9;" FontSize="32"
+                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                          HorizontalAlignment="Left" />
+                <TextBlock Text="No windows to arrange" Style="{StaticResource SubtitleTextBlockStyle}"
+                           Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                <TextBlock Text="Open a workspace so its windows are visible, then refresh."
+                           Style="{StaticResource BodyTextBlockStyle}"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           TextWrapping="Wrap" />
+                <Button Content="Open a workspace" Command="{Binding OpenWorkspaceCommand}"
+                        HorizontalAlignment="Left" />
+            </StackPanel>
+
+            <StackPanel Spacing="16"
+                        Visibility="{Binding HasWindows, Converter={StaticResource BoolVisibility}}">
+                <StackPanel Spacing="8" Visibility="{Binding MultipleMonitors, Converter={StaticResource BoolVisibility}}">
+                    <TextBlock Text="Monitor" Style="{StaticResource BodyStrongTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                    <ItemsControl ItemsSource="{Binding Monitors}"
+                                  AutomationProperties.AutomationId="MonitorSelector"
+                                  AutomationProperties.Name="Monitor">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:MonitorChoice">
+                                <RadioButton GroupName="LayoutMonitor" IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                             AutomationProperties.Name="{Binding Name}">
+                                    <TextBlock Text="{Binding Name}" TextWrapping="Wrap"
+                                           Style="{StaticResource BodyTextBlockStyle}"
+                                           Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                                </RadioButton>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+
+                <StackPanel Spacing="8">
+                    <TextBlock Text="Layout" Style="{StaticResource BodyStrongTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                    <GridView ItemsSource="{Binding Presets}"
+                              SelectedItem="{Binding SelectedPreset, Mode=TwoWay}"
+                              SelectionMode="Single" IsItemClickEnabled="False"
+                              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                              ScrollViewer.VerticalScrollBarVisibility="Disabled">
+                        <GridView.ItemTemplate>
+                            <DataTemplate x:DataType="vm:LayoutChoice">
+                                <StackPanel Width="120" Spacing="8">
+                                    <Border Width="120" Height="80" Padding="4"
+                                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                            BorderThickness="1"
+                                            CornerRadius="{ThemeResource OverlayCornerRadius}">
+                                        <Canvas Width="108" Height="68"
+                                                Loaded="PresetCanvas_Loaded"
+                                                Tag="{Binding Preset}">
+                                            <Border Width="0" Height="0" Opacity="0"
+                                                    Background="{ThemeResource ControlStrongFillColorDefaultBrush}"
+                                                    BorderBrush="{ThemeResource ControlStrongStrokeColorDefaultBrush}" />
+                                        </Canvas>
+                                    </Border>
+                                    <TextBlock Text="{Binding Name}"
+                                               Style="{StaticResource BodyTextBlockStyle}"
+                                               Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                                               TextWrapping="Wrap" MinHeight="40" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </GridView.ItemTemplate>
+                    </GridView>
+                </StackPanel>
+
+                <StackPanel Spacing="8">
+                    <TextBlock Text="Windows" Style="{StaticResource BodyStrongTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                    <TextBlock Text="The first window becomes the primary. Drag rows or press Ctrl+Up/Down to reorder."
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               TextWrapping="Wrap" />
+                    <ListView x:Name="WindowsList" ItemsSource="{Binding Windows}"
+                              SelectionMode="Single"
+                              CanDragItems="True" CanReorderItems="True"
+                              AllowDrop="True" ReorderMode="Enabled"
+                              MaxHeight="200"
+                              PreviewKeyDown="Windows_PreviewKeyDown"
+                              ScrollViewer.VerticalScrollBarVisibility="Auto"
+                              AutomationProperties.Name="Windows in layout order">
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="vm:LayoutWindow">
+                                <Grid ColumnSpacing="12" Margin="0,4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Grid Grid.Column="0" Width="32" Height="32">
+                                        <FontIcon Glyph="&#xE71D;" FontSize="16"
+                                                  Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                  HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                        <Image services:IconSource.Path="{Binding ExePath}"
+                                               Width="24" Height="24" />
+                                    </Grid>
+                                    <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Name}"
+                                                   Style="{StaticResource BodyStrongTextBlockStyle}"
+                                                   Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                                                   TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Text="{Binding Detail}"
+                                                   Style="{StaticResource BodyTextBlockStyle}"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                   TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                </StackPanel>
+
+                <TextBlock Text="Windows running as administrator may not move. Apply a layout before saving positions."
+                           Style="{StaticResource CaptionTextBlockStyle}"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           TextWrapping="Wrap" />
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</Page>
