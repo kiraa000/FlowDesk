@@ -34,7 +34,7 @@ public sealed class ShellLauncher : IAppLauncher
         {
             return item.Kind switch
             {
-                ItemKind.App => LaunchApp(item.App),
+                ItemKind.App => LaunchApp(item.App, BrowserSession.Applies(item)),
                 ItemKind.Website => LaunchUrls(item.Urls, item.App?.ExePath),
                 ItemKind.File => LaunchFile(item),
                 ItemKind.Folder => LaunchFolder(item.Path),
@@ -51,7 +51,8 @@ public sealed class ShellLauncher : IAppLauncher
         }
     }
 
-    private static LaunchResult LaunchApp(AppRef? app)
+    /// <param name="browserSession">Browser "reopen my last tabs": pass only the profile arguments, never links.</param>
+    private static LaunchResult LaunchApp(AppRef? app, bool browserSession = false)
     {
         if (app is null) return LaunchResult.Fail("No program set");
         if (!string.IsNullOrEmpty(app.Aumid))
@@ -61,7 +62,8 @@ public sealed class ShellLauncher : IAppLauncher
         }
         string? exe = File.Exists(app.ExePath) ? app.ExePath : FindUpdatedExe(app.ExePath);
         if (exe is null) return LaunchResult.Fail($"Program not found: {app.ExePath}");
-        Process.Start(new ProcessStartInfo(exe, app.Arguments ?? "")
+        string args = (browserSession ? BrowserSession.ProfileArgs(app.ExePath, app.Arguments) : app.Arguments) ?? "";
+        Process.Start(new ProcessStartInfo(exe, args)
         {
             UseShellExecute = true,
             WorkingDirectory = exe == app.ExePath && app.WorkingDirectory is not null ? app.WorkingDirectory : Path.GetDirectoryName(exe) ?? "",

@@ -96,13 +96,19 @@ public sealed class WorkspaceItem
     public List<string> Urls { get; set; } = [];
     /// <summary>Saved window position; null = let the app decide.</summary>
     public SavedWindow? Window { get; set; }
+    /// <summary>
+    /// Browser App items only: start the browser with just its profile arguments (no links) so its own session
+    /// restore brings back the last tabs. Default true, also for items saved before this existed (missing in JSON).
+    /// Ignored for non-browser items. See Restore.BrowserSession.
+    /// </summary>
+    public bool ReopenLastTabs { get; set; } = true;
 
     public static string NewId() => Guid.NewGuid().ToString("N")[..12];
 
     public WorkspaceItem Clone() => new()
     {
         Id = Id, Kind = Kind, Name = Name, App = App?.Clone(), Path = Path,
-        Urls = [.. Urls], Window = Window?.Clone(),
+        Urls = [.. Urls], Window = Window?.Clone(), ReopenLastTabs = ReopenLastTabs,
     };
 }
 

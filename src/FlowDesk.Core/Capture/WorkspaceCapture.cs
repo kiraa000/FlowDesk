@@ -56,7 +56,11 @@ public sealed class WorkspaceCapture(IWindowSystem windows, SessionTracker track
             var app = new AppRef
             {
                 ExePath = w.ExePath, Aumid = w.Aumid,
-                Arguments = string.IsNullOrEmpty(w.Aumid) ? w.Arguments : null,
+                // Browsers: keep only the profile arguments. The rest of a browser's command line is whatever
+                // started it (links, --new-window, -osint -url ...) and would reopen stale pages.
+                Arguments = !string.IsNullOrEmpty(w.Aumid) ? null
+                    : ShellLauncher.IsBrowser(w.ExePath) ? BrowserSession.ProfileArgs(w.ExePath, w.Arguments)
+                    : w.Arguments,
             };
             result.Add(new(w, new WorkspaceItem { Kind = ItemKind.App, Name = DisplayName(w), App = app, Window = saved },
                 ShellLauncher.IsBrowser(w.ExePath), null));

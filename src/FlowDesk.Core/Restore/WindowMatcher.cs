@@ -17,6 +17,8 @@ public sealed record MatchSpec
     /// <summary>Text the title must contain (file name, folder name). Required for File/Folder items.</summary>
     public string? RequiredTitlePart { get; init; }
     public string? ClassName { get; init; }
+    /// <summary>Browser items: the window's process must belong to this profile (<see cref="BrowserSession.ProcessKey"/>); null = any.</summary>
+    public string? BrowserProcessKey { get; init; }
 
     public static MatchSpec For(WorkspaceItem item, string? browserExe = null, string? fileAppExe = null) => item.Kind switch
     {
@@ -24,6 +26,9 @@ public sealed record MatchSpec
         {
             Kind = item.Kind, AppKey = item.App?.Key, ExeName = AppKeys.ExeName(item.App?.ExePath),
             Aumid = item.App?.Aumid, Title = item.Window?.Title, ClassName = item.Window?.ClassName,
+            // Profile-aware for every browser App item (not only "reopen last tabs"): never grab another profile's window.
+            BrowserProcessKey = item.App is { } a && string.IsNullOrEmpty(a.Aumid) && ShellLauncher.IsBrowser(a.ExePath)
+                ? BrowserSession.ProcessKey(a.ExePath, a.Arguments) : null,
         },
         ItemKind.Website => new MatchSpec
         {
@@ -66,6 +71,9 @@ public static class WindowMatcher
         else if (!string.IsNullOrEmpty(s.ExeName) && s.ExeName == w.ExeName) score = 80;
         else score = 0;
         if (score == 0) return 0;
+
+        // Unreadable command line (null Arguments, e.g. elevated browser) can't prove a profile: only the default fits.
+        if (s.BrowserProcessKey is { } profile && BrowserSession.ProcessKey(w.ExePath, w.Arguments) != profile) return 0;
 
         if (s.ClassName is { Length: > 0 } cls)
         {

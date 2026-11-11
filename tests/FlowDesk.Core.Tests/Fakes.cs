@@ -21,11 +21,11 @@ internal sealed class FakeWindowSystem : IWindowSystem
 
     private long _next = 100;
 
-    public WindowInfo Add(string exe, string title, string cls = "Win", WindowShow show = WindowShow.Normal, string? aumid = null, int pid = 0)
+    public WindowInfo Add(string exe, string title, string cls = "Win", WindowShow show = WindowShow.Normal, string? aumid = null, int pid = 0, string? args = null)
     {
         var w = new WindowInfo
         {
-            Handle = _next++, ProcessId = pid == 0 ? (int)_next + 1000 : pid, ExePath = exe, Aumid = aumid, Title = title,
+            Handle = _next++, ProcessId = pid == 0 ? (int)_next + 1000 : pid, ExePath = exe, Aumid = aumid, Arguments = args, Title = title,
             ClassName = cls, NormalRect = new(10, 10, 800, 600), Show = show, MonitorDevice = Monitors[0].Device,
         };
         Windows.Add(w);
@@ -65,14 +65,18 @@ internal sealed class FakeLauncher(FakeWindowSystem sys) : IAppLauncher
     public List<string> Launched { get; } = [];
     public Dictionary<string, (string Exe, string Title, int AfterPolls)> Behaviour { get; } = [];
     public HashSet<string> Failing { get; } = [];
-    private readonly List<(int Due, string Exe, string Title)> _queue = [];
+    /// <summary>Launches that open SEVERAL windows (browser session restore): item id -> windows.</summary>
+    public Dictionary<string, List<(string Exe, string Title, int AfterPolls, string? Args)>> Opens { get; } = [];
+    private readonly List<(int Due, string Exe, string Title, string? Args)> _queue = [];
     private int _polls;
 
     public LaunchResult Launch(WorkspaceItem item)
     {
         Launched.Add(item.Id);
         if (Failing.Contains(item.Id)) return LaunchResult.Fail("Program not found");
-        if (Behaviour.TryGetValue(item.Id, out var b)) _queue.Add((_polls + b.AfterPolls, b.Exe, b.Title));
+        if (Behaviour.TryGetValue(item.Id, out var b)) _queue.Add((_polls + b.AfterPolls, b.Exe, b.Title, null));
+        if (Opens.TryGetValue(item.Id, out var many))
+            foreach (var o in many) _queue.Add((_polls + o.AfterPolls, o.Exe, o.Title, o.Args));
         return new LaunchResult(true, HostExe: b.Exe);
     }
 
@@ -82,7 +86,7 @@ internal sealed class FakeLauncher(FakeWindowSystem sys) : IAppLauncher
         _polls++;
         foreach (var q in _queue.Where(q => q.Due <= _polls).ToList())
         {
-            sys.Add(q.Exe, q.Title);
+            sys.Add(q.Exe, q.Title, args: q.Args);
             _queue.Remove(q);
         }
         return Task.CompletedTask;

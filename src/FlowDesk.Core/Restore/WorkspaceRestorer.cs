@@ -17,6 +17,8 @@ public enum ItemOutcome
     LaunchFailed,
     /// <summary>Found the window but Windows refused to move it (it runs as administrator).</summary>
     PlaceDenied,
+    /// <summary>Deliberately not started; the detail says why (e.g. the browser is already running).</summary>
+    Skipped,
 }
 
 public sealed record ItemResult(string ItemId, string Name, ItemOutcome Outcome, string? Detail = null);
@@ -102,10 +104,33 @@ public sealed class WorkspaceRestorer(IWindowSystem windows, IAppLauncher launch
         // 3. Launch the rest, then wait for their windows.
         var before = open.Select(w => w.Handle).ToHashSet();
         var pending = new List<WorkspaceItem>();
+        // Browser session restore: ONE launch per browser profile brings back all its windows; the other items of
+        // that profile just wait for those windows (matched by title). Extra restored windows stay unclaimed.
+        var launchedSessions = new Dictionary<string, string?>(); // launch key -> launch error (null = started)
         foreach (var item in ws.Items.Where(i => !matched.ContainsKey(i.Id)))
         {
             ct.ThrowIfCancellationRequested();
+            string? sessionKey = null;
+            if (BrowserSession.Applies(item))
+            {
+                // Already running: a launch would only add an empty window, and the open windows already hold the
+                // tabs. Decided from the windows open BEFORE this restore launched anything.
+                if (open.Any(w => WindowMatcher.Score(w, specs[item.Id] with { Title = null }) > 0))
+                {
+                    Report(item, ItemOutcome.Skipped, "The browser is already open, so its open windows keep their tabs");
+                    continue;
+                }
+                sessionKey = BrowserSession.LaunchKey(item.App!);
+                if (launchedSessions.TryGetValue(sessionKey, out var sessionError))
+                {
+                    if (sessionError is not null) { Report(item, ItemOutcome.LaunchFailed, sessionError); continue; }
+                    pending.Add(item);
+                    Report(item, ItemOutcome.Pending, "Waiting for the browser to reopen its windows");
+                    continue;
+                }
+            }
             var lr = launcher.Launch(item);
+            if (sessionKey is not null) launchedSessions[sessionKey] = lr.Ok ? null : lr.Error ?? "Could not start the browser";
             if (!lr.Ok) { Report(item, ItemOutcome.LaunchFailed, lr.Error); continue; }
             if (item.Kind == ItemKind.File && lr.HostExe is { } host && specs[item.Id].ExeName is null or "")
                 specs[item.Id] = specs[item.Id] with { ExeName = AppKeys.ExeName(host) };
