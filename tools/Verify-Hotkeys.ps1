@@ -58,9 +58,22 @@ public static class HotkeyVerifyNative
     [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
     [DllImport("user32.dll")] static extern uint SendInput(uint count, INPUT[] inputs, int size);
     [DllImport("user32.dll")] static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+    [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
+    [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr hWnd);
+    [DllImport("user32.dll")] static extern bool IsIconic(IntPtr hWnd);
+    [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr hWnd, int attribute, out int value, int size);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr hWnd, StringBuilder text, int max);
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int index);
+    [DllImport("kernel32.dll", SetLastError = true)] static extern IntPtr OpenProcess(uint access, bool inherit, uint pid);
+    [DllImport("kernel32.dll", SetLastError = true)] static extern bool CloseHandle(IntPtr handle);
+    [DllImport("advapi32.dll", SetLastError = true)] static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);
+    [DllImport("advapi32.dll", SetLastError = true)] static extern bool GetTokenInformation(IntPtr token, int infoClass, out int info, int infoLength, out int returnLength);
 
     const int SW_RESTORE = 9, MONITOR_DEFAULTTONEAREST = 2, INPUT_KEYBOARD = 1, INPUT_MOUSE = 0;
+    const int GWL_EXSTYLE = -20, DWMWA_CLOAKED = 14, TOKEN_ELEVATION_CLASS = 20;
     const uint KEYEVENTF_KEYUP = 0x0002, MOUSEEVENTF_WHEEL = 0x0800, WM_CLOSE = 0x0010;
+    const uint SWP_NOZORDER = 0x0004, SWP_NOACTIVATE = 0x0010, PROCESS_QUERY_LIMITED_INFORMATION = 0x1000, TOKEN_QUERY = 0x0008;
+    const long WS_EX_TOOLWINDOW = 0x00000080L;
     static readonly int InputSize = Marshal.SizeOf(typeof(INPUT));
 
     public static bool EnableDpiAwareness() { return SetProcessDpiAwarenessContext(new IntPtr(-4)); }
@@ -144,6 +157,49 @@ public static class HotkeyVerifyNative
         ushort[] keys = new ushort[] { 0x12, 0x10, 0x11, 0x5B, 0x5C, 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5 };
         foreach (ushort key in keys) KeyUp(key);
     }
+    public static bool Visible(IntPtr hWnd) { return IsWindowVisible(hWnd); }
+    public static bool Minimized(IntPtr hWnd) { return IsIconic(hWnd); }
+    public static bool Cloaked(IntPtr hWnd)
+    {
+        int value;
+        return DwmGetWindowAttribute(hWnd, DWMWA_CLOAKED, out value, sizeof(int)) == 0 && value != 0;
+    }
+    public static string ClassName(IntPtr hWnd)
+    {
+        StringBuilder text = new StringBuilder(256);
+        return GetClassName(hWnd, text, text.Capacity) > 0 ? text.ToString() : "";
+    }
+    public static bool ToolWindow(IntPtr hWnd)
+    {
+        return (GetWindowLongPtr(hWnd, GWL_EXSTYLE).ToInt64() & WS_EX_TOOLWINDOW) != 0;
+    }
+    public static bool MoveToRect(IntPtr hWnd, int[] rect)
+    {
+        if (hWnd == IntPtr.Zero || rect == null || rect.Length < 4) return false;
+        return SetWindowPos(hWnd, IntPtr.Zero, rect[0], rect[1], rect[2] - rect[0], rect[3] - rect[1], SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+    // 1 = elevated, 0 = not elevated, -1 = elevation could not be read and is treated as unsafe.
+    public static int ElevationState(IntPtr hWnd)
+    {
+        uint pid = ProcessId(hWnd);
+        if (pid == 0) return -1;
+        IntPtr process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
+        if (process == IntPtr.Zero) return -1;
+        IntPtr token = IntPtr.Zero;
+        try
+        {
+            if (!OpenProcessToken(process, TOKEN_QUERY, out token) || token == IntPtr.Zero) return -1;
+            int elevated;
+            int returned;
+            if (!GetTokenInformation(token, TOKEN_ELEVATION_CLASS, out elevated, sizeof(int), out returned)) return -1;
+            return elevated != 0 ? 1 : 0;
+        }
+        finally
+        {
+            if (token != IntPtr.Zero) CloseHandle(token);
+            CloseHandle(process);
+        }
+    }
     public static void Close(IntPtr hWnd) { PostMessage(hWnd, WM_CLOSE, IntPtr.Zero, IntPtr.Zero); }
 }
 '@
@@ -175,6 +231,8 @@ if ($existingTitles.Count -gt 0) {
 }
 
 $failures = 0
+$skips = 0
+$shellClasses = @('Progman', 'WorkerW', 'Shell_TrayWnd', 'Shell_SecondaryTrayWnd')
 function Pass([string]$Step, [string]$Detail) { Write-Output "PASS $Step $Detail" }
 function Fail([string]$Step, [string]$Detail) { Write-Output "FAIL $Step $Detail"; $script:failures++ }
 
@@ -231,6 +289,33 @@ function Invoke-AltShiftWheel([int]$Delta)
     finally
     {
         [HotkeyVerifyNative]::ReleaseModifiers()
+    }
+    Start-Sleep -Milliseconds 500
+}
+
+function Invoke-AltShiftDoubleTap([int]$VirtualKey)
+{
+    try
+    {
+        [HotkeyVerifyNative]::KeyDown(0x12)
+        [HotkeyVerifyNative]::KeyDown(0x10)
+        Start-Sleep -Milliseconds 40
+        [HotkeyVerifyNative]::KeyDown([uint16]$VirtualKey)
+        Start-Sleep -Milliseconds 40
+        [HotkeyVerifyNative]::KeyUp([uint16]$VirtualKey)
+        Start-Sleep -Milliseconds 40
+        [HotkeyVerifyNative]::KeyDown([uint16]$VirtualKey)
+        Start-Sleep -Milliseconds 40
+        [HotkeyVerifyNative]::KeyUp([uint16]$VirtualKey)
+        Start-Sleep -Milliseconds 40
+        [HotkeyVerifyNative]::KeyUp(0x10)
+        [HotkeyVerifyNative]::KeyUp(0x12)
+    }
+    finally
+    {
+        [HotkeyVerifyNative]::KeyUp([uint16]$VirtualKey)
+        [HotkeyVerifyNative]::KeyUp(0x10)
+        [HotkeyVerifyNative]::KeyUp(0x12)
     }
     Start-Sleep -Milliseconds 500
 }
@@ -304,6 +389,49 @@ function Resize-Rect([int[]]$Area, [int[]]$WindowRect, [bool]$Grow)
     if (($x + $newWidth) -gt $right) { $x = $right - $newWidth }
     if (($y + $newHeight) -gt $bottom) { $y = $bottom - $newHeight }
     return @($x, $y, ($x + $newWidth), ($y + $newHeight))
+}
+
+# Every top-level window in EnumWindows order, filtered exactly like DirectionalFocus.Usable.
+function Get-UsableWindows([IntPtr]$Active)
+{
+    $activeValue = $Active.ToInt64()
+    $list = New-Object System.Collections.Generic.List[object]
+    $index = 0
+    foreach ($raw in [HotkeyVerifyNative]::TopLevelWindows())
+    {
+        $handle = [IntPtr]$raw
+        $z = $index
+        $index++
+        if ($handle.ToInt64() -eq $activeValue) { continue }
+        if (-not [HotkeyVerifyNative]::Visible($handle)) { continue }
+        if ([HotkeyVerifyNative]::Cloaked($handle)) { continue }
+        if ([HotkeyVerifyNative]::Minimized($handle)) { continue }
+        if ([string]::IsNullOrEmpty([HotkeyVerifyNative]::Title($handle))) { continue }
+        if ($shellClasses -ccontains [HotkeyVerifyNative]::ClassName($handle)) { continue }
+        if ([HotkeyVerifyNative]::ToolWindow($handle)) { continue }
+        $list.Add([pscustomobject]@{ Handle = $handle; Rect = [HotkeyVerifyNative]::Rect($handle); Index = $z })
+    }
+    return $list
+}
+
+# Left candidates scored as |dx| + 1.5 * |dy| using outer-rect centers. The explicit z-index
+# tiebreak is the same order the stable OrderBy in DirectionalFocus.Rank preserves.
+function Get-LeftRanked([IntPtr]$Active)
+{
+    $activeRect = [HotkeyVerifyNative]::Rect($Active)
+    $ax = ($activeRect[0] + $activeRect[2]) / 2.0
+    $ay = ($activeRect[1] + $activeRect[3]) / 2.0
+    $ranked = New-Object System.Collections.Generic.List[object]
+    foreach ($window in @(Get-UsableWindows $Active))
+    {
+        $rect = $window.Rect
+        $dx = (($rect[0] + $rect[2]) / 2.0) - $ax
+        if (-not ($dx -lt 0)) { continue }
+        $dy = (($rect[1] + $rect[3]) / 2.0) - $ay
+        $score = [Math]::Abs($dx) + 1.5 * [Math]::Abs($dy)
+        $ranked.Add([pscustomobject]@{ Handle = $window.Handle; Score = $score; Index = $window.Index })
+    }
+    return @($ranked | Sort-Object -Property Score, Index)
 }
 
 $notepad = $null
@@ -401,18 +529,76 @@ try
     Invoke-AltShiftWheel -120
     Assert-Rect 'wheel shrink 2' $newNotepadHandle (Resize-Rect $work $before $false)
 
-    # 5. Directional focus: Notepad left, Explorer right; Alt+Shift+A from the right must focus Notepad.
+    # 5. Directional focus: move the Explorer fixture onto the Notepad monitor (SetWindowPos into
+    # that work area), snap Notepad left and Explorer right, then verify the foreground against the
+    # same filter/ranking rules as DirectionalFocus.cs. Expected targets are recomputed after a
+    # fresh fixture foreground before each injected step and checked for elevation first.
+    $work = [HotkeyVerifyNative]::WorkArea($newNotepadHandle)
+    # Explorer can inherit a maximized launch state. Restore it BEFORE moving, otherwise the
+    # following activation could restore its saved rectangle back onto the original monitor.
+    Focus-Fixture $newExplorerHandle 'focus monitor setup'
+    if (-not [HotkeyVerifyNative]::MoveToRect($newExplorerHandle, $work)) {
+        throw 'Could not move the Explorer fixture onto the Notepad monitor.'
+    }
+    Start-Sleep -Milliseconds 300
     Focus-Fixture $newNotepadHandle 'focus setup left'
     Invoke-AltCombo 0x41
+    Assert-Rect 'focus setup left' $newNotepadHandle (Snap-Rect $work 'left')
     Focus-Fixture $newExplorerHandle 'focus setup right'
-    Require-Fixture $newExplorerHandle 'focus setup right'
     Invoke-AltCombo 0x44
-    Require-Fixture $newExplorerHandle 'focus left'
-    Invoke-AltCombo 0x41 -Shift
-    Start-Sleep -Milliseconds 500
-    $foreground = [HotkeyVerifyNative]::Foreground()
-    if ($foreground -eq $newNotepadHandle) { Pass 'focus left' "foreground=$foreground" }
-    else { Fail 'focus left' "expected=$newNotepadHandle actual=$foreground" }
+    Assert-Rect 'focus setup right' $newExplorerHandle (Snap-Rect $work 'right')
+
+    $focusUnsafe = $false
+    # Single Alt+Shift+A: the expected target is rank 1 to the left of the foreground fixture.
+    Focus-Fixture $newExplorerHandle 'focus left'
+    $singleRanked = @(Get-LeftRanked $newExplorerHandle)
+    if ($singleRanked.Count -eq 0) {
+        Fail 'focus left' 'no directional candidate'
+    } else {
+        $expectedSingle = $singleRanked[0].Handle
+        $singleState = [HotkeyVerifyNative]::ElevationState($expectedSingle)
+        if ($singleState -ne 0) {
+            $reason = if ($singleState -eq 1) { 'target process is elevated' } else { 'target process elevation could not be read' }
+            Write-Output ("SKIP focus left expected={0} reason={1}" -f $expectedSingle, $reason)
+            $skips++
+            $focusUnsafe = $true
+        } else {
+            Invoke-AltCombo 0x41 -Shift
+            Start-Sleep -Milliseconds 500
+            $foreground = [HotkeyVerifyNative]::Foreground()
+            if ($foreground -eq $expectedSingle) { Pass 'focus left' "foreground=$foreground expected=$expectedSingle" }
+            else { Fail 'focus left' "expected=$expectedSingle actual=$foreground" }
+        }
+    }
+
+    # Double press: two Alt+Shift+A taps 40 ms apart inside one modifier hold. FlowDesk's 140 ms
+    # multi-press window turns them into one action with steps=2, which Pick clamps to the candidate
+    # count, so the expected target is rank min(2, count) from the same frozen fixture state.
+    if ($focusUnsafe) {
+        Write-Output 'SKIP focus double reason=an earlier focus target was unsafe'
+        $skips++
+    } else {
+        Focus-Fixture $newExplorerHandle 'focus double'
+        $doubleRanked = @(Get-LeftRanked $newExplorerHandle)
+        if ($doubleRanked.Count -eq 0) {
+            Fail 'focus double' 'no directional candidate'
+        } else {
+            $steps = [Math]::Min(2, $doubleRanked.Count)
+            $expectedDouble = $doubleRanked[$steps - 1].Handle
+            $doubleState = [HotkeyVerifyNative]::ElevationState($expectedDouble)
+            if ($doubleState -ne 0) {
+                $reason = if ($doubleState -eq 1) { 'target process is elevated' } else { 'target process elevation could not be read' }
+                Write-Output ("SKIP focus double expected={0} reason={1}" -f $expectedDouble, $reason)
+                $skips++
+            } else {
+                Invoke-AltShiftDoubleTap 0x41
+                Start-Sleep -Milliseconds 500
+                $foreground = [HotkeyVerifyNative]::Foreground()
+                if ($foreground -eq $expectedDouble) { Pass 'focus double' "foreground=$foreground expected=$expectedDouble steps=$steps" }
+                else { Fail 'focus double' "expected=$expectedDouble actual=$foreground steps=$steps" }
+            }
+        }
+    }
 }
 finally
 {
@@ -429,4 +615,5 @@ finally
 }
 
 if ($failures -gt 0) { Write-Output "FAILED: $failures step(s) did not match."; exit 1 }
-Write-Output 'PASS: all shortcut steps matched.'
+if ($skips -gt 0) { Write-Output "PASS: all evaluated shortcut steps matched ($skips unsafe step(s) skipped)." }
+else { Write-Output 'PASS: all shortcut steps matched.' }
