@@ -393,6 +393,23 @@ public sealed class AutoSaveCoordinatorTests
     }
 
     [Fact]
+    public async Task ActivationAfterStartKeepsItsGenerationAndBaseline()
+    {
+        var (coordinator, host, _) = Create();
+        coordinator.Start();
+        host.Observation = _ => Obs("ws", "A", Win(3), Win(8, name: "New"));
+        coordinator.Activate("ws", [3], enabled: true, alwaysAdd: false);
+
+        var status = host.Statuses.Single(s => s.WorkspaceId == "ws");
+        Assert.True(coordinator.IsCurrentGeneration("ws", status.Generation));
+
+        await coordinator.TickOnceAsync();
+        var offer = Assert.Single(host.Offers);
+        Assert.Equal(8, offer.Handle); // baseline handle 3 was preserved and is not offered
+        await coordinator.StopAsync();
+    }
+
+    [Fact]
     public async Task StopCompletesTheLoopCleanly()
     {
         var (coordinator, _, _) = Create();

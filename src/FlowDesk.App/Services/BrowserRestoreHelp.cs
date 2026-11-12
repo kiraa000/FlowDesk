@@ -45,4 +45,13 @@ public static class BrowserRestoreHelp
         "It only restores when the browser is not already running; if it is, FlowDesk reuses its open windows. " +
         "Several windows may come back: FlowDesk matches them by title and leaves extras where the browser puts them. " +
         "FlowDesk cannot read tabs or change browser settings.";
+
+    /// <summary>The one-line InfoBar message; the per-browser steps and caveat live behind "Learn more".</summary>
+    public const string CompactSummary =
+        "Enable your browser's 'continue where you left off' to bring tabs back.";
+
+    /// <summary>The complete guidance shown once in the Learn more dialog.</summary>
+    public static string FullHelp(IEnumerable<BrowserRestoreNotice> notices) =>
+        "Each browser must restore its own tabs. "
+        + string.Join(" ", notices.Select(n => n.Instructions)) + " " + Caveat;
 }

@@ -140,6 +140,61 @@ public class RestoreTests
         Assert.Equal(ItemOutcome.LaunchedNoWindow, shortWait.Items[0].Outcome);
     }
 
+    [Fact]
+    public void MarkActive_only_sets_the_active_id_and_ClearActive_forgets_it()
+    {
+        var capture = new WorkspaceCapture(_sys, _tracker, new NoFolders());
+        var switcher = new WorkspaceSwitcher(_sys, _tracker, capture, _restorer);
+        _tracker.SetSession("a", new Dictionary<string, SavedWindow> { ["item"] = Build.App("x", "x").Window! });
+
+        Assert.Throws<ArgumentException>(() => switcher.MarkActive(" "));
+        switcher.MarkActive("a");
+
+        Assert.Equal("a", switcher.ActiveWorkspaceId);
+        Assert.NotNull(_tracker.GetSession("a"));
+        Assert.Empty(_sys.Placed);
+        Assert.Empty(_sys.Minimized);
+
+        switcher.ClearActive();
+        Assert.Null(switcher.ActiveWorkspaceId);
+        Assert.NotNull(_tracker.GetSession("a"));
+    }
+
+    [Fact]
+    public async Task MarkActive_makes_a_later_switch_treat_the_stored_workspace_as_previous()
+    {
+        var capture = new WorkspaceCapture(_sys, _tracker, new NoFolders());
+        var switcher = new WorkspaceSwitcher(_sys, _tracker, capture, _restorer);
+        var code = _sys.Add(@"C:\apps\code.exe", "proj - Visual Studio Code");
+        var spotify = _sys.Add(@"C:\apps\spotify.exe", "Spotify");
+        var a = new Workspace
+        {
+            Id = "a", Name = "A",
+            Items =
+            [
+                Build.App(@"C:\apps\code.exe", "proj - Visual Studio Code", new(0, 0, 900, 900)),
+                Build.App(@"C:\apps\spotify.exe", "Spotify", new(1000, 0, 600, 600)),
+            ],
+        };
+        var b = new Workspace
+        {
+            Id = "b", Name = "B",
+            Items = [Build.App(@"C:\apps\code.exe", "proj - Visual Studio Code", new(500, 500, 400, 400))],
+        };
+
+        switcher.MarkActive(a.Id);
+        Assert.Empty(_sys.Minimized); // marking alone does not touch windows
+        capture.LiveWindowsFor(a);    // autosave binds the open windows lazily after startup
+        // Mirrors AppViewModels.OpenAsync: the stored active id supplies the previous workspace.
+        var previous = new[] { a, b }.First(w => w.Id == switcher.ActiveWorkspaceId);
+
+        await switcher.SwitchToAsync(b, previous, LeaveAction.Minimize);
+
+        Assert.Contains(spotify.Handle, _sys.Minimized);
+        Assert.DoesNotContain(code.Handle, _sys.Minimized);
+        Assert.Equal("b", switcher.ActiveWorkspaceId);
+    }
+
     private sealed class NoFolders : IFolderPathSource
     {
         public IReadOnlyDictionary<long, string> GetOpenFolders() => new Dictionary<long, string>();

@@ -39,6 +39,38 @@ public sealed class AppSettingsTests
     }
 
     [Fact]
+    public void ActiveWorkspaceIdIsPersistedAndOlderSettingsHaveNone()
+    {
+        var older = JsonSerializer.Deserialize<AppSettings>("""{ "Theme": "Light" }""")!;
+        Assert.Null(older.ActiveWorkspaceId);
+
+        older.ActiveWorkspaceId = "workspace-1";
+        var roundTrip = JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(older))!;
+        Assert.Equal("workspace-1", roundTrip.ActiveWorkspaceId);
+
+        roundTrip.ActiveWorkspaceId = null;
+        var cleared = JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(roundTrip))!;
+        Assert.Null(cleared.ActiveWorkspaceId);
+    }
+
+    [Fact]
+    public void DeletingTheActiveWorkspaceClearsOnlyThatIdAndSurvivesRoundTrip()
+    {
+        var settings = new AppSettings { ActiveWorkspaceId = "active" };
+
+        Assert.False(settings.ClearActiveWorkspaceIfMatches("other"));
+        Assert.Equal("active", settings.ActiveWorkspaceId);
+
+        Assert.True(settings.ClearActiveWorkspaceIfMatches("active"));
+        Assert.Null(settings.ActiveWorkspaceId);
+        Assert.False(settings.ClearActiveWorkspaceIfMatches("active"));
+
+        var roundTrip = JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(settings))!;
+        Assert.Null(roundTrip.ActiveWorkspaceId);
+        Assert.False(roundTrip.ClearActiveWorkspaceIfMatches("active"));
+    }
+
+    [Fact]
     public void BrowserNoticeAcknowledgementIsStoredOnce()
     {
         var settings = new AppSettings();

@@ -59,4 +59,40 @@ public sealed class BrowserRestoreHelpTests
         Assert.Contains("not already running", BrowserRestoreHelp.Caveat);
         Assert.Contains("cannot read tabs", BrowserRestoreHelp.Caveat);
     }
+
+    [Fact]
+    public void CompactSummaryIsOneShortLineWithoutTheDetailedSteps()
+    {
+        Assert.DoesNotContain('\n', BrowserRestoreHelp.CompactSummary);
+        Assert.Contains("continue where you left off", BrowserRestoreHelp.CompactSummary);
+        Assert.DoesNotContain("Settings >", BrowserRestoreHelp.CompactSummary);
+        Assert.DoesNotContain("already running", BrowserRestoreHelp.CompactSummary);
+        Assert.True(BrowserRestoreHelp.CompactSummary.Length < 130);
+    }
+
+    [Fact]
+    public void FullHelpKeepsEveryInstructionAndTheCaveatExactlyOnce()
+    {
+        var notices = new[]
+        {
+            BrowserRestoreHelp.For("msedge.exe", "Edge"),
+            BrowserRestoreHelp.For("chrome.exe", "Chrome"),
+        };
+
+        string help = BrowserRestoreHelp.FullHelp(notices);
+
+        Assert.Equal(1, Occurrences(help, notices[0].Instructions));
+        Assert.Equal(1, Occurrences(help, notices[1].Instructions));
+        Assert.Equal(1, Occurrences(help, BrowserRestoreHelp.Caveat));
+        Assert.StartsWith("Each browser must restore its own tabs.", help);
+    }
+
+    private static int Occurrences(string text, string value)
+    {
+        int count = 0;
+        for (int i = text.IndexOf(value, StringComparison.Ordinal); i >= 0;
+             i = text.IndexOf(value, i + value.Length, StringComparison.Ordinal))
+            count++;
+        return count;
+    }
 }

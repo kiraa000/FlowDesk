@@ -18,6 +18,8 @@ public sealed class AppSettings
     public int Height { get; set; } = 720;
     public int? X { get; set; }
     public int? Y { get; set; }
+    /// <summary>The workspace whose last Open succeeded; resumed on startup. Null means none.</summary>
+    public string? ActiveWorkspaceId { get; set; }
     public Dictionary<string, string> FocusIconPaths { get; set; } = [];
 
     /// <summary>Workspace ids whose "Keep this workspace up to date" toggle is off.</summary>
@@ -49,6 +51,14 @@ public sealed class AppSettings
         bool on = AlwaysAddNewWindows.Contains(workspaceId, StringComparer.Ordinal);
         if (always && !on) AlwaysAddNewWindows.Add(workspaceId);
         else if (!always && on) AlwaysAddNewWindows.RemoveAll(id => string.Equals(id, workspaceId, StringComparison.Ordinal));
+    }
+
+    /// <summary>Clears the stored startup workspace only when it is the one being deleted.</summary>
+    public bool ClearActiveWorkspaceIfMatches(string workspaceId)
+    {
+        if (!string.Equals(ActiveWorkspaceId, workspaceId, StringComparison.Ordinal)) return false;
+        ActiveWorkspaceId = null;
+        return true;
     }
 
     public bool HasSeenBrowserNotice(string key) =>

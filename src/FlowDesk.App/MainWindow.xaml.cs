@@ -92,6 +92,8 @@ public sealed partial class MainWindow : Window
             catch (Exception) { App.ViewModels.ShowStatus("The tray icon could not be created. Keep this window open during focus.", StatusKind.Warning); }
             focusTimer.Start();
             App.ViewModels.AutoSave.Start();
+            // Resuming after Start keeps the activation generation valid for its first published status.
+            await App.ViewModels.ResumeActiveWorkspaceAsync();
             autosaveTimer.Start();
             var s = services.Settings; var area = DisplayArea.Primary.WorkArea;
             int width = Math.Clamp(s.Width, 720, Math.Max(720, area.Width));
@@ -107,6 +109,24 @@ public sealed partial class MainWindow : Window
             App.ViewModels.ShowStatus("Could not load workspaces. Check the data folder and restart. " + ex.Message,
                 StatusKind.Error);
         }
+    }
+    private bool browserHelpOpen;
+    private async void BrowserHelp_Click(object sender, RoutedEventArgs e)
+    {
+        if (browserHelpOpen) return;
+        browserHelpOpen = true;
+        try
+        {
+            BrowserHelpDialog.XamlRoot = Root.XamlRoot;
+            BrowserHelpDialog.RequestedTheme = Root.RequestedTheme;
+            await BrowserHelpDialog.ShowAsync();
+        }
+        catch (Exception ex)
+        {
+            // A second dialog request while another is open is benign; report it instead of crashing.
+            App.ViewModels.ShowStatus("The browser help could not be opened. " + ex.Message, StatusKind.Warning);
+        }
+        finally { browserHelpOpen = false; }
     }
     private void Navigation_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {

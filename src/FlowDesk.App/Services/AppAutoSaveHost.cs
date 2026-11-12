@@ -24,6 +24,8 @@ public sealed class AppAutoSaveHost : IAutoSaveHost
     private readonly Action _positionsApplied;
     private readonly Action _itemsChanged;
     private readonly Dictionary<string, string> _names = new(StringComparer.OrdinalIgnoreCase);
+    // Workspaces whose in-memory item changes (failed Add or failed write) still need a persisted retry.
+    private readonly HashSet<string> _pendingPersistence = new(StringComparer.Ordinal);
 
     public AppAutoSaveHost(AppServices services, IUserInteraction ui,
         Func<string, Workspace?> workspace, Func<string, bool> isActive, Func<bool> isBusy,
@@ -78,10 +80,12 @@ public sealed class AppAutoSaveHost : IAutoSaveHost
         var clone = await OnUiAsync(() => _workspace(workspaceId)?.Clone()).ConfigureAwait(false);
         if (clone is null) return null;
 
-        // Even zero updated positions must persist the current model: a just-added item may have no live window,
-        // and a retry after a failed Add/persist must be able to write the retained item.
-        await Task.Run(() => _services.Capture.SaveLayout(clone), ct).ConfigureAwait(false);
+        var updated = await Task.Run(() => _services.Capture.SaveLayout(clone), ct).ConfigureAwait(false);
         ct.ThrowIfCancellationRequested();
+
+        // No live window and nothing pending means there is nothing to persist (ordinary startup save).
+        // A failed Add/write keeps the retained item alive through _pendingPersistence until a write succeeds.
+        if (!AutoSaveSavePolicy.ShouldWrite(updated.Count, HasPendingPersistence(workspaceId))) return null;
 
         return await OnUiAsync(async () =>
         {
@@ -104,6 +108,7 @@ public sealed class AppAutoSaveHost : IAutoSaveHost
                 current.LayoutSavedAt = previousSavedAt;
                 _positionsApplied();
             }
+            SetPendingPersistence(workspaceId, !persisted);
             return persisted;
         }).ConfigureAwait(false);
     }
@@ -149,6 +154,7 @@ public sealed class AppAutoSaveHost : IAutoSaveHost
                 _services.Tracker.Bind(workspace.Id, item.Id, candidate.Window);
                 _itemsChanged();
                 bool saved = await _services.SaveNowAsync();
+                SetPendingPersistence(workspaceId, !saved);
                 return saved ? AddWindowOutcome.Added : AddWindowOutcome.PersistenceFailed;
             }).ConfigureAwait(false);
         }, ct).ConfigureAwait(false);
@@ -176,6 +182,20 @@ public sealed class AppAutoSaveHost : IAutoSaveHost
         }
         if (key.Length > 0) _names[key] = name;
         return name;
+    }
+
+    private bool HasPendingPersistence(string workspaceId)
+    {
+        lock (_pendingPersistence) return _pendingPersistence.Contains(workspaceId);
+    }
+
+    private void SetPendingPersistence(string workspaceId, bool pending)
+    {
+        lock (_pendingPersistence)
+        {
+            if (pending) _pendingPersistence.Add(workspaceId);
+            else _pendingPersistence.Remove(workspaceId);
+        }
     }
 
     private Task<T> OnUiAsync<T>(Func<T> func)

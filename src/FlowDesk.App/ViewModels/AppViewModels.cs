@@ -64,6 +64,42 @@ public partial class AppViewModels : ObservableObject
         Workspaces.UpdateEmpty(); Settings.Load(); Focus.Load();
         if (Services.RecoveryMessage is { } recovery) ShowStatus(recovery, StatusKind.Warning);
     }
+
+    /// <summary>
+    /// Resumes autosave for the workspace stored by the last successful Open. Called after the autosave loop
+    /// has started, so the activation generation stays current. No restore, launch or window movement happens
+    /// here: windows stay where they are and are bound lazily by autosave.
+    /// </summary>
+    internal async Task ResumeActiveWorkspaceAsync()
+    {
+        var outcome = await StartupResume.TryResumeAsync(
+            Services.Settings.ActiveWorkspaceId,
+            FindWorkspace,
+            () => Task.Run(() => (IReadOnlyList<long>)Services.Windows.GetAppWindows().Select(w => w.Handle).ToArray()),
+            Services.Settings.IsAutosaveEnabled,
+            Services.Settings.AlwaysAddsNewWindows,
+            id => Services.Switcher.MarkActive(id),
+            id => activeWorkspace = WorkspacesCollection.FirstOrDefault(vm => vm.Model.Id == id),
+            ActivateAutoSave,
+            ClearStoredActiveWorkspace,
+            message => ShowStatus(message, StatusKind.Warning));
+
+        if (outcome != StartupResumeOutcome.Resumed) return;
+        foreach (var workspace in WorkspacesCollection) workspace.RefreshSummary();
+        if (activeWorkspace is not null) BrowserNotice.ShowFor(activeWorkspace);
+    }
+
+    /// <summary>One activation shape for a successful Open and a startup resume.</summary>
+    private void ActivateAutoSave(string workspaceId, IReadOnlyList<long> baseline,
+        bool enabled, bool always, DateTimeOffset? savedAt) =>
+        AutoSave.Coordinator.Activate(workspaceId, baseline, enabled, always, savedAt);
+
+    private void ClearStoredActiveWorkspace()
+    {
+        if (Services.Settings.ActiveWorkspaceId is null) return;
+        Services.Settings.ActiveWorkspaceId = null;
+        Services.Changed();
+    }
     public void Navigate(AppPage page)
     {
         Details.Workspace?.CommitName();
@@ -232,7 +268,7 @@ public partial class AppViewModels : ObservableObject
             var baseline = await Task.Run(() => Services.Windows.GetAppWindows().Select(w => w.Handle).ToArray());
             activeWorkspace = workspace;
             lastAutoSaveError = null;
-            AutoSave.Coordinator.Activate(workspace.Model.Id, baseline,
+            ActivateAutoSave(workspace.Model.Id, baseline,
                 Services.Settings.IsAutosaveEnabled(workspace.Model.Id),
                 Services.Settings.AlwaysAddsNewWindows(workspace.Model.Id),
                 workspace.Model.LayoutSavedAt);
@@ -276,6 +312,8 @@ public partial class AppViewModels : ObservableObject
             var restoreReport = await Task.Run(() => Services.Switcher.SwitchToAsync(target, previous, leave, progress, default, options));
             report = restoreReport;
             workspace.Model.LastUsed = target.LastUsed;
+            // The core switch succeeded: keep startup identity consistent even if reading the baseline below fails.
+            Services.Settings.ActiveWorkspaceId = workspace.Model.Id;
             foreach (var vm in WorkspacesCollection) vm.RefreshSummary();
             Services.Changed(); HasReport = true;
 
@@ -284,7 +322,7 @@ public partial class AppViewModels : ObservableObject
             var baseline = await Task.Run(() => Services.Windows.GetAppWindows().Select(w => w.Handle).ToArray());
             activeWorkspace = workspace;
             lastAutoSaveError = null;
-            AutoSave.Coordinator.Activate(workspace.Model.Id, baseline,
+            ActivateAutoSave(workspace.Model.Id, baseline,
                 Services.Settings.IsAutosaveEnabled(workspace.Model.Id),
                 Services.Settings.AlwaysAddsNewWindows(workspace.Model.Id),
                 workspace.Model.LayoutSavedAt);
@@ -315,6 +353,8 @@ public partial class AppViewModels : ObservableObject
             $"Delete {workspace.Name}? Your apps and files will not be deleted.", "Delete workspace")) return;
         Services.Data.Workspaces.Remove(workspace.Model); WorkspacesCollection.Remove(workspace);
         Services.Switcher.ResetSession(workspace.Model.Id);
+        Services.Settings.ClearActiveWorkspaceIfMatches(workspace.Model.Id);
+        if (Services.Switcher.ActiveWorkspaceId == workspace.Model.Id) Services.Switcher.ClearActive();
         if (activeWorkspace == workspace)
         {
             activeWorkspace = null;

@@ -48,6 +48,19 @@ public sealed class WorkspaceSwitcher(IWindowSystem windows, SessionTracker trac
         return report;
     }
 
+    /// <summary>
+    /// Marks an existing workspace as active on startup without switching to it: no restore, launch or window
+    /// movement. The list shows "Active", and a later switch treats it as the previous workspace.
+    /// </summary>
+    public void MarkActive(string id)
+    {
+        if (string.IsNullOrWhiteSpace(id)) throw new ArgumentException("A workspace id is required.", nameof(id));
+        ActiveWorkspaceId = id;
+    }
+
+    /// <summary>Forgets the active workspace (deleted or no longer stored). Leaves sessions and windows untouched.</summary>
+    public void ClearActive() => ActiveWorkspaceId = null;
+
     /// <summary>Forget the session snapshot so the next open uses the saved layout ("Reset to saved layout").</summary>
     public void ResetSession(string workspaceId) => tracker.ClearSession(workspaceId);
 }

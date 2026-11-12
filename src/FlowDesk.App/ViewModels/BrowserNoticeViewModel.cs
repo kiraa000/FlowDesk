@@ -15,6 +15,7 @@ public partial class BrowserNoticeViewModel : ObservableObject
 
     [ObservableProperty] public partial bool IsOpen { get; set; }
     [ObservableProperty] public partial string NoticeText { get; set; } = "";
+    [ObservableProperty] public partial string HelpText { get; set; } = "";
 
     internal BrowserNoticeViewModel(AppViewModels owner) => _owner = owner;
 
@@ -29,8 +30,8 @@ public partial class BrowserNoticeViewModel : ObservableObject
             return;
         }
         _visibleKeys = notices.Select(n => n.Key).ToList();
-        NoticeText = "Each browser must restore its own tabs. "
-            + string.Join(" ", notices.Select(n => n.Instructions)) + " " + BrowserRestoreHelp.Caveat;
+        NoticeText = BrowserRestoreHelp.CompactSummary;
+        HelpText = BrowserRestoreHelp.FullHelp(notices);
         IsOpen = true;
     }
 
@@ -38,6 +39,7 @@ public partial class BrowserNoticeViewModel : ObservableObject
     {
         IsOpen = false;
         NoticeText = "";
+        HelpText = "";
         _visibleKeys = [];
     }
 
