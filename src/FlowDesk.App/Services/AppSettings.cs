@@ -28,6 +28,8 @@ public sealed class AppSettings
     public List<string> AlwaysAddNewWindows { get; set; } = [];
     /// <summary>Browser notice keys the user has acknowledged (one per browser family).</summary>
     public List<string> BrowserRestoreNoticesSeen { get; set; } = [];
+    /// <summary>Optional global Alt window shortcuts. Off by default, also for files written before this existed.</summary>
+    public bool WindowShortcutsEnabled { get; set; }
 
     public static int ClampLaunchTimeout(int seconds) => LaunchTimeoutValue.Clamp(seconds);
 

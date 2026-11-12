@@ -20,6 +20,7 @@ public sealed class AppServices : ObservableObject
     public LayoutApplier Layouts { get; }
     public FocusWatcher Focus { get; }
     public JsonStore Store { get; } = new();
+    public HotkeyService Hotkeys { get; }
     public FlowDeskData Data { get; private set; } = new();
     public AppSettings Settings { get; private set; } = new();
     public string? RecoveryMessage { get; private set; }
@@ -32,6 +33,7 @@ public sealed class AppServices : ObservableObject
 
     public AppServices()
     {
+        Hotkeys = new(Store.Folder);
         Capture = new(Windows, Tracker);
         Restorer = new(Windows, new ShellLauncher(), Tracker);
         Switcher = new(Windows, Tracker, Capture, Restorer);

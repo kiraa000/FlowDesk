@@ -29,6 +29,10 @@
     <Compile Include="..\..\src\FlowDesk.App\Autosave\AutoSaveCoordinator.cs" Link="AutoSaveCoordinator.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Autosave\AutoSaveSavePolicy.cs" Link="AutoSaveSavePolicy.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Autosave\AutoSaveText.cs" Link="AutoSaveText.cs" />
+    <!-- Hotkey service lifetime is headless: Dispose/guard tests never start threads or hooks. -->
+    <Compile Include="..\..\src\FlowDesk.App\Services\HotkeyService.cs" Link="HotkeyService.cs" />
+    <Compile Include="..\..\src\FlowDesk.App\Services\HotkeyHost.cs" Link="HotkeyHost.cs" />
+    <Compile Include="..\..\src\FlowDesk.App\Services\TimerOneShotScheduler.cs" Link="TimerOneShotScheduler.cs" />
     <Using Include="Xunit" />
   </ItemGroup>
 </Project>

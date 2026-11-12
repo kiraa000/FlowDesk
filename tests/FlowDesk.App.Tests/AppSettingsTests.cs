@@ -71,6 +71,23 @@ public sealed class AppSettingsTests
     }
 
     [Fact]
+    public void WindowShortcutsAreOffByDefaultAndForOlderSettingsFiles()
+    {
+        Assert.False(new AppSettings().WindowShortcutsEnabled);
+
+        var older = JsonSerializer.Deserialize<AppSettings>("""{ "Theme": "Dark" }""")!;
+        Assert.False(older.WindowShortcutsEnabled);
+    }
+
+    [Fact]
+    public void WindowShortcutsRoundTrip()
+    {
+        var settings = new AppSettings { WindowShortcutsEnabled = true };
+        var roundTrip = JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(settings))!;
+        Assert.True(roundTrip.WindowShortcutsEnabled);
+    }
+
+    [Fact]
     public void BrowserNoticeAcknowledgementIsStoredOnce()
     {
         var settings = new AppSettings();

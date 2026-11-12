@@ -9,6 +9,7 @@ public interface IUserInteraction
     void Enqueue(Action action);
     Task<bool> ConfirmAsync(string title, string message, string primary);
     Task<string?> PickPathAsync(ItemKind kind);
+    Task<string?> PickFileAsync(string extension);
     Task<WorkspaceItem?> NewWebsiteAsync();
     Task<CaptureCandidate?> PickRunningAsync(IReadOnlyList<CaptureCandidate> candidates);
     Task ShowReportAsync(RestoreReport report);

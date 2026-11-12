@@ -40,6 +40,9 @@ public sealed class FocusNotifications : IDisposable
         Show(message, actions);
     }
     public void Complete() { ClearSession(); Show("Focus session complete"); }
+
+    /// <summary>Short app notification for non-focus state changes (window shortcuts pause toggle).</summary>
+    public void ShowMessage(string message) => Show(message);
     private void Show(string message, string actions = "")
     {
         if (!registered) return;

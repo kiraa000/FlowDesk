@@ -37,6 +37,14 @@ public sealed class UserInteraction(Window window, FrameworkElement root) : IUse
             return (await picker.PickSingleFileAsync())?.Path;
         }
     }
+    public async Task<string?> PickFileAsync(string extension)
+    {
+        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(window);
+        var picker = new FileOpenPicker();
+        picker.FileTypeFilter.Add(extension);
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+        return (await picker.PickSingleFileAsync())?.Path;
+    }
     public async Task<WorkspaceItem?> NewWebsiteAsync()
     {
         var content = Ui.Stack();

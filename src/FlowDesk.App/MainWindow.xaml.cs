@@ -34,6 +34,7 @@ public sealed partial class MainWindow : Window
                     App.ViewModels.ShowStatus("App allowed for 5 minutes. Open it again to continue.");
                 else App.ViewModels.ShowStatus("That allowance is no longer available.");
             }, BringForward);
+        services.Hotkeys.Notify = message => DispatcherQueue.TryEnqueue(() => notifications.ShowMessage(message));
         services.Focus.AppBlocked += (_, e) => DispatcherQueue.TryEnqueue(() =>
         {
             notifications.Blocked(e);
@@ -51,7 +52,7 @@ public sealed partial class MainWindow : Window
         TrayExit.Command = new CommunityToolkit.Mvvm.Input.AsyncRelayCommand(ExitFromTrayAsync);
         focusTimer.Tick += async (_, _) => await UpdateFocusAsync();
         autosaveTimer.Tick += (_, _) => App.ViewModels.RefreshAutoSaveAge();
-        Closed += (_, _) => { focusTimer.Stop(); autosaveTimer.Stop(); notifications.Dispose(); TrayIcon.Dispose(); };
+        Closed += (_, _) => { focusTimer.Stop(); autosaveTimer.Stop(); notifications.Dispose(); TrayIcon.Dispose(); services.Hotkeys.Dispose(); };
         Root.DataContext = App.ViewModels;
         App.ViewModels.NavigationRequested += Navigate;
         App.ViewModels.ThemeChanged += ApplyTheme;
@@ -85,6 +86,21 @@ public sealed partial class MainWindow : Window
         {
             await App.ViewModels.LoadAsync(); loaded = true;
             notifications.Initialize();
+            if (services.Settings.WindowShortcutsEnabled)
+            {
+                // Keep the Settings toggle disabled while the startup start is still pending.
+                App.ViewModels.Settings.WindowShortcutsBusy = true;
+                try { await services.Hotkeys.StartAsync(); }
+                catch (Exception ex)
+                {
+                    App.ViewModels.ShowStatus("Window shortcuts could not start. " + ex.Message, StatusKind.Warning);
+                }
+                finally
+                {
+                    App.ViewModels.Settings.WindowShortcutsBusy = false;
+                    App.ViewModels.Settings.RefreshWindowShortcutsState();
+                }
+            }
 #if DEBUG
             if (Task002Diagnostics.Enabled) diagnostics = new(services, notifications, () => App.ViewModels.Focus.RefreshAsync());
 #endif
@@ -211,6 +227,7 @@ public sealed partial class MainWindow : Window
             focusTimer.Start(); autosaveTimer.Start(); App.ViewModels.AutoSave.Start(); return;
         }
         await Task.Run(() => services.Focus.Dispose());
+        await services.Hotkeys.StopAsync();
         allowClose = true; Close();
     }
     private async Task UpdateFocusAsync()

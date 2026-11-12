@@ -23,6 +23,38 @@
                            SmallChange="1" LargeChange="5" SpinButtonPlacementMode="Compact"
                            Width="140" AutomationProperties.Name="Launch timeout in seconds" />
             </settings:SettingsCard>
+            <settings:SettingsCard Header="Window shortcuts"
+                Description="Snap, focus, switch desktops and resize windows with Alt shortcuts.">
+                <ToggleSwitch IsOn="{Binding WindowShortcuts, Mode=TwoWay}"
+                              IsEnabled="{Binding WindowShortcutsCanToggle}"
+                              AutomationProperties.Name="Window shortcuts" />
+            </settings:SettingsCard>
+            <StackPanel Spacing="8" Margin="0,4,0,8"
+                        Visibility="{Binding WindowShortcuts, Converter={StaticResource BoolVisibility}}">
+                <TextBlock Text="{Binding WindowShortcutsStatus}" Style="{StaticResource BodyTextBlockStyle}"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                <Button Content="Choose file…" Command="{Binding ChooseShortcutsDllCommand}" MinHeight="32"
+                        HorizontalAlignment="Left"
+                        AutomationProperties.Name="Choose VirtualDesktopAccessor.dll"
+                        Visibility="{Binding WindowShortcutsDesktopUnavailable, Converter={StaticResource BoolVisibility}}" />
+                <TextBlock Text="{Binding ShortcutConflicts}" Style="{StaticResource BodyTextBlockStyle}"
+                           Foreground="{ThemeResource SystemFillColorCautionBrush}" TextWrapping="Wrap"
+                           Visibility="{Binding HasShortcutConflicts, Converter={StaticResource BoolVisibility}}" />
+                <InfoBar Severity="Warning" IsOpen="{Binding AutoHotkeyRunning, Mode=OneWay}" IsClosable="False"
+                         Title="AutoHotkey is running"
+                         Message="If it uses the same shortcuts, it handles them before FlowDesk." />
+                <Expander Header="Shortcut list" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                    <ItemsControl ItemsSource="{Binding ShortcutLines}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding}" Style="{StaticResource BodyTextBlockStyle}"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                           TextWrapping="Wrap" Margin="0,2" />
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </Expander>
+            </StackPanel>
             <settings:SettingsCard Header="Start with Windows"
                 Description="Open FlowDesk when you sign in.">
                 <ToggleSwitch IsOn="{Binding StartWithWindows, Mode=TwoWay}"

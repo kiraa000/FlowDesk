@@ -169,6 +169,20 @@ public partial class SettingsViewModel(AppViewModels owner) : ObservableObject
     [ObservableProperty] public partial bool MinimizePrevious { get; set; } = true;
     [ObservableProperty] public partial double LaunchTimeout { get; set; } = AppSettings.DefaultLaunchTimeoutSeconds;
     [ObservableProperty] public partial bool StartWithWindows { get; set; }
+    [ObservableProperty] public partial bool WindowShortcuts { get; set; }
+    [ObservableProperty] public partial string WindowShortcutsStatus { get; set; } = "";
+    [ObservableProperty] public partial bool WindowShortcutsDesktopUnavailable { get; set; }
+    [ObservableProperty] public partial bool WindowShortcutsBusy { get; set; }
+    [ObservableProperty] public partial bool AutoHotkeyRunning { get; set; }
+    [ObservableProperty] public partial string ShortcutConflicts { get; set; } = "";
+    public bool HasShortcutConflicts => ShortcutConflicts.Length > 0;
+    /// <summary>False while a start/stop is pending, so the toggle cannot race its own transition.</summary>
+    public bool WindowShortcutsCanToggle => !WindowShortcutsBusy;
+    /// <summary>Plain-word list of every binding, shown in the collapsed Shortcut list expander.</summary>
+    public IReadOnlyList<string> ShortcutLines { get; } =
+        FlowDesk.Core.Hotkeys.HotkeyCatalog.All
+            .Select(binding => $"{binding.Shortcut}  ·  {binding.Label}")
+            .ToArray();
     /// <summary>One line for the About card, read from the app assembly.</summary>
     public string VersionText { get; } =
         $"FlowDesk {Assembly.GetEntryAssembly()?.GetName().Version?.ToString(3) ?? "1.0.0"}";
@@ -180,7 +194,143 @@ public partial class SettingsViewModel(AppViewModels owner) : ObservableObject
         MinimizePrevious = owner.Services.Settings.MinimizePrevious;
         LaunchTimeout = AppSettings.ClampLaunchTimeout(owner.Services.Settings.LaunchTimeoutSeconds);
         StartWithWindows = StartupRegistration.IsEnabled();
+        WindowShortcuts = owner.Services.Settings.WindowShortcutsEnabled;
+        RefreshWindowShortcutsState();
         loading = false; owner.ApplyTheme();
+        _ = RefreshAutoHotkeyAsync();
+    }
+
+    partial void OnShortcutConflictsChanged(string value) => OnPropertyChanged(nameof(HasShortcutConflicts));
+
+    partial void OnWindowShortcutsBusyChanged(bool value) => OnPropertyChanged(nameof(WindowShortcutsCanToggle));
+
+    partial void OnWindowShortcutsChanged(bool value)
+    {
+        if (loading) return;
+        if (WindowShortcutsBusy)
+        {
+            loading = true;
+            WindowShortcuts = !value;
+            loading = false;
+            return;
+        }
+        owner.Services.Settings.WindowShortcutsEnabled = value;
+        owner.Services.Changed();
+        _ = ApplyWindowShortcutsAsync(value);
+    }
+
+    /// <summary>Refreshes the lines under the toggle from the live host and backend.</summary>
+    internal void RefreshWindowShortcutsState()
+    {
+        var hotkeys = owner.Services.Hotkeys;
+        string status = hotkeys.DesktopStatus;
+        if (hotkeys.IsRunning && !hotkeys.WheelAvailable)
+            status += " Alt+Shift+Wheel resize is unavailable.";
+        WindowShortcutsStatus = status;
+        WindowShortcutsDesktopUnavailable = !hotkeys.DesktopsAvailable;
+        var conflicts = hotkeys.Conflicts;
+        ShortcutConflicts = conflicts.Count == 0 ? "" : "In use by another app: " + string.Join(", ", conflicts);
+    }
+
+    private async Task ApplyWindowShortcutsAsync(bool enabled)
+    {
+        if (WindowShortcutsBusy) return;
+        WindowShortcutsBusy = true;
+        try
+        {
+            if (enabled) await owner.Services.Hotkeys.StartAsync();
+            else await owner.Services.Hotkeys.StopAsync();
+        }
+        catch (Exception ex)
+        {
+            // Keep the toggle and the saved setting in step with what actually runs.
+            loading = true;
+            WindowShortcuts = false;
+            loading = false;
+            owner.Services.Settings.WindowShortcutsEnabled = false;
+            owner.Services.Changed();
+            owner.ShowStatus("Window shortcuts could not start. " + ex.Message, StatusKind.Warning);
+        }
+        finally
+        {
+            WindowShortcutsBusy = false;
+            RefreshWindowShortcutsState();
+            await RefreshAutoHotkeyAsync();
+        }
+    }
+
+    [RelayCommand]
+    private async Task ChooseShortcutsDllAsync()
+    {
+        if (WindowShortcutsBusy) return;
+        var source = await owner.Ui.PickFileAsync(".dll");
+        if (string.IsNullOrEmpty(source)) return;
+
+        string nativeFolder = Path.Combine(owner.Services.Store.Folder, "native");
+        string target = Path.Combine(nativeFolder, FlowDesk.Core.Desktops.VirtualDesktopAccessor.DllName);
+        if (File.Exists(target) && !await owner.Ui.ConfirmAsync(
+                "Replace VirtualDesktopAccessor.dll?",
+                "A desktop shortcut file already exists in the FlowDesk data folder. Replace it with the one you chose?",
+                "Replace"))
+        {
+            return;
+        }
+
+        WindowShortcutsBusy = true;
+        try
+        {
+            await Task.Run(() =>
+            {
+                Directory.CreateDirectory(nativeFolder);
+                string temporary = target + ".tmp";
+                try
+                {
+                    File.Copy(source, temporary, overwrite: true);
+                    File.Move(temporary, target, overwrite: true);
+                }
+                finally
+                {
+                    if (File.Exists(temporary)) File.Delete(temporary);
+                }
+            });
+            await owner.Services.Hotkeys.ReloadBackendAsync();
+            RefreshWindowShortcutsState();
+            if (!owner.Services.Hotkeys.DesktopsAvailable)
+                owner.ShowStatus(owner.Services.Hotkeys.DesktopStatus, StatusKind.Warning);
+        }
+        catch (Exception ex)
+        {
+            owner.ShowStatus("The desktop shortcut file could not be installed. " + ex.Message, StatusKind.Error);
+        }
+        finally
+        {
+            WindowShortcutsBusy = false;
+        }
+    }
+
+    /// <summary>AutoHotkey wins over RegisterHotKey, so it is worth telling the user when it runs.</summary>
+    private async Task RefreshAutoHotkeyAsync()
+    {
+        bool running = false;
+        try
+        {
+            running = await Task.Run(() =>
+            {
+                bool found = false;
+                foreach (var process in Process.GetProcesses())
+                {
+                    try
+                    {
+                        if (process.ProcessName.StartsWith("AutoHotkey", StringComparison.OrdinalIgnoreCase)) found = true;
+                    }
+                    catch (Exception) { /* the process may exit while its name is read */ }
+                    finally { process.Dispose(); } // dispose every wrapper, including after a match
+                }
+                return found;
+            });
+        }
+        catch (Exception) { /* process enumeration is best effort */ }
+        AutoHotkeyRunning = running;
     }
     partial void OnThemeChanged(string value)
     {
