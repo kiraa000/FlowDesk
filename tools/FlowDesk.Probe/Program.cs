@@ -3,6 +3,7 @@
 //   capture <file.json>          save all open, includable windows as a workspace
 //   restore <file.json>          open/move everything back, print the report
 //   layout <grid|two|sidebar|cascade> <file.json>   tile the workspace's open windows
+//   desktops [dllDir]            read-only virtual desktop check via VirtualDesktopAccessor.dll
 //   focus <exeName> <seconds> [gentle|normal|strict] block an app for a while
 using System.Text.Json;
 using FlowDesk.Core.Capture;
@@ -20,6 +21,16 @@ string cmd = args.Length > 0 ? args[0] : "list";
 
 switch (cmd)
 {
+    case "desktops": // read-only: desktops <dir-with-dll>  count, current, foreground window on current?
+    {
+        using var vd = FlowDesk.Core.Desktops.VirtualDesktopAccessor.Load(
+            [Path.Combine(args.Length > 1 ? args[1] : AppContext.BaseDirectory, FlowDesk.Core.Desktops.VirtualDesktopAccessor.DllName)]);
+        Console.WriteLine($"available={vd.IsAvailable} status=\"{vd.Status}\"");
+        Console.WriteLine($"count={vd.GetCount()} current={vd.GetCurrent()}");
+        long fg = ProbeForeground();
+        Console.WriteLine($"foreground={fg} onCurrent={vd.IsWindowOnCurrent(fg)}");
+        break;
+    }
     case "list":
         foreach (var c in capture.CaptureOpenWindows())
         {
@@ -123,3 +134,6 @@ static Workspace Load(string path) =>
     JsonSerializer.Deserialize<Workspace>(File.ReadAllText(path), JsonStore.Options) ?? throw new InvalidDataException(path);
 
 static string Trim(string? s) => s is null ? "" : s.Length > 60 ? s[..57] + "..." : s;
+
+[System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "GetForegroundWindow")]
+static extern nint ProbeForeground();
