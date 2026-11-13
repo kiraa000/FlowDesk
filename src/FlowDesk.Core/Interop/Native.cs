@@ -61,6 +61,8 @@ internal static class Native
 
     [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc cb, nint lParam);
     [DllImport("user32.dll")] public static extern bool EnumChildWindows(nint parent, EnumWindowsProc cb, nint lParam);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern nint FindWindowExW(nint parent, nint childAfter, string? className, string? windowName);
     [DllImport("user32.dll")] public static extern bool IsWindow(nint hwnd);
     [DllImport("user32.dll")] public static extern bool IsWindowVisible(nint hwnd);
     [DllImport("user32.dll")] public static extern bool IsIconic(nint hwnd);

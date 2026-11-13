@@ -20,6 +20,25 @@ public sealed class Win32WindowSystem : IWindowSystem
     };
 
     private readonly ProcessResolver _processes = new();
+    // Frame handle -> app process last seen inside it (frames keep their handle while the app is suspended).
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<nint, int> _frameApps = new();
+
+    private int DetachedCoreWindowPid(nint frame, int framePid)
+    {
+        string title = TitleOf(frame);
+        if (title.Length == 0) return 0;
+        _frameApps.TryGetValue(frame, out int known);
+        int first = 0;
+        for (nint c = FindWindowExW(0, 0, "Windows.UI.Core.CoreWindow", title); c != 0;
+             c = FindWindowExW(0, c, "Windows.UI.Core.CoreWindow", title))
+        {
+            GetWindowThreadProcessId(c, out uint cp);
+            if (cp == 0 || cp == framePid) continue;
+            if (known != 0 && cp == known) return known; // same app as before: unambiguous
+            if (first == 0) first = (int)cp;
+        }
+        return first;
+    }
 
     public int OwnProcessId { get; } = Environment.ProcessId;
 
@@ -79,7 +98,11 @@ public sealed class Win32WindowSystem : IWindowSystem
                 if (cp != 0 && cp != framePid) { appPid = (int)cp; return false; }
                 return true;
             }, 0);
-            if (appPid != 0) pid = appPid; else unresolved = true;
+            // A minimized (suspended) UWP app detaches its CoreWindow from the frame and makes it a top-level
+            // window with the same title. Without this the frame looks like ApplicationFrameHost itself, can't be
+            // matched, and switching back starts the app again while its old window stays minimized.
+            if (appPid == 0) appPid = DetachedCoreWindowPid(h, framePid);
+            if (appPid != 0) { pid = appPid; _frameApps[h] = appPid; } else unresolved = true;
         }
 
         var proc = _processes.Resolve(pid);
