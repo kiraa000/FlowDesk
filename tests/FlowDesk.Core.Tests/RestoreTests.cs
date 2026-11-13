@@ -103,6 +103,24 @@ public class RestoreTests
     }
 
     [Fact]
+    public async Task Timed_out_placement_is_reported_denied_and_not_counted_as_placed()
+    {
+        // A bounded/asynchronous placement that never observed the requested state returns Failed.
+        // That is a real placement failure, not success: it must not raise Placed/AllPlaced.
+        var w = _sys.Add(@"C:\apps\code.exe", "proj - Visual Studio Code");
+        _sys.Failed.Add(w.Handle);
+        var item = Build.App(@"C:\apps\code.exe", "proj - Visual Studio Code", new(200, 50, 1000, 800));
+
+        var report = await _restorer.RestoreAsync(new Workspace { Items = [item] }, Build.Fast());
+
+        Assert.Equal(ItemOutcome.PlaceDenied, report.Items[0].Outcome);
+        Assert.Equal("The app did not accept the requested window placement", report.Items[0].Detail);
+        Assert.Equal(0, report.Placed);
+        Assert.False(report.AllPlaced);
+        Assert.DoesNotContain(_sys.Placed, p => p.Handle == w.Handle);
+    }
+
+    [Fact]
     public async Task Admin_window_is_reported_not_silently_ignored()
     {
         var w = _sys.Add(@"C:\apps\regedit.exe", "Registry Editor");

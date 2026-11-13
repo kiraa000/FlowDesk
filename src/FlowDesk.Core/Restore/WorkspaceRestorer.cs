@@ -281,6 +281,7 @@ public sealed class WorkspaceRestorer(IWindowSystem windows, IAppLauncher launch
             case PlaceOutcome.Ok: report(item, ok, null); break;
             case PlaceOutcome.AccessDenied: report(item, ItemOutcome.PlaceDenied, "Runs as administrator, so FlowDesk can't move it"); break;
             case PlaceOutcome.WindowGone: report(item, ItemOutcome.LaunchedNoWindow, "The window closed"); break;
+            case PlaceOutcome.Failed: report(item, ItemOutcome.PlaceDenied, "The app did not accept the requested window placement"); break;
             default: report(item, ok, "Could not move the window"); break;
         }
     }

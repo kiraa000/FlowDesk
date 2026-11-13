@@ -17,6 +17,8 @@ internal sealed class FakeWindowSystem : IWindowSystem
     public List<long> Fronted { get; } = [];
     public long? Activated { get; private set; }
     public HashSet<long> Denied { get; } = [];
+    /// <summary>Windows whose native placement returns <see cref="PlaceOutcome.Failed"/> (not access denied).</summary>
+    public HashSet<long> Failed { get; } = [];
     public int OwnProcessId => 1;
 
     private long _next = 100;
@@ -45,6 +47,7 @@ internal sealed class FakeWindowSystem : IWindowSystem
         int i = Windows.FindIndex(w => w.Handle == handle);
         if (i < 0) return PlaceOutcome.WindowGone;
         if (Denied.Contains(handle)) return PlaceOutcome.AccessDenied;
+        if (Failed.Contains(handle)) return PlaceOutcome.Failed;
         Placed.Add((handle, rect, show));
         Windows[i] = Windows[i] with { NormalRect = rect, Show = show };
         return PlaceOutcome.Ok;
