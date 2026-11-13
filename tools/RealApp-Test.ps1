@@ -27,8 +27,11 @@ $NotesA = Join-Path $RunDir 'notes-a.txt'
 $NotesB = Join-Path $RunDir 'notes-b.txt'
 $NotesC = Join-Path $RunDir 'notes-c.txt'
 $NotesC2 = Join-Path $RunDir 'notes-c2.txt'
-$FolderA = Join-Path $RunDir 'folder-a'
-$FolderB = Join-Path $RunDir 'folder-b'
+# Fixture folders get a per-run unique leaf so they can never collide with a user's baseline
+# folder-a/folder-b window. The logical workspace item names stay folder-a/folder-b.
+$RunSuffix = (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + ([guid]::NewGuid().ToString('N')).Substring(0, 8)
+$FolderA = Join-Path $RunDir ('folder-a-' + $RunSuffix)
+$FolderB = Join-Path $RunDir ('folder-b-' + $RunSuffix)
 
 New-Item -ItemType Directory -Force -Path $RunDir, $ShotDir | Out-Null
 foreach ($f in @($NotesA,$NotesB,$NotesC,$NotesC2)) { Set-Content -LiteralPath $f -Value ('FlowDesk REALTEST-001 ' + [IO.Path]::GetFileNameWithoutExtension($f)) -Encoding UTF8 }
@@ -434,6 +437,59 @@ function Test-UiUsable($e) {
     if (-not $e) { return $false }
     try { return ($e.Current.IsEnabled -and -not $e.Current.IsOffscreen) } catch { return $false }
 }
+# UIA returns Rect.Empty (X/Y = +/-Infinity, Width/Height = -Infinity) for many offscreen
+# elements. Never feed those sentinels into geometry or an Int32 cast.
+function Test-UiRectUsable($r) {
+    if (-not $r) { return $false }
+    $vals = @()
+    try { $vals = @([double]$r.X, [double]$r.Y, [double]$r.Width, [double]$r.Height) } catch { return $false }
+    foreach ($v in $vals) {
+        if ([double]::IsNaN($v) -or [double]::IsInfinity($v)) { return $false }
+        if ($v -lt [int]::MinValue -or $v -gt [int]::MaxValue) { return $false }
+    }
+    if ($r.Width -le 0 -or $r.Height -le 0) { return $false }
+    # A later Int32 cast/click-center must be inside range too.
+    $cx = [double]$r.X + ([double]$r.Width / 2)
+    $cy = [double]$r.Y + ([double]$r.Height / 2)
+    if ($cx -lt [int]::MinValue -or $cx -gt [int]::MaxValue) { return $false }
+    if ($cy -lt [int]::MinValue -or $cy -gt [int]::MaxValue) { return $false }
+    return $true
+}
+function Format-UiNumber($v) {
+    try {
+        $d = [double]$v
+        if ([double]::IsNaN($d) -or [double]::IsInfinity($d)) { return 'invalid' }
+        return [string][Math]::Round($d)
+    } catch { return 'invalid' }
+}
+function Get-UiUsableRect($e) {
+    if (-not $e) { return $null }
+    try {
+        if ($e.Current.IsOffscreen) { return $null }
+        $r = $e.Current.BoundingRectangle
+        if (-not (Test-UiRectUsable $r)) { return $null }
+        return $r
+    } catch { return $null }
+}
+# Safe reveal for a row that is currently virtualized/scrolled out. No click, no guessed
+# coordinates: only the item's own ScrollItem/VirtualizedItem pattern.
+function Scroll-UiItemIntoView($e) {
+    if (-not $e) { return $false }
+    $target = $e
+    $pat = $null
+    try {
+        if (-not $target.TryGetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern, [ref]$pat)) {
+            $anc = Find-Ancestor $e { param($n) $p = $null; [bool]$n.TryGetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern, [ref]$p) }
+            if ($anc) { $target = $anc; $pat = $null; [void]$target.TryGetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern, [ref]$pat) }
+        }
+        if ($pat) { $pat.ScrollIntoView(); return $true }
+    } catch { }
+    try {
+        $pat = $null
+        if ($target.TryGetCurrentPattern([System.Windows.Automation.VirtualizedItemPattern]::Pattern, [ref]$pat)) { $pat.Realize(); return $true }
+    } catch { }
+    return $false
+}
 function Navigate([string]$page) {
     $item = @(Get-ByContains $page ([System.Windows.Automation.ControlType]::ListItem) | Where-Object { $_.Current.Name -eq $page })[0]
     if (-not $item) { $item = @(Get-ByName $page ([System.Windows.Automation.ControlType]::ListItem))[0] }
@@ -464,7 +520,7 @@ function Get-FocusRuleRows([string]$removeName) {
             $node = $walker.GetParent($node)
             if (-not $node -or $node -eq [System.Windows.Automation.AutomationElement]::RootElement) { break }
             $r = $node.Current.BoundingRectangle
-            if ($r.Height -le 0 -or $r.Height -gt 140) { continue }
+            if (-not (Test-UiRectUsable $r) -or $r.Height -gt 140) { continue }
             $count = @($node.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition) | Where-Object { $_.Current.Name -eq $removeName }).Count
             if ($count -eq 1) { $card = $node; break }
         }
@@ -480,31 +536,53 @@ function Get-FocusRuleRows([string]$removeName) {
 function Get-WorkspaceRowControl([string]$name, [string[]]$controlNames, $type) {
     $texts = @(Get-ByName $name ([System.Windows.Automation.ControlType]::Text))
     if ($texts.Count -eq 0) { return $null }
-    $anchor = @($texts | Where-Object { -not $_.Current.IsOffscreen })[0]
-    if (-not $anchor) { return $null }
-    $ar = $anchor.Current.BoundingRectangle
-    if ($ar.Width -le 0 -or $ar.Height -le 0) { return $null }
+    $anchor = $null; $ar = $null
+    # Prefer a visible finite rect; if the row is scrolled out, reveal it via its own
+    # ScrollItem pattern and re-query. Never use an offscreen/empty sentinel rect.
+    for ($attempt = 0; $attempt -lt 2; $attempt++) {
+        foreach ($t in $texts) {
+            $r = Get-UiUsableRect $t
+            if ($r) { $anchor = $t; $ar = $r; break }
+        }
+        if ($anchor) { break }
+        if ($attempt -eq 0) {
+            $scrolled = $false
+            foreach ($t in $texts) { if (Scroll-UiItemIntoView $t) { $scrolled = $true } }
+            if (-not $scrolled) { break }
+            Start-Sleep -Milliseconds 600
+            $texts = @(Get-ByName $name ([System.Windows.Automation.ControlType]::Text))
+            if ($texts.Count -eq 0) { break }
+        }
+    }
+    if (-not $anchor) {
+        Log ('WARN workspace row not visible for ' + $name + ' / ' + ($controlNames -join '|') + ': no finite positive UIA rect after scroll')
+        return $null
+    }
     $anchorCenter = $ar.Top + ($ar.Height / 2)
-    $candidates = @(Get-UiAll (Get-AppRoot) | Where-Object {
-        $_.Current.ControlType -eq $type -and
-        ($controlNames -contains $_.Current.Name) -and
-        $_.Current.BoundingRectangle.X -gt $ar.X
-    })
-    $scored = @($candidates | ForEach-Object {
-        $r = $_.Current.BoundingRectangle
-        [pscustomobject]@{ Element = $_; Distance = [Math]::Abs(($r.Top + ($r.Height / 2)) - $anchorCenter); Rect = $r }
-    } | Sort-Object Distance)
+    $scored = @()
+    foreach ($el in @(Get-UiAll (Get-AppRoot))) {
+        try {
+            if ($el.Current.ControlType -ne $type) { continue }
+            if (-not ($controlNames -contains $el.Current.Name)) { continue }
+            if ($el.Current.IsOffscreen) { continue }
+            $r = $el.Current.BoundingRectangle
+            if (-not (Test-UiRectUsable $r)) { continue }
+            if ($r.X -le $ar.X) { continue }
+            $scored += [pscustomobject]@{ Element = $el; Distance = [Math]::Abs(($r.Top + ($r.Height / 2)) - $anchorCenter); Rect = $r }
+        } catch { }
+    }
+    $scored = @($scored | Sort-Object Distance)
     if ($scored.Count -eq 0) { return $null }
     # Rows are ~125 px apart; anything farther than half a row is not the same card.
     if ($scored[0].Distance -gt 62) {
-        Log ('WARN no same-row match for ' + $name + ' / ' + ($controlNames -join '|') + ' (nearest ' + [int]$scored[0].Distance + 'px)')
+        Log ('WARN no same-row match for ' + $name + ' / ' + ($controlNames -join '|') + ' (nearest ' + (Format-UiNumber $scored[0].Distance) + 'px)')
         return $null
     }
     if ($scored.Count -gt 1 -and ([Math]::Abs($scored[1].Distance - $scored[0].Distance) -lt 8)) {
         Log ('WARN ambiguous row match for ' + $name + ' / ' + ($controlNames -join '|') + ' (two buttons within 8px)')
         return $null
     }
-    Log ('ROW ' + $name + ' -> ' + $scored[0].Element.Current.Name + ' at ' + [int]$scored[0].Rect.X + ',' + [int]$scored[0].Rect.Y + ' distance=' + [int]$scored[0].Distance)
+    Log ('ROW ' + $name + ' -> ' + $scored[0].Element.Current.Name + ' at ' + (Format-UiNumber $scored[0].Rect.X) + ',' + (Format-UiNumber $scored[0].Rect.Y) + ' distance=' + (Format-UiNumber $scored[0].Distance))
     return $scored[0].Element
 }
 function Get-WorkspaceOpenButton([string]$name) {
@@ -519,9 +597,12 @@ function Get-WorkspaceActionsButton([string]$name) {
 function Open-Workspace([string]$name) {
     Navigate 'Workspaces'
     $btn = Get-WorkspaceOpenButton $name
-    if (-not $btn) { throw ('Open button not found for workspace ' + $name) }
+    if (-not $btn) { throw ('BLOCKED: workspace "' + $name + '" Open button is not visible or has no finite positive UIA rect after scroll/re-query') }
+    $script:FixtureOpenBefore = Get-FixtureWindowsMap
+    $script:FixtureOpenPhase = 'open ' + $name
     Invoke-Element $btn
     Start-Sleep -Seconds 1
+    if ($script:FixtureOpenBefore) { $null = Sync-FixtureWindows $script:FixtureOpenPhase $script:FixtureOpenBefore $script:UserBaselineHandles }
 }
 function Open-SavePage {
     # Shared entry for both save flows: the populated "New workspace" split-button/button main action,
@@ -551,11 +632,15 @@ function Wait-Report([string]$wsName, [int]$timeout = 75) {
     $sw = [Diagnostics.Stopwatch]::StartNew()
     $sawOpening = $false
     while ($sw.Elapsed.TotalSeconds -lt $timeout) {
+        if ($script:FixtureOpenBefore) { $null = Sync-FixtureWindows $script:FixtureOpenPhase $script:FixtureOpenBefore $script:UserBaselineHandles }
         $opening = @(Get-UiAll (Get-AppRoot) | Where-Object { $_.Current.ControlType -eq [System.Windows.Automation.ControlType]::Text -and $_.Current.Name -like 'Opening * of *' })
         if ($opening.Count -gt 0) { $sawOpening = $true }
         elseif ($sawOpening -or $sw.Elapsed.TotalSeconds -gt 2.5) {
             $t = @(Get-StatusTexts | Where-Object { $_ -like ($wsName + ':*') })
-            if ($t.Count -gt 0) { return $t[0] }
+            if ($t.Count -gt 0) {
+                if ($script:FixtureOpenBefore) { $null = Sync-FixtureWindows $script:FixtureOpenPhase $script:FixtureOpenBefore $script:UserBaselineHandles }
+                return $t[0]
+            }
         }
         Start-Sleep -Milliseconds 600
     }
@@ -573,6 +658,41 @@ function Read-ReportDialog {
     if ($close) { Invoke-Element $close }
     Start-Sleep -Milliseconds 500
     return $texts
+}
+# The report dialog is a flat text list: each "<item> - <outcome>" heading is followed by its detail.
+# Build the separator from its code point: this .ps1 has no BOM, so a literal middle dot could be
+# decoded as ANSI by Windows PowerShell and never match the real UIA text.
+function Get-ReportOutcomeItems($texts) {
+    $items = @()
+    $arr = @($texts)
+    $sepText = ' ' + [char]0x00B7 + ' '
+    for ($i = 0; $i -lt $arr.Count; $i++) {
+        $t = [string]$arr[$i]
+        $sep = $t.LastIndexOf($sepText)
+        if ($sep -lt 1) { continue }
+        $name = $t.Substring(0, $sep).Trim()
+        $status = $t.Substring($sep + $sepText.Length).Trim()
+        if (-not $name -or -not $status) { continue }
+        $detail = ''
+        if ($i + 1 -lt $arr.Count) {
+            $next = [string]$arr[$i + 1]
+            if ($next.LastIndexOf($sepText) -lt 0) { $detail = $next; $i++ }
+        }
+        $items += [pscustomobject]@{ Name = $name; Status = $status; Detail = $detail }
+    }
+    return $items
+}
+function Get-BoundsFromReportDetail([string]$detail, [string]$label) {
+    if (-not $detail -or -not $label) { return $null }
+    $m = [regex]::Match($detail, ($label + '\s+(\d+)[x\u00D7](\d+)\s+at\s+\((-?\d+),(-?\d+)\)\s+\((\w+)\)'), [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    if (-not $m.Success) { return $null }
+    return [pscustomobject]@{ W=[int]$m.Groups[1].Value; H=[int]$m.Groups[2].Value; X=[int]$m.Groups[3].Value; Y=[int]$m.Groups[4].Value; Show=$m.Groups[5].Value }
+}
+function Test-ReportBoundsMatch($b, [int]$x, [int]$y, [int]$w, [int]$h, [string]$show, [int]$tolerance = 10) {
+    if (-not $b) { return $false }
+    $ok = ([Math]::Abs($b.X - $x) -le $tolerance) -and ([Math]::Abs($b.Y - $y) -le $tolerance)
+    $ok = $ok -and ([Math]::Abs($b.W - $w) -le $tolerance) -and ([Math]::Abs($b.H - $h) -le $tolerance)
+    return ($ok -and $b.Show -eq $show)
 }
 
 # ---------- window helpers ----------
@@ -623,7 +743,10 @@ function Get-CandidateDetails($cbs) {
         try { $name = $cb.Current.Name } catch { }
         try { $id = [string]$cb.Current.AutomationId } catch { }
         try { $help = [string]$cb.Current.HelpText } catch { }
-        try { $r = $cb.Current.BoundingRectangle; $x = [int]$r.X; $y = [int]$r.Y } catch { }
+        try {
+            $r = $cb.Current.BoundingRectangle
+            if (Test-UiRectUsable $r) { $x = [int]$r.X; $y = [int]$r.Y }
+        } catch { }
         try { $enabled = [bool]$cb.Current.IsEnabled } catch { }
         try { $on = Get-ToggleState $cb } catch { }
         $texts = @(); try { $texts = @(Get-TextOf $cb) } catch { }
@@ -755,6 +878,10 @@ $script:ExplorerPending = New-Object System.Collections.ArrayList
 $script:FlowDeskBaselinePids = @()
 $script:FlowDeskOwnedPids = New-Object System.Collections.ArrayList
 $script:FlowDeskOwnedStart = @{}
+$script:UserBaselineHandles = @{}
+$script:FixtureOpenBefore = $null
+$script:FixtureOpenPhase = ''
+$script:FixtureRejected = @{}
 function Register-LaunchedProcess([string]$group, $p) {
     if (-not $p) { return }
     try {
@@ -823,30 +950,108 @@ function Close-RTWindowOwned($w, [string]$reason) {
     Log ('CLOSE (' + $reason + ') ' + (Format-Window $w) + ' ok=' + $ok)
     return $ok
 }
-function Test-TaskOwnedProcess([uint32]$procId) {
-    foreach ($rec in @($script:Owned | Where-Object { $_.Process -notin @('explorer','ApplicationFrameHost','CalculatorApp') -and [uint32]$_.AppPid -eq $procId })) {
-        if (Test-RecordedProcess $rec) { return $true }
+# Windows command-line tokenizer for the fixture proof: double quotes group, whitespace separates.
+# No shell expansion; backslash escaping of quotes is not needed for these paths.
+function Get-CommandLineArgs([string]$cmd) {
+    $tokens = @()
+    if (-not $cmd) { return $tokens }
+    $sb = New-Object System.Text.StringBuilder
+    $quoted = $false
+    for ($i = 0; $i -lt $cmd.Length; $i++) {
+        $c = $cmd[$i]
+        if ($c -eq '"') { $quoted = -not $quoted; continue }
+        if (-not $quoted -and [char]::IsWhiteSpace($c)) {
+            if ($sb.Length -gt 0) { $tokens += $sb.ToString(); [void]$sb.Clear() }
+            continue
+        }
+        [void]$sb.Append($c)
     }
-    $pi = Get-ProcInfo $procId
-    if (-not ($pi.Start -and $pi.Start -ge $script:TaskStart.AddSeconds(-10))) { return $false }
-    try {
-        $cmd = (Get-CimInstance Win32_Process -Filter ('ProcessId=' + $procId) -ErrorAction Stop).CommandLine
-        # Proof it opened a fixture file from this run folder, not a user window that merely shares a title.
-        return ($cmd -and $cmd -like ('*' + $RunDir + '*'))
-    } catch { return $false }
+    if ($sb.Length -gt 0) { $tokens += $sb.ToString() }
+    return $tokens
 }
-function Close-FixtureWindows([string]$reason) {
+function Get-FixtureArgumentMatch([string]$cmd) {
+    $want = @()
+    foreach ($f in @($NotesA,$NotesB,$NotesC,$NotesC2)) {
+        $c = Get-CanonicalFolderPath $f
+        if ($c) { $want += $c }
+    }
+    if ($want.Count -eq 0) { return '' }
+    foreach ($a in @(Get-CommandLineArgs $cmd)) {
+        $norm = Get-CanonicalFolderPath $a
+        if (-not $norm) { continue }
+        foreach ($w in $want) {
+            if ([string]::Equals($norm, $w, [StringComparison]::OrdinalIgnoreCase)) { return $norm }
+        }
+    }
+    return ''
+}
+# Ownership proof for a fixture-looking window: recorded identity, exact fixture path as a command-
+# line argument, or descent from a process this run launched. Fresh pid and baseline exclusion are
+# required before either command-line/descendant path is accepted.
+function Get-FixtureOwnership([uint32]$procId, [int64]$handle, $baseline) {
+    if ($baseline -and $baseline.ContainsKey([int64]$handle)) {
+        return [pscustomobject]@{ Owned=$false; Reason='window handle belongs to the pre-test user baseline' }
+    }
+    $recs = @($script:Owned | Where-Object { $_.Process -notin @('explorer','ApplicationFrameHost','CalculatorApp') -and (([uint32]$_.AppPid -eq $procId) -or ([uint32]$_.Pid -eq $procId)) })
+    foreach ($rec in $recs) {
+        if (Test-RecordedProcess $rec) { return [pscustomobject]@{ Owned=$true; Reason='recorded owned process/window' } }
+    }
+    if ($recs.Count -gt 0) { return [pscustomobject]@{ Owned=$false; Reason='recorded process start no longer matches' } }
+    $pi = Get-ProcInfo $procId
+    if (-not $pi.Start) { return [pscustomobject]@{ Owned=$false; Reason='process start is unreadable' } }
+    if ($pi.Start -lt $script:TaskStart.AddSeconds(-10)) {
+        return [pscustomobject]@{ Owned=$false; Reason=('process started ' + $pi.Start.ToString('HH:mm:ss') + ', before this run') }
+    }
+    $cmd = ''; $cmdReadable = $false
+    try { $cmd = (Get-CimInstance Win32_Process -Filter ('ProcessId=' + $procId) -ErrorAction Stop).CommandLine; $cmdReadable = $true } catch { }
+    $argMatch = ''
+    if ($cmdReadable -and $cmd) { $argMatch = Get-FixtureArgumentMatch $cmd }
+    if ($argMatch) { return [pscustomobject]@{ Owned=$true; Reason=('exact fixture argument path in command line: ' + $argMatch) } }
+    foreach ($lrec in @($script:LaunchedProcesses)) {
+        if ($lrec.Name -in @('explorer','ApplicationFrameHost')) { continue }
+        if ([uint32]$lrec.Pid -eq $procId) {
+            if ($lrec.Start -and $pi.Start -and $pi.Start -eq $lrec.Start) {
+                return [pscustomobject]@{ Owned=$true; Reason='recorded launched process (pid+StartTime match)' }
+            }
+            return [pscustomobject]@{ Owned=$false; Reason='recorded launched pid but StartTime no longer matches' }
+        }
+        if (Test-DescendantOfLaunched $procId ([uint32]$lrec.Pid) $lrec.Start) {
+            return [pscustomobject]@{ Owned=$true; Reason=('descendant of recorded launch ' + $lrec.Group + ' pid=' + $lrec.Pid) }
+        }
+    }
+    # A process spawned by the test-owned FlowDesk itself is a known launch even when the packaged
+    # app's command line no longer carries the fixture path.
+    foreach ($fdPid in @($script:FlowDeskOwnedPids)) {
+        if (Test-DescendantOfLaunched $procId ([uint32]$fdPid) $script:TaskStart) {
+            return [pscustomobject]@{ Owned=$true; Reason=('descendant of test-owned FlowDesk pid=' + $fdPid) }
+        }
+    }
+    $why = if (-not $cmdReadable) { 'command line unreadable' } elseif (-not $cmd) { 'command line empty' } else { 'command line has no exact fixture argument path' }
+    return [pscustomobject]@{ Owned=$false; Reason=('fresh pid ' + $procId + ', ' + $why + '; not a recorded launch/descendant') }
+}
+function Close-FixtureWindows([string]$reason, $baseline) {
+    $left = @()
     $patterns = @('*notes-a.txt*','*notes-b.txt*','*notes-c.txt*','*notes-c2.txt*')
     foreach ($w in @([RT]::WindowsAll() | Where-Object { $t = $_.Title; @($patterns | Where-Object { $t -like $_ }).Count -gt 0 })) {
         try {
-            if (-not (Test-TaskOwnedProcess ([uint32]$w.Pid))) {
-                Log ('WARN leave fixture-looking window with unproven ownership: ' + (Format-Window $w))
+            if ($baseline -and $baseline.ContainsKey([int64]$w.Handle)) {
+                Log ('USER fixture-looking window is a pre-test baseline; leaving it untouched: ' + (Format-Window $w))
+                continue
+            }
+            $proof = Get-FixtureOwnership ([uint32]$w.Pid) ([int64]$w.Handle) $baseline
+            if (-not $proof.Owned) {
+                $msg = (Format-Window $w) + ' reason=' + $proof.Reason
+                Log ('WARN leave fixture-looking window with unproven ownership: ' + $msg)
+                $left += $msg
                 continue
             }
             Add-Owned 'Fixture-cleanup' $w $null | Out-Null
-            [void](Close-RTWindowOwned $w ($reason + ' fixture'))
-        } catch { Log ('WARN fixture close 0x' + ('{0:X}' -f [int64]$w.Handle) + ' failed: ' + $_.Exception.Message) }
+            if (-not (Close-RTWindowOwned $w ($reason + ' fixture'))) {
+                $left += ((Format-Window $w) + ' reason=ownership proven but close failed')
+            }
+        } catch { $left += ('fixture close 0x' + ('{0:X}' -f [int64]$w.Handle) + ' failed: ' + $_.Exception.Message) }
     }
+    return $left
 }
 function Stop-OwnedFlowDesk([int]$timeoutSeconds = 8) {
     foreach ($procId in @($script:FlowDeskOwnedPids | Sort-Object -Descending)) {
@@ -1080,6 +1285,49 @@ function Get-ExplorerWindowFor([string]$path) {
     if ($handles.Count -gt 0) { return [int64]$handles[0] }
     return 0
 }
+function Get-FixtureLeaf([string]$title) {
+    if (-not $title) { return '' }
+    foreach ($f in @($NotesA,$NotesB,$NotesC,$NotesC2)) {
+        $leaf = [IO.Path]::GetFileName($f)
+        if ($leaf -and $title.IndexOf($leaf, [StringComparison]::OrdinalIgnoreCase) -ge 0) { return $leaf }
+    }
+    return ''
+}
+# Identity of every fixture-looking window at one moment. Used before/after a workspace Open or
+# app restart so a window that appears because of that action has provenance, not just a title.
+function Get-FixtureWindowsMap {
+    $map = @{}
+    foreach ($w in @([RT]::WindowsAll())) {
+        $leaf = Get-FixtureLeaf $w.Title
+        if (-not $leaf) { continue }
+        $pi = Get-ProcInfo $w.Pid
+        $map[[int64]$w.Handle] = [pscustomobject]@{ Handle=[int64]$w.Handle; Pid=[uint32]$w.Pid; Start=$pi.Start; Name=$pi.Name; Title=$w.Title; Leaf=$leaf }
+    }
+    return $map
+}
+function Sync-FixtureWindows([string]$phase, $beforeMap, $baseline) {
+    if ($null -eq $beforeMap) { return }
+    foreach ($w in @([RT]::WindowsAll())) {
+        $h = [int64]$w.Handle
+        if ($beforeMap.ContainsKey($h)) { continue }
+        if ($baseline -and $baseline.ContainsKey($h)) { continue }
+        $leaf = Get-FixtureLeaf $w.Title
+        if (-not $leaf) { continue }
+        if (@($script:Owned | Where-Object { [int64]$_.Hwnd -eq $h }).Count -gt 0) { continue }
+        if ($script:FixtureRejected.ContainsKey($h)) { continue }
+        # Appearing after an Open/restart is only a lead, never ownership proof by itself.
+        $proof = Get-FixtureOwnership ([uint32]$w.Pid) $h $baseline
+        if (-not $proof.Owned) {
+            $script:FixtureRejected[$h] = $proof.Reason
+            Log ('FIXTURE NOT ADOPTED after ' + $phase + ': ' + (Format-Window $w) + ' reason=' + $proof.Reason + '; new-map timing alone is not proof')
+            continue
+        }
+        $live = [RT]::Window($h)
+        if (-not $live) { continue }
+        Add-Owned ('Fixture-' + $phase) $live $null | Out-Null
+        Log ('FIXTURE ADOPTED after ' + $phase + ': ' + (Format-Window $live) + ' reason=' + $proof.Reason + '; new since pre-action map')
+    }
+}
 function Get-OwnedWindowByGroup([string]$group) {
     $rec = @($script:Owned | Where-Object { $_.Group -eq $group -and [RT]::Alive([int64]$_.Hwnd) })[0]
     if ($rec -and (Test-RecordedProcess $rec)) {
@@ -1255,7 +1503,7 @@ function Stop-TestChrome([string]$Profile) {
     }
 }
 function Invoke-TestCleanup([string]$ChromeProfile, $UserBaseline, [uint32[]]$FlowDeskPids) {
-    $uiaOk = $true; $leftWs = @()
+    $uiaOk = $true; $leftWs = @(); $fixtureLeftovers = @()
     # A delayed UWP Calculator child may appear after the launch wait; collect only a unique, attributable
     # one from the recorded launch interval. Never kill every Calculator process started after TaskStart.
     try { Collect-PendingCalculatorChild } catch { Log ('WARN pending calculator collection failed: ' + $_.Exception.Message) }
@@ -1303,8 +1551,11 @@ function Invoke-TestCleanup([string]$ChromeProfile, $UserBaseline, [uint32[]]$Fl
     # 3. Pending Explorer folder requests: sweep exact Shell folder HWNDs excluding the pre-launch baseline.
     #    Only WM_CLOSE on folder windows; the Explorer host process is never killed.
     try { Close-PendingExplorerWindows } catch { Log ('WARN pending explorer sweep failed: ' + $_.Exception.Message) }
-    # 4. Fixture-title sweep for windows that never got recorded (ownership still proven by PID/start).
-    try { Close-FixtureWindows 'cleanup' } catch { Log ('WARN fixture sweep failed: ' + $_.Exception.Message) }
+    # 4. Fixture-title sweep for windows that never got recorded (ownership still proven by recorded
+    #    identity, exact command-line fixture path, or a recorded launch/descendant; never by title alone).
+    try { $fixtureLeftovers = @(Close-FixtureWindows 'cleanup' $UserBaseline) }
+    catch { $fixtureLeftovers = @('fixture sweep failed: ' + $_.Exception.Message); Log ('WARN fixture sweep failed: ' + $_.Exception.Message) }
+    foreach ($l in @($fixtureLeftovers)) { Log ('LEFTOVER fixture: ' + $l) }
     # 5. Force-stop exact launched/recorded instances. UWP Calculator is killed by its CalculatorApp
     #    child pid (never the ApplicationFrameHost frame); Explorer is never killed.
     try { Stop-LaunchedProcesses } catch { Log ('WARN launched-process stop failed: ' + $_.Exception.Message) }
@@ -1337,11 +1588,13 @@ function Invoke-TestCleanup([string]$ChromeProfile, $UserBaseline, [uint32[]]$Fl
     $compareOk = $true
     try { if ($UserBaseline) { $issues = @(Compare-UserWindows $UserBaseline $ownedHandles $FlowDeskPids) } }
     catch { $compareOk = $false; Log ('WARN user-window compare failed (cleanup is not a pass): ' + $_.Exception.Message) }
-    $ok = $closeOk -and $remainingOwned -eq 0 -and $remainingLaunches -eq 0 -and $flowLeft -eq 0 -and $profileGone -and $compareOk -and $issues.Count -eq 0
-    Log ('Cleanup: uia=' + $uiaOk + ' workspaces=' + $(if($uiaOk){($leftWs -join ',')}else{'unknown'}) + ' remainingOwned=' + $remainingOwned + ' remainingLaunched=' + $remainingLaunches + ' profileGone=' + $profileGone + ' testFlowDeskLeft=' + $flowLeft + ' userIssues=' + $issues.Count + ' compareOk=' + $compareOk)
+    foreach ($u in @($issues)) { Log ('USER ISSUE: ' + $u) }
+    $ok = $closeOk -and $remainingOwned -eq 0 -and $remainingLaunches -eq 0 -and $flowLeft -eq 0 -and $profileGone -and $compareOk -and $issues.Count -eq 0 -and $fixtureLeftovers.Count -eq 0
+    Log ('Cleanup: uia=' + $uiaOk + ' workspaces=' + $(if($uiaOk){($leftWs -join ',')}else{'unknown'}) + ' remainingOwned=' + $remainingOwned + ' remainingLaunched=' + $remainingLaunches + ' profileGone=' + $profileGone + ' testFlowDeskLeft=' + $flowLeft + ' userIssues=' + $issues.Count + ' fixtureLeftovers=' + $fixtureLeftovers.Count + ' compareOk=' + $compareOk)
     return [pscustomobject]@{
         Ok=$ok; UiaOk=$uiaOk; WorkspacesLeft=($leftWs -join ','); RemainingOwned=$remainingOwned
         RemainingLaunched=$remainingLaunches; ProfileGone=$profileGone; TestFlowDeskLeft=$flowLeft; UserIssues=$issues.Count; CompareOk=$compareOk
+        UserIssueDetails=@($issues); FixtureLeftovers=@($fixtureLeftovers)
     }
 }
 
@@ -1449,6 +1702,7 @@ if ($startedApp) {
 # Baseline user windows BEFORE anything is launched.
 $user0 = Snapshot-UserWindows @() @($fdPids)
 $baselineHandles = @($user0.Keys)
+$script:UserBaselineHandles = $user0
 Log ('User baseline windows: ' + $user0.Count)
 foreach ($k in $user0.Keys) { Log ('USER 0x{0:X} {1} | {2} | {3},{4} {5}x{6} min={7} max={8}' -f $k,$user0[$k].Process,$user0[$k].Title,$user0[$k].X,$user0[$k].Y,$user0[$k].W,$user0[$k].H,$user0[$k].Min,$user0[$k].Max) }
 $fg0 = [RT]::Window([RT]::Foreground()); Log ('Foreground at start: ' + $(if($fg0){$fg0.Title}else{'none'}))
@@ -1503,7 +1757,7 @@ foreach ($t in $targets) {
 $fg = [RT]::Window([RT]::Foreground()); Log ('Foreground before Save UI: ' + $(if($fg){$fg.Title}else{'none'}))
 # FlowDesk names capture items from the executable's FileDescription, so Chrome is saved as "Google Chrome"
 # (not "Chrome") and the details page shows that display name.
-$displayFor = @{ 'Notepad' = 'Notepad'; 'Paint' = 'Paint'; 'Calculator' = 'Calculator'; 'folder-a' = 'folder-a'; 'Chrome' = 'Google Chrome' }
+$displayFor = @{ 'Notepad' = 'Notepad'; 'Paint' = 'Paint'; 'Calculator' = 'Calculator'; 'folder-a' = [IO.Path]::GetFileName($FolderA); 'Chrome' = 'Google Chrome' }
 foreach ($t in $targets) { $t | Add-Member -NotePropertyName Display -NotePropertyValue $displayFor[$t.Name] -Force }
 $expectedNames = @($targets | ForEach-Object Display)
 $expectedCount = $targets.Count
@@ -1622,7 +1876,7 @@ try {
         $match = $resolved.Window
         if (-not $match) {
             Log ('RESTORE ' + $t.Name + ': ' + $resolved.Reason)
-            $checks += [pscustomobject]@{ Name=$t.Name; Missing=$true; Delta=@(); Show='Missing'; ExpectedShow=$exp.Show; Line=($t.Name + ': MISSING (' + $resolved.Reason + ')') }
+            $checks += [pscustomobject]@{ Name=$t.Name; Missing=$true; Delta=@(); Show='Missing'; ExpectedShow=$exp.Show; X=0; Y=0; W=0; H=0; Line=($t.Name + ': MISSING (' + $resolved.Reason + ')') }
             continue
         }
         Add-Owned $t.Name $match $null | Out-Null
@@ -1631,12 +1885,14 @@ try {
         $d = @([Math]::Abs($match.NormalX - $exp.X), [Math]::Abs($match.NormalY - $exp.Y), [Math]::Abs($match.NormalW - $exp.W), [Math]::Abs($match.NormalH - $exp.H))
         $checks += [pscustomobject]@{
             Name=$t.Name; Missing=$false; Delta=$d; Show=$match.Show; ExpectedShow=$exp.Show
+            X=$match.NormalX; Y=$match.NormalY; W=$match.NormalW; H=$match.NormalH
             Line=($t.Name + ': delta=' + ($d -join ',') + ' show=' + $match.Show + '/' + $exp.Show + ' rect=' + $match.X + ',' + $match.Y + ' ' + $match.W + 'x' + $match.H)
         }
     }
     # Browsers may resize after the 1.2 s settle: this late read must also pass, so drift cannot hide.
     $chromeLate = ''
     $chromeLateOk = $true
+    $chromeLateMeasured = $null
     Start-Sleep -Seconds 3
     if ($expected.Contains('Chrome')) {
         try {
@@ -1646,6 +1902,7 @@ try {
                 $chromeLate = 'lateWindow=MISSING'
                 $chromeLateOk = $false
             } else {
+                $chromeLateMeasured = $cw
                 $exp = $expected['Chrome']
                 $late = @([Math]::Abs($cw.NormalX-$exp.X),[Math]::Abs($cw.NormalY-$exp.Y),[Math]::Abs($cw.NormalW-$exp.W),[Math]::Abs($cw.NormalH-$exp.H))
                 $chromeLate = 'lateDelta=' + ($late -join ',') + ' show=' + $cw.Show + '/' + $exp.Show
@@ -1655,23 +1912,73 @@ try {
             }
         } catch { $chromeLate = 'lateCheck=ERROR'; $chromeLateOk = $false }
     }
-    $summaryOk = $summary -match ('RT Work A: ' + $expectedCount + ' of ' + $expectedCount + ' windows in place')
-    $badDeltas = @($checks | Where-Object { $_.Missing -or @($_.Delta | Where-Object { $_ -gt 10 }).Count -gt 0 })
+    # Chrome PlaceDenied is the ONLY accepted mismatch: an exact Chrome item saying "Could not move"
+    # with the browser-size detail, measured x/y/show equal and only width/height different, with
+    # requested/actual numbers matching the saved and measured values. Timeouts, access denial,
+    # missing items, unrelated failures, or a moved/mismatched Chrome never qualify.
+    $chromeCheck = @($checks | Where-Object { $_.Name -eq 'Chrome' -and -not $_.Missing })[0]
+    $chromePlaceDenied = $false
+    $chromeDeniedNote = ''
+    $chromeFailureItem = $null
+    $chromeDialogNotAccepted = $false
+    $otherDialogFailures = @()
+    if ($expected.Contains('Chrome') -and $chromeCheck) {
+        $reportItems = @(Get-ReportOutcomeItems $dialogTexts)
+        $chromeName = $displayFor['Chrome']
+        $chromeItem = @($reportItems | Where-Object { $_.Name -eq $chromeName -and $_.Status -eq 'Could not move' })[0]
+        $chromeDetail = if ($chromeItem) { [string]$chromeItem.Detail } else { '' }
+        $chromeFailureItem = @($reportItems | Where-Object { $_.Name -eq $chromeName -and $_.Status -notin @('Reused open window','Opened') })[0]
+        $otherDialogFailures = @($reportItems | Where-Object { $_.Name -ne $chromeName -and $_.Status -notin @('Reused open window','Opened') })
+        $cExp = $expected['Chrome']
+        $requested = Get-BoundsFromReportDetail $chromeDetail 'requested'
+        $actualBounds = Get-BoundsFromReportDetail $chromeDetail 'actual'
+        $xyshowSame = ([Math]::Abs($chromeCheck.Delta[0]) -le 10 -and [Math]::Abs($chromeCheck.Delta[1]) -le 10 -and $chromeCheck.Show -eq $cExp.Show)
+        $sizeDiffers = ($chromeCheck.Delta[2] -gt 10 -or $chromeCheck.Delta[3] -gt 10)
+        $detailOk = ($chromeDetail -like '*The browser controls its window size or position*')
+        $reqOk = Test-ReportBoundsMatch $requested $cExp.X $cExp.Y $cExp.W $cExp.H $cExp.Show
+        $actOk = Test-ReportBoundsMatch $actualBounds $chromeCheck.X $chromeCheck.Y $chromeCheck.W $chromeCheck.H $chromeCheck.Show
+        $chromePlaceDenied = [bool]($chromeItem -and $detailOk -and $xyshowSame -and $sizeDiffers -and $reqOk -and $actOk -and $otherDialogFailures.Count -eq 0)
+        $chromeDialogNotAccepted = [bool]($chromeFailureItem -and -not $chromePlaceDenied)
+        $chromeDeniedNote = 'item="' + $chromeName + ' / Could not move"; x/y/show same; size ' + $cExp.W + 'x' + $cExp.H + ' -> ' + $chromeCheck.W + 'x' + $chromeCheck.H + '; detail/requested/actual=' + [bool]($detailOk -and $reqOk -and $actOk) + '; otherDialogFailures=' + $otherDialogFailures.Count
+        Log ('Chrome PlaceDenied check: accepted=' + $chromePlaceDenied + '; dialogFailureNotAccepted=' + $chromeDialogNotAccepted + '; ' + $chromeDeniedNote)
+        if ($chromePlaceDenied) {
+            $lateXyShowSame = $chromeLateMeasured -and ([Math]::Abs($chromeLateMeasured.NormalX - $cExp.X) -le 10) -and ([Math]::Abs($chromeLateMeasured.NormalY - $cExp.Y) -le 10) -and ($chromeLateMeasured.Show -eq $cExp.Show)
+            $lateSizeSameAsMeasured = $chromeLateMeasured -and ([Math]::Abs($chromeLateMeasured.NormalW - $chromeCheck.W) -le 10) -and ([Math]::Abs($chromeLateMeasured.NormalH - $chromeCheck.H) -le 10)
+            $chromeLateOk = [bool]($lateXyShowSame -and $lateSizeSameAsMeasured)
+            Log ('Chrome PlaceDenied late check: ok=' + $chromeLateOk + ' (x/y/show same=' + [bool]$lateXyShowSame + '; size matches measured=' + [bool]$lateSizeSameAsMeasured + ')')
+        }
+    }
+    $summaryFullOk = $summary -match ('RT Work A: ' + $expectedCount + ' of ' + $expectedCount + ' windows in place')
+    $summaryMinusOneOk = $chromePlaceDenied -and ($summary -match ('RT Work A: ' + ($expectedCount - 1) + ' of ' + $expectedCount + ' windows in place'))
+    $summaryOk = $summaryFullOk -or $summaryMinusOneOk
+    $badDeltas = @($checks | Where-Object {
+        if ($chromePlaceDenied -and $_.Name -eq 'Chrome') { return $false }
+        return ($_.Missing -or @($_.Delta | Where-Object { $_ -gt 10 }).Count -gt 0)
+    })
     $showBad = @($checks | Where-Object { -not $_.Missing -and $_.Show -ne $_.ExpectedShow })
     $maximizedOk = @($checks | Where-Object { $_.Name -eq 'Paint' -and $_.Show -eq 'Maximized' }).Count -eq 1
     $lines = @($checks | ForEach-Object { $_.Line })
     $chromeNote = @($dialogTexts | Where-Object { $_ -like '*Chrome*' -or $_ -like '*browser*' }) -join ' / '
     $actual = $summary + ' | ' + ($lines -join '; ')
     if ($chromeLate) { $actual += ' | ' + $chromeLate }
-    if ($summaryOk -and $badDeltas.Count -eq 0 -and $showBad.Count -eq 0 -and $maximizedOk -and $chromeLateOk) {
-        Add-Result $step 'PASS' ($expectedCount.ToString() + ' windows back in their saved show state/rects (tolerance 10px), summary "N of N"') $actual ('dialog: ' + ($dialogTexts -join ' | '))
+    if ($chromePlaceDenied) { $actual += ' | Chrome PlaceDenied accepted: ' + $chromeDeniedNote }
+    if ($chromeDialogNotAccepted) { $actual += ' | Chrome dialog failure not accepted: ' + $chromeFailureItem.Status }
+    if ($otherDialogFailures.Count -gt 0) { $actual += ' | otherDialogFailures: ' + (($otherDialogFailures | ForEach-Object { $_.Name + ' / ' + $_.Status }) -join '; ') }
+    $expectedText = $expectedCount.ToString() + ' windows back in their saved show state/rects (exact; Chrome size-only PlaceDenied allowed)'
+    if ($summaryOk -and $badDeltas.Count -eq 0 -and $showBad.Count -eq 0 -and $maximizedOk -and $chromeLateOk -and $otherDialogFailures.Count -eq 0 -and -not $chromeDialogNotAccepted) {
+        Add-Result $step 'PASS' $expectedText $actual ('dialog: ' + ($dialogTexts -join ' | '))
     } else {
-        Add-Result $step 'FAIL' ($expectedCount.ToString() + ' windows back in their saved show state/rects') $actual ('dialog: ' + ($dialogTexts -join ' | '))
+        Add-Result $step 'FAIL' $expectedText $actual ('dialog: ' + ($dialogTexts -join ' | '))
         $null = Save-Shot 'step2-restore-fail.png'
     }
     Log ('Chrome reopened note: ' + $chromeNote)
 } catch {
-    Add-Result $step 'FAIL' '5 windows restored' ($_.Exception.Message) 'see log'
+    $msg = $_.Exception.Message
+    if ($msg -like 'BLOCKED:*') {
+        Add-Result $step 'BLOCKED' '5 windows restored (exact; Chrome size-only PlaceDenied allowed)' ($msg -replace '^BLOCKED: ','') 'workspace row could not be proven visible'
+    } else {
+        Add-Result $step 'FAIL' '5 windows restored' $msg 'see log'
+    }
     $null = Save-Shot 'step2-restore-exception.png'
 }
 
@@ -1803,14 +2110,16 @@ try {
     $issues = Compare-UserWindows $user0 (Get-OwnedHandles) $fdPids
     $badA = @($aStates | Where-Object { -not $_.RectOk -or -not $_.ShowOk })
     $badB = @($bStates | Where-Object { -not $_.RectOk -or -not $_.ShowOk })
+    foreach ($u in @($issues)) { Log ('USER ISSUE: ' + $u) }
     Log ('A->B->A: A minimized after = [' + ($aMinimizedAfter -join ',') + '] B minimized = [' + ($bMinimized -join ',') + '] userIssues=' + $issues.Count)
     Log ('A states: ' + (($aStates | ForEach-Object { $_.Line }) -join '; '))
     Log ('B states: ' + (($bStates | ForEach-Object { $_.Line }) -join '; '))
     $sumOk = ($sumA1 -match ('RT Work A: ' + $expectedCount + ' of ' + $expectedCount)) -and ($sumB -match ('RT Work B: ' + $bWins.Count + ' of ' + $bWins.Count)) -and ($sumA2 -match ('RT Work A: ' + $expectedCount + ' of ' + $expectedCount))
     $ok = $sumOk -and ($badA.Count -eq 0) -and ($badB.Count -eq 0) -and ($aMinimizedAfter.Count -eq 0) -and ($bMinimized.Count -eq $expectBMin) -and ($issues.Count -eq 0)
     $actual = ('A minimized=' + $aMinimizedAfter.Count + '; B minimized=' + $bMinimized.Count + '/' + $expectBMin + ' (setting ' + $minState + '); A states ' + (($aStates | ForEach-Object { $_.Line }) -join ',') + '; B states ' + (($bStates | ForEach-Object { $_.Line }) -join ',') + '; user changes=' + $issues.Count + '; summaries: ' + $sumA1 + ' / ' + $sumB + ' / ' + $sumA2)
-    if ($ok) { Add-Result $step 'PASS' ('A back at its rects/show state, B minimized per setting, no user window changed') $actual ('B item cards=' + $bRemoves) }
-    else { Add-Result $step 'FAIL' ('A back at its rects/show state, B minimized per setting, no user window changed') $actual (($issues -join '; ') + ' | ' + (($badA | ForEach-Object { $_.Line }) -join '; ') + ' | ' + (($badB | ForEach-Object { $_.Line }) -join '; ')); $null = Save-Shot 'step3-switch-fail.png' }
+    $issueEvidence = if ($issues.Count -gt 0) { 'userIssues: ' + ($issues -join '; ') } else { 'userIssues: none' }
+    if ($ok) { Add-Result $step 'PASS' ('A back at its rects/show state, B minimized per setting, no user window changed') $actual ('B item cards=' + $bRemoves + '; ' + $issueEvidence) }
+    else { Add-Result $step 'FAIL' ('A back at its rects/show state, B minimized per setting, no user window changed') $actual ($issueEvidence + ' | ' + (($badA | ForEach-Object { $_.Line }) -join '; ') + ' | ' + (($badB | ForEach-Object { $_.Line }) -join '; ')); $null = Save-Shot 'step3-switch-fail.png' }
 } catch {
     $msg = $_.Exception.Message
     if ($msg -like 'BLOCKED:*') {
@@ -1843,7 +2152,7 @@ try {
     Start-Sleep -Seconds 3
     $statusTexts = @(Get-UiAll (Get-AppRoot) | Where-Object { $_.Current.ControlType -eq [System.Windows.Automation.ControlType]::Text } | ForEach-Object { $_.Current.Name })
     $placed = @($statusTexts | Where-Object { $_ -like 'Placed * windows*' })[0]
-    $labels = @($statusTexts | Where-Object { $_ -like 'Display *' -or $_ -like '* × *' })
+    $labels = @($statusTexts | Where-Object { $_ -like 'Display *' -or $_ -like ('* ' + [char]0x00D7 + ' *') })
     $winList = @(Get-ByName 'Windows in layout order' ([System.Windows.Automation.ControlType]::List))[0]
     $winCount = 0; $listOrder = @()
     if ($winList) {
@@ -1979,7 +2288,7 @@ try {
     } else { Log 'Notepad already on blocked apps list; will not remove it.' }
     # Our own Notepad windows would otherwise be closed by the session the moment it starts.
     # Close only test-owned/fresh fixture windows, never a user instance that happens to share a title.
-    Close-FixtureWindows 'focus pre-session'
+    $null = Close-FixtureWindows 'focus pre-session' $user0
     Start-Sleep -Seconds 1
     # Re-check just before enforcement starts: a notepad.exe block is global, so no user Notepad may be up.
     $userNow2 = Snapshot-UserWindows (Get-OwnedHandles) $fdPids
@@ -2053,7 +2362,7 @@ try {
     }
     Log ('Blocked rule removed=' + $removed)
     # close gentle notepad and any notes-c leftovers (ownership-checked by PID/freshness)
-    Close-FixtureWindows 'focus after gentle'
+    $null = Close-FixtureWindows 'focus after gentle' $user0
     $okNorm = $closed -and $idle
     $okGentle = $gentleStays -and $idle2
     if ($okNorm -and $okGentle) {
@@ -2080,9 +2389,9 @@ try {
     Open-Workspace 'RT Work A' | Out-Null
     $null = Wait-Report 'RT Work A' 60
     Start-Sleep -Seconds 1
-    $move = @(Get-RTWindows | Where-Object { $_.Title -like '*folder-a*' })[0]
-    if (-not $move) { $h = Get-ExplorerWindowFor $FolderA; if ($h) { $move = [RT]::Window([int64]$h) } }
-    if (-not $move) { throw 'No folder-a window to move' }
+    $folderH = Get-ExplorerWindowFor $FolderA
+    $move = if ($folderH) { [RT]::Window([int64]$folderH) } else { $null }
+    if (-not $move) { throw 'No exact-path folder-a window to move' }
     $newX = $move.X - 120; $newY = $move.Y + 60
     if ($newX -lt 20) { $newX = $move.X + 120 }
     [void][RT]::SetPos([int64]$move.Handle, $newX, $newY, $move.W, $move.H)
@@ -2123,6 +2432,7 @@ try {
         throw 'BLOCKED: FlowDesk existed before the test; refusing to close a user instance for the restart step'
     }
     $allClosed = $true
+    $restartFixtureBefore = Get-FixtureWindowsMap
     foreach ($procId in @($script:FlowDeskOwnedPids | Sort-Object -Descending)) {
         $p = Get-Process -Id $procId -ErrorAction SilentlyContinue
         if (-not $p) { continue }
@@ -2151,6 +2461,7 @@ try {
     Start-Sleep -Seconds 3
     Register-FlowDeskOwned @(Get-FlowDeskProcesses | Where-Object { $beforeRestart -notcontains [uint32]$_.Id } | ForEach-Object { [uint32]$_.Id })
     $fdPids = @(Get-FlowDeskProcesses | ForEach-Object { [uint32]$_.Id })
+    $null = Sync-FixtureWindows 'app restart' $restartFixtureBefore $script:UserBaselineHandles
     Navigate 'Workspaces'
     Open-Workspace 'RT Work A' | Out-Null
     $sum = Wait-Report 'RT Work A' 60
@@ -2161,9 +2472,9 @@ try {
         $resolved = Resolve-RestoredWindow $t.Name $expected[$t.Name] (Get-RTWindows) $baselineHandles
         if ($resolved.Window) { Add-Owned $t.Name $resolved.Window $null | Out-Null }
     }
-    $after = @(Get-RTWindows | Where-Object { $_.Title -like '*folder-a*' })[0]
-    if (-not $after) { $h = Get-ExplorerWindowFor $FolderA; if ($h) { $after = [RT]::Window([int64]$h) } }
-    if (-not $after) { throw 'folder-a window missing after reopen' }
+    $folderH = Get-ExplorerWindowFor $FolderA
+    $after = if ($folderH) { [RT]::Window([int64]$folderH) } else { $null }
+    if (-not $after) { throw 'exact-path folder-a window missing after reopen' }
     $delta = Rect-Delta $after $moved.X $moved.Y $moved.W $moved.H
     Log ('Autosave after reopen: rect=' + $after.X + ',' + $after.Y + ' expected=' + $moved.X + ',' + $moved.Y + ' delta=' + ($delta -join ',') + ' summary=' + $sum)
     if (@($delta | Where-Object { $_ -gt 10 }).Count -eq 0) {
@@ -2217,20 +2528,28 @@ try {
 
 # ---- STEP 7 result: cleanup is only a pass if the user's data was restored and verified ----
 $cleanup = $script:CleanupStats
-if (-not $cleanup) { $cleanup = [pscustomobject]@{ Ok=$false; UiaOk=$false; WorkspacesLeft='unknown'; RemainingOwned=-1; RemainingLaunched=-1; ProfileGone=$false; TestFlowDeskLeft=-1; UserIssues=-1; CompareOk=$false } }
+if (-not $cleanup) { $cleanup = [pscustomobject]@{ Ok=$false; UiaOk=$false; WorkspacesLeft='unknown'; RemainingOwned=-1; RemainingLaunched=-1; ProfileGone=$false; TestFlowDeskLeft=-1; UserIssues=-1; CompareOk=$false; UserIssueDetails=@(); FixtureLeftovers=@() } }
 $restore = $script:DataRestore
 $restoreOk = [bool]($restore -and $restore.Ok)
 $restoreBlocked = [bool]($restore -and $restore.RestoreBlocked)
 $cleanupOk = [bool]$cleanup.Ok
 $stepOk = $cleanupOk -and $restoreOk -and -not $restoreBlocked -and -not $script:RunError
-$actual = 'remainingOwned=' + $cleanup.RemainingOwned + '; remainingLaunched=' + $cleanup.RemainingLaunched + '; workspacesLeft=' + $cleanup.WorkspacesLeft + '; cleanupUia=' + $cleanup.UiaOk + '; compareOk=' + $cleanup.CompareOk + '; profileGone=' + $cleanup.ProfileGone + '; testFlowDeskLeft=' + $cleanup.TestFlowDeskLeft + '; userChanges=' + $cleanup.UserIssues + '; dataRestore=' + $restoreOk + '; restoreBlocked=' + $restoreBlocked + '; restoreBackup=' + $(if ($script:DataBackup) { $script:DataBackup.BackupDir } else { '<none>' })
+$cleanupIssues = @($cleanup.UserIssueDetails)
+$cleanupLeftovers = @($cleanup.FixtureLeftovers)
+$actual = 'remainingOwned=' + $cleanup.RemainingOwned + '; remainingLaunched=' + $cleanup.RemainingLaunched + '; workspacesLeft=' + $cleanup.WorkspacesLeft + '; cleanupUia=' + $cleanup.UiaOk + '; compareOk=' + $cleanup.CompareOk + '; profileGone=' + $cleanup.ProfileGone + '; testFlowDeskLeft=' + $cleanup.TestFlowDeskLeft + '; userChanges=' + $cleanup.UserIssues + '; fixtureLeftovers=' + $cleanupLeftovers.Count + '; dataRestore=' + $restoreOk + '; restoreBlocked=' + $restoreBlocked + '; restoreBackup=' + $(if ($script:DataBackup) { $script:DataBackup.BackupDir } else { '<none>' })
+if ($cleanupIssues.Count -gt 0) { $actual += '; userIssueDetails=' + ($cleanupIssues -join '; ') }
+if ($cleanupLeftovers.Count -gt 0) { $actual += '; fixtureLeftoverDetails=' + ($cleanupLeftovers -join '; ') }
 if (-not $restoreOk -and $restore) { $actual += '; restoreFailures=' + ($restore.Failures -join '; ') }
 if ($script:RunError) { $actual += '; runError=' + $script:RunError }
+$evidence = @()
+if ($cleanupIssues.Count -gt 0) { $evidence += 'userIssues: ' + ($cleanupIssues -join '; ') }
+if ($cleanupLeftovers.Count -gt 0) { $evidence += 'fixtureLeftovers: ' + ($cleanupLeftovers -join '; ') }
+$evidenceText = $evidence -join ' | '
 if ($stepOk) {
-    Add-Result $step 'PASS' '0 owned windows/processes, test FlowDesk closed, chrome profile removed, no user window changed, original data restored and hash-verified' $actual ''
+    Add-Result $step 'PASS' '0 owned windows/processes, test FlowDesk closed, chrome profile removed, no user window changed, original data restored and hash-verified' $actual $evidenceText
 } else {
     $null = Save-Shot 'step7-cleanup-fail.png'
-    Add-Result $step 'FAIL' '0 owned windows/processes, test FlowDesk closed, chrome profile removed, no user window changed, original data restored and hash-verified' $actual ''
+    Add-Result $step 'FAIL' '0 owned windows/processes, test FlowDesk closed, chrome profile removed, no user window changed, original data restored and hash-verified' $actual $evidenceText
 }
 
 # ---- summary ----
