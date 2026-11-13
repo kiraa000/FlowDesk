@@ -22,6 +22,13 @@ public sealed class SessionTracker
 
     public void Unbind(string workspaceId, string itemId) => _bound.TryRemove((workspaceId, itemId), out _);
 
+    /// <summary>Forget runtime ownership and placement when a workspace is deleted.</summary>
+    public void ForgetWorkspace(string workspaceId)
+    {
+        foreach (var key in _bound.Keys.Where(k => k.Ws == workspaceId)) _bound.TryRemove(key, out _);
+        ClearSession(workspaceId);
+    }
+
     /// <summary>The live window still bound to this item, or null if it closed (or the handle was reused).</summary>
     public WindowInfo? Live(IWindowSystem ws, string workspaceId, string itemId)
     {
@@ -46,6 +53,11 @@ public sealed class SessionTracker
 
     public IEnumerable<long> HandlesOf(string workspaceId) =>
         _bound.Where(kv => kv.Key.Ws == workspaceId).Select(kv => kv.Value.Handle);
+
+    /// <summary>Checks identity as well as the handle, so closed/recycled bindings cannot penalize a new window.</summary>
+    public bool IsBoundToOtherWorkspace(string workspaceId, WindowInfo w) =>
+        _bound.Any(kv => kv.Key.Ws != workspaceId && kv.Value.Handle == w.Handle
+            && kv.Value.Pid == w.ProcessId && kv.Value.AppKey == w.AppKey);
 
     public void SetSession(string workspaceId, Dictionary<string, SavedWindow> placements) => _sessions[workspaceId] = placements;
 

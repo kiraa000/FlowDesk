@@ -22,7 +22,7 @@ $BuildDir = 'D:\Workspace\Builds\FlowDesk Builds\FlowDesk-2026-11-12'
 $AppExe = Join-Path $BuildDir 'FlowDesk.App.exe'
 $ShotDir = Join-Path $RunDir 'shots'
 $LogPath = Join-Path $RunDir 'RealApp-Test.log'
-$EdgeProfile = Join-Path $RunDir 'edge-profile'
+$ChromeProfile = Join-Path $RunDir ('chrome-profile-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
 $NotesA = Join-Path $RunDir 'notes-a.txt'
 $NotesB = Join-Path $RunDir 'notes-b.txt'
 $NotesC = Join-Path $RunDir 'notes-c.txt'
@@ -443,21 +443,21 @@ function Launch-Explorer([string]$path, [string]$group, [int]$timeout = 15) {
     }
     return $null
 }
-function Launch-Edge {
-    $exe = 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe'
-    if (-not (Test-Path -LiteralPath $exe)) { $exe = 'C:\Program Files\Microsoft\Edge\Application\msedge.exe' }
-    if (-not (Test-Path -LiteralPath $exe)) { throw 'msedge.exe not found' }
-    if (Test-Path -LiteralPath $EdgeProfile) { Remove-Item -LiteralPath $EdgeProfile -Recurse -Force }
+function Launch-Chrome {
+    $exe = 'C:\Program Files\Google\Chrome\Application\chrome.exe'
+    if (-not (Test-Path -LiteralPath $exe)) { $exe = 'C:\Program Files (x86)\Google\Chrome\Application\chrome.exe' }
+    if (-not (Test-Path -LiteralPath $exe)) { throw 'chrome.exe not found' }
+    if (Test-Path -LiteralPath $ChromeProfile) { throw 'Disposable Chrome profile already exists; preserve it and start a new run.' }
     $before = @{}; foreach ($w in (Get-RTWindows)) { $before[[int64]$w.Handle] = $true }
-    Start-Process -FilePath $exe -ArgumentList ('--user-data-dir="' + $EdgeProfile + '" --no-first-run --no-default-browser-check about:blank https://example.com') | Out-Null
+    Start-Process -FilePath $exe -ArgumentList ('--user-data-dir="' + $ChromeProfile + '" --no-first-run --no-default-browser-check about:blank https://example.com') | Out-Null
     Start-Sleep -Seconds 2
     $sw = [Diagnostics.Stopwatch]::StartNew()
     while ($sw.Elapsed.TotalSeconds -lt 30) {
         $pids = @()
-        try { $pids = @(Get-CimInstance Win32_Process -Filter "Name='msedge.exe'" | Where-Object { $_.CommandLine -like ('*' + $EdgeProfile + '*') } | ForEach-Object { [uint32]$_.ProcessId }) } catch { }
+        try { $pids = @(Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" | Where-Object { $_.CommandLine -like ('*' + $ChromeProfile + '*') } | ForEach-Object { [uint32]$_.ProcessId }) } catch { }
         foreach ($w in (Get-RTWindows)) {
             if ($pids -contains [uint32]$w.Pid -and $w.Class -eq 'Chrome_WidgetWin_1' -and -not $before.ContainsKey([int64]$w.Handle)) {
-                Add-Owned 'Edge' $w $null | Out-Null
+                Add-Owned 'Chrome' $w $null | Out-Null
                 return $w
             }
         }
@@ -487,12 +487,12 @@ function Close-OwnedGroup([string]$group, [int]$timeout = 10) {
 }
 function Close-AllApps {
     $groups = @($script:Owned | ForEach-Object Group | Select-Object -Unique)
-    foreach ($g in $groups) { if ($g -eq 'Edge') { continue }; [void](Close-OwnedGroup $g 8) }
-    # Edge: close every window of the temp profile, then force only its own PIDs if a window ignores close.
-    $edgeItems = @($script:Owned | Where-Object Group -eq 'Edge')
-    foreach ($o in $edgeItems) { $w = [RT]::Window([int64]$o.Hwnd); if ($w) { [void](Close-OwnedWindow $w 6) } }
+    foreach ($g in $groups) { if ($g -eq 'Chrome') { continue }; [void](Close-OwnedGroup $g 8) }
+    # Chrome: close every window of the temp profile, then force only its own PIDs if a window ignores close.
+    $chromeItems = @($script:Owned | Where-Object Group -eq 'Chrome')
+    foreach ($o in $chromeItems) { $w = [RT]::Window([int64]$o.Hwnd); if ($w) { [void](Close-OwnedWindow $w 6) } }
     try {
-        $pids = @(Get-CimInstance Win32_Process -Filter "Name='msedge.exe'" | Where-Object { $_.CommandLine -like ('*' + $EdgeProfile + '*') } | ForEach-Object { [int]($_.ProcessId) })
+        $pids = @(Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" | Where-Object { $_.CommandLine -like ('*' + $ChromeProfile + '*') } | ForEach-Object { [int]($_.ProcessId) })
         foreach ($procId in $pids) { if (Get-Process -Id $procId -ErrorAction SilentlyContinue) { Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue } }
     } catch { }
 }
@@ -583,8 +583,8 @@ $notepadA = Launch-Notepad $NotesA 'Notepad-A'
 $paintA = Launch-Paint
 $calc = Launch-Calculator
 $explorerA = Launch-Explorer $FolderA 'Explorer-A'
-$edge = Launch-Edge
-Log ('Launched: notepad=' + $(if($notepadA){$notepadA.Handle}else{'FAIL'}) + ' paint=' + $(if($paintA){$paintA.Handle}else{'FAIL'}) + ' calc=' + $(if($calc){$calc.Handle}else{'SKIP'}) + ' explorer=' + $(if($explorerA){$explorerA.Handle}else{'FAIL'}) + ' edge=' + $(if($edge){$edge.Handle}else{'FAIL'}))
+$chrome = Launch-Chrome
+Log ('Launched: notepad=' + $(if($notepadA){$notepadA.Handle}else{'FAIL'}) + ' paint=' + $(if($paintA){$paintA.Handle}else{'FAIL'}) + ' calc=' + $(if($calc){$calc.Handle}else{'SKIP'}) + ' explorer=' + $(if($explorerA){$explorerA.Handle}else{'FAIL'}) + ' chrome=' + $(if($chrome){$chrome.Handle}else{'FAIL'}))
 
 # ---- arrange known rects ----
 $areas = @()
@@ -599,7 +599,7 @@ if ($notepadA)  { $targets += [pscustomobject]@{ Name='Notepad'; Win=$notepadA }
 if ($paintA)    { $targets += [pscustomobject]@{ Name='Paint'; Win=$paintA } }
 if ($calc)      { $targets += [pscustomobject]@{ Name='Calculator'; Win=$calc } }
 if ($explorerA) { $targets += [pscustomobject]@{ Name='folder-a'; Win=$explorerA } }
-if ($edge)      { $targets += [pscustomobject]@{ Name='Edge'; Win=$edge } }
+if ($chrome)      { $targets += [pscustomobject]@{ Name='Chrome'; Win=$chrome } }
 for ($i = 0; $i -lt $targets.Count; $i++) {
     $t = $targets[$i]; $a = $areas[$i]
     [void][RT]::SetPos([int64]$t.Win.Handle, $a.X, $a.Y, $a.W, $a.H)
@@ -619,9 +619,9 @@ foreach ($t in $targets) {
     Log ('ARRANGE ' + $t.Name + ' hwnd=0x' + ('{0:X}' -f $w.Handle) + ' rect=' + $w.X + ',' + $w.Y + ' ' + $w.W + 'x' + $w.H + ' min=' + $w.Min + ' max=' + $w.Max + ' monitor=' + $expected[$t.Name].Monitor)
 }
 $fg = [RT]::Window([RT]::Foreground()); Log ('Foreground before Save UI: ' + $(if($fg){$fg.Title}else{'none'}))
-# FlowDesk names capture items from the executable's FileDescription, so Edge is saved as "Microsoft Edge"
-# (not "Edge") and the details page shows that display name.
-$displayFor = @{ 'Notepad' = 'Notepad'; 'Paint' = 'Paint'; 'Calculator' = 'Calculator'; 'folder-a' = 'folder-a'; 'Edge' = 'Microsoft Edge' }
+# FlowDesk names capture items from the executable's FileDescription, so Chrome is saved as "Google Chrome"
+# (not "Chrome") and the details page shows that display name.
+$displayFor = @{ 'Notepad' = 'Notepad'; 'Paint' = 'Paint'; 'Calculator' = 'Calculator'; 'folder-a' = 'folder-a'; 'Chrome' = 'Google Chrome' }
 foreach ($t in $targets) { $t | Add-Member -NotePropertyName Display -NotePropertyValue $displayFor[$t.Name] -Force }
 $expectedNames = @($targets | ForEach-Object Display)
 $expectedCount = $targets.Count
@@ -630,11 +630,11 @@ $launchMissing = @()
 if (-not $notepadA) { $launchMissing += 'Notepad' }
 if (-not $paintA) { $launchMissing += 'Paint' }
 if (-not $explorerA) { $launchMissing += 'Explorer folder-a' }
-if (-not $edge) { $launchMissing += 'Edge temp profile' }
+if (-not $chrome) { $launchMissing += 'Chrome temp profile' }
 if ($launchMissing.Count -gt 0) {
-    Add-Result '0 Setup launches' 'BLOCKED' 'Notepad, Paint, Calculator (optional), Explorer folder-a, temp Edge' ('missing: ' + ($launchMissing -join ', ') + '; Calculator=' + $(if($calc){'owned'}else{'skipped (ownership uncertain)'})) 'continuing with the windows that exist'
+    Add-Result '0 Setup launches' 'BLOCKED' 'Notepad, Paint, Calculator (optional), Explorer folder-a, temp Chrome' ('missing: ' + ($launchMissing -join ', ') + '; Calculator=' + $(if($calc){'owned'}else{'skipped (ownership uncertain)'})) 'continuing with the windows that exist'
 } elseif (-not $calc) {
-    Add-Result '0 Setup launches' 'BLOCKED' 'Notepad, Paint, Calculator, Explorer folder-a, temp Edge' ('Calculator skipped (ownership uncertain); other 4 launched') 'continuing with 4 windows'
+    Add-Result '0 Setup launches' 'BLOCKED' 'Notepad, Paint, Calculator, Explorer folder-a, temp Chrome' ('Calculator skipped (ownership uncertain); other 4 launched') 'continuing with 4 windows'
 } else {
     Log 'Setup launches: all 5 disposable windows owned.'
 }
@@ -659,11 +659,11 @@ try {
     foreach ($t in $targets) {
         $w = [RT]::Window([int64]$t.Win.Handle)
         $cand = $null
-        if ($t.Name -eq 'Edge') {
+        if ($t.Name -eq 'Chrome') {
             # Only OUR temp-profile window, identified by its exact title. If it cannot be matched,
             # the candidate stays null and step 1 fails safely instead of saving a Personal window.
-            $edgeTitle = if ($w) { $w.Title } else { '' }
-            $cand = @($cbs | Where-Object { $_.Current.Name -eq 'Microsoft Edge' -and $edgeTitle -ne '' -and (@(Get-TextOf $_) -contains $edgeTitle) })[0]
+            $chromeTitle = if ($w) { $w.Title } else { '' }
+            $cand = @($cbs | Where-Object { $_.Current.Name -eq 'Google Chrome' -and $chromeTitle -ne '' -and (@(Get-TextOf $_) -contains $chromeTitle) })[0]
         } elseif ($t.Name -eq 'Paint') {
             $cand = @($cbs | Where-Object { $_.Current.Name -eq 'Paint' })[0]
         } elseif ($t.Name -eq 'Calculator') {
@@ -693,7 +693,7 @@ try {
     Start-Sleep -Milliseconds 800
     $removes = @(Get-ByName 'Remove' ([System.Windows.Automation.ControlType]::Button))
     $itemTexts = @(Get-UiAll (Get-AppRoot) | Where-Object { $_.Current.ControlType -eq [System.Windows.Automation.ControlType]::Text } | ForEach-Object { $_.Current.Name })
-    # Match each expected item to the display name FlowDesk actually shows (Edge -> "Microsoft Edge");
+    # Match each expected item to the display name FlowDesk actually shows (Chrome -> "Google Chrome");
     # keep the short test name in the report so a shortfall is attributable.
     $present = New-Object System.Collections.ArrayList
     $missing = New-Object System.Collections.ArrayList
@@ -746,8 +746,8 @@ try {
         elseif ($t.Name -eq 'Paint') { $match = @($now | Where-Object { $_.Title -like '*Paint*' -and $_.Class -ne 'Chrome_WidgetWin_1' })[0] }
         elseif ($t.Name -eq 'Calculator') { $match = @($now | Where-Object { $_.Title -eq 'Calculator' })[0] }
         elseif ($t.Name -eq 'folder-a') { $h = Get-ExplorerWindowFor $FolderA; if ($h) { $match = [RT]::Window([int64]$h) } }
-        elseif ($t.Name -eq 'Edge') {
-            try { $pids = @(Get-CimInstance Win32_Process -Filter "Name='msedge.exe'" | Where-Object { $_.CommandLine -like ('*' + $EdgeProfile + '*') } | ForEach-Object { [uint32]$_.ProcessId })
+        elseif ($t.Name -eq 'Chrome') {
+            try { $pids = @(Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" | Where-Object { $_.CommandLine -like ('*' + $ChromeProfile + '*') } | ForEach-Object { [uint32]$_.ProcessId })
                   $match = @($now | Where-Object { $pids -contains $_.Pid -and $_.Class -eq 'Chrome_WidgetWin_1' })[0] } catch { }
         }
         if (-not $match) { $checks += ($t.Name + ': MISSING'); continue }
@@ -772,14 +772,14 @@ try {
     $maximizedOk = $true
     $pc = @($checks | Where-Object { $_ -like 'Paint: maximized*' })[0]
     if ($pc -and $pc -notlike '*maximized=True*') { $maximizedOk = $false }
-    $edgeNote = @($dialogTexts | Where-Object { $_ -like '*Edge*' -or $_ -like '*browser*' }) -join ' / '
+    $chromeNote = @($dialogTexts | Where-Object { $_ -like '*Chrome*' -or $_ -like '*browser*' }) -join ' / '
     if ($summaryOk -and $badDeltas.Count -eq 0 -and $maximizedOk) {
         Add-Result $step 'PASS' ($expectedCount.ToString() + ' windows back on saved rects/monitor (tolerance 10px), summary "N of N"') ($summary + ' | ' + ($checks -join '; ')) ('dialog: ' + ($dialogTexts -join ' | '))
     } else {
         Add-Result $step 'FAIL' ($expectedCount.ToString() + ' windows back on saved rects/monitor') ($summary + ' | ' + ($checks -join '; ')) ('dialog: ' + ($dialogTexts -join ' | '))
         $null = Save-Shot 'step2-restore-fail.png'
     }
-    Log ('Edge reopened note: ' + $edgeNote)
+    Log ('Chrome reopened note: ' + $chromeNote)
 } catch {
     Add-Result $step 'FAIL' '5 windows restored' ($_.Exception.Message) 'see log'
     $null = Save-Shot 'step2-restore-exception.png'
@@ -796,7 +796,7 @@ foreach ($t in $targets) {
         elseif ($t.Name -eq 'Paint') { $w = @($now | Where-Object { $_.Title -like '*Paint*' -and $_.Class -ne 'Chrome_WidgetWin_1' })[0] }
         elseif ($t.Name -eq 'Calculator') { $w = @($now | Where-Object { $_.Title -eq 'Calculator' })[0] }
         elseif ($t.Name -eq 'folder-a') { $h = Get-ExplorerWindowFor $FolderA; if ($h) { $w = [RT]::Window([int64]$h) } }
-        elseif ($t.Name -eq 'Edge') { try { $pids = @(Get-CimInstance Win32_Process -Filter "Name='msedge.exe'" | Where-Object { $_.CommandLine -like ('*' + $EdgeProfile + '*') } | ForEach-Object { [uint32]$_.ProcessId }); $w = @(Get-RTWindows | Where-Object { $pids -contains $_.Pid -and $_.Class -eq 'Chrome_WidgetWin_1' })[0] } catch { } }
+        elseif ($t.Name -eq 'Chrome') { try { $pids = @(Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" | Where-Object { $_.CommandLine -like ('*' + $ChromeProfile + '*') } | ForEach-Object { [uint32]$_.ProcessId }); $w = @(Get-RTWindows | Where-Object { $pids -contains $_.Pid -and $_.Class -eq 'Chrome_WidgetWin_1' })[0] } catch { } }
     }
     if ($w) { $aLive[$t.Name] = [pscustomobject]@{ Handle=[int64]$w.Handle; X=$w.X; Y=$w.Y; W=$w.W; H=$w.H; Min=$w.Min; Max=$w.Max } }
 }
@@ -1205,16 +1205,16 @@ try {
     foreach ($w in $remainingOwned) { $own = @($script:Owned | Where-Object { [int64]$_.Hwnd -eq [int64]$w.Handle })[0]; if ($own -and $own.Process -notin @('explorer','ApplicationFrameHost','CalculatorApp')) { Stop-Process -Id $own.Pid -Force -ErrorAction SilentlyContinue } }
     Start-Sleep -Seconds 1
     $remainingOwned = @(Get-RTWindows | Where-Object { (Get-OwnedHandles) -contains [int64]$_.Handle })
-    if (Test-Path -LiteralPath $EdgeProfile) { Remove-Item -LiteralPath $EdgeProfile -Recurse -Force }
+    if (Test-Path -LiteralPath $ChromeProfile) { Remove-Item -LiteralPath $ChromeProfile -Recurse -Force }
     Navigate 'Workspaces'
     $texts = @(Get-UiAll (Get-AppRoot) | Where-Object { $_.Current.ControlType -eq [System.Windows.Automation.ControlType]::Text } | ForEach-Object { $_.Current.Name })
     $leftWs = @('RT Work A','RT Work B','RT Layout' | Where-Object { $texts -contains $_ })
     $issues = Compare-UserWindows $user0 (Get-OwnedHandles) $fdPids
-    Log ('Cleanup: remainingOwned=' + $remainingOwned.Count + ' workspacesLeft=' + ($leftWs -join ',') + ' edgeProfile=' + (Test-Path -LiteralPath $EdgeProfile) + ' userIssues=' + $issues.Count)
-    if ($remainingOwned.Count -eq 0 -and $leftWs.Count -eq 0 -and -not (Test-Path -LiteralPath $EdgeProfile)) {
-        Add-Result $step 'PASS' '0 owned windows, 0 RT workspaces, edge profile removed' ('remainingOwned=0; workspacesLeft=0; user changes=' + $issues.Count) (($issues -join '; '))
+    Log ('Cleanup: remainingOwned=' + $remainingOwned.Count + ' workspacesLeft=' + ($leftWs -join ',') + ' chromeProfile=' + (Test-Path -LiteralPath $ChromeProfile) + ' userIssues=' + $issues.Count)
+    if ($remainingOwned.Count -eq 0 -and $leftWs.Count -eq 0 -and -not (Test-Path -LiteralPath $ChromeProfile)) {
+        Add-Result $step 'PASS' '0 owned windows, 0 RT workspaces, chrome profile removed' ('remainingOwned=0; workspacesLeft=0; user changes=' + $issues.Count) (($issues -join '; '))
     } else {
-        Add-Result $step 'FAIL' '0 owned windows, 0 RT workspaces, edge profile removed' ('remainingOwned=' + $remainingOwned.Count + '; workspacesLeft=' + ($leftWs -join ',') + '; profileExists=' + (Test-Path -LiteralPath $EdgeProfile)) (($issues -join '; '))
+        Add-Result $step 'FAIL' '0 owned windows, 0 RT workspaces, chrome profile removed' ('remainingOwned=' + $remainingOwned.Count + '; workspacesLeft=' + ($leftWs -join ',') + '; profileExists=' + (Test-Path -LiteralPath $ChromeProfile)) (($issues -join '; '))
         $null = Save-Shot 'step7-cleanup-fail.png'
     }
 } catch {

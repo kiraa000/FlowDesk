@@ -67,6 +67,12 @@ public sealed class WorkspaceRestorer(IWindowSystem windows, IAppLauncher launch
 
         void Report(WorkspaceItem item, ItemOutcome o, string? detail = null)
         {
+            string? browserExe = item.App?.ExePath is { Length: > 0 } exe ? exe
+                : item.Kind == ItemKind.Website ? browser : null;
+            if (o is ItemOutcome.Launched or ItemOutcome.LaunchedNoWindow or ItemOutcome.PlaceDenied
+                && ShellLauncher.IsBrowser(browserExe)
+                && BrowserSession.ProfileArgs(browserExe, item.App?.Arguments) is null)
+                detail = "Opened your default browser profile" + (detail is null ? "" : ". " + detail);
             var r = new ItemResult(item.Id, item.Name, o, detail);
             results[item.Id] = r;
             progress?.Report(r);
@@ -92,7 +98,10 @@ public sealed class WorkspaceRestorer(IWindowSystem windows, IAppLauncher launch
         {
             var candidates = ws.Items.Where(i => !matched.ContainsKey(i.Id) && i.Kind != ItemKind.Website)
                                      .Select(i => (i.Id, specs[i.Id])).ToList();
-            foreach (var (id, w) in WindowMatcher.Assign(candidates, open, claimed))
+            // Prefer an unowned window even over a better title match owned by another workspace.
+            // A positive bonus preserves the threshold for a shared single-instance window fallback.
+            foreach (var (id, w) in WindowMatcher.Assign(candidates, open, claimed,
+                bonus: (_, w) => tracker.IsBoundToOtherWorkspace(ws.Id, w) ? 0 : 1000))
             {
                 matched[id] = w;
                 claimed.Add(w.Handle);
@@ -105,7 +114,7 @@ public sealed class WorkspaceRestorer(IWindowSystem windows, IAppLauncher launch
         var before = open.Select(w => w.Handle).ToHashSet();
         var pending = new List<WorkspaceItem>();
         // Browser session restore: ONE launch per browser profile brings back all its windows; the other items of
-        // that profile just wait for those windows (matched by title). Extra restored windows stay unclaimed.
+        // that profile just wait for its NEW windows. Title matches take priority over ordered fallback.
         var launchedSessions = new Dictionary<string, string?>(); // launch key -> launch error (null = started)
         foreach (var item in ws.Items.Where(i => !matched.ContainsKey(i.Id)))
         {
@@ -148,10 +157,30 @@ public sealed class WorkspaceRestorer(IWindowSystem windows, IAppLauncher launch
             // First half of the wait: only brand-new windows count. Later, an existing unclaimed window may do
             // (single-instance apps that only bring their old window forward).
             bool lateFallback = poll > maxPolls / 2;
+            var sessions = pending.Where(BrowserSession.Applies).ToList();
             var assigned = WindowMatcher.Assign(
-                pending.Select(i => (i.Id, specs[i.Id])).ToList(), now, claimed,
+                sessions.Select(i => (i.Id, specs[i.Id])).ToList(), now, claimed,
+                allowed: (id, w) => !before.Contains(w.Handle)
+                    && WindowMatcher.TitleSimilarity(w.Title, specs[id].Title) > 0);
+            var pollClaimed = new HashSet<long>(claimed);
+            pollClaimed.UnionWith(assigned.Values.Select(w => w.Handle));
+            // Session restore may be disabled: the profile opens a new-tab window instead. Accept it
+            // without a title requirement, but never cross process-profile identity or take an old handle.
+            // No launched PID check: Chromium may hand off/relaunch into a different process.
+            foreach (var item in sessions.Where(i => !assigned.ContainsKey(i.Id)))
+            {
+                var spec = specs[item.Id] with { Title = null };
+                var w = now.FirstOrDefault(w => !before.Contains(w.Handle) && !pollClaimed.Contains(w.Handle)
+                    && WindowMatcher.Score(w, spec) >= WindowMatcher.Threshold);
+                if (w is null) continue;
+                assigned[item.Id] = w;
+                pollClaimed.Add(w.Handle);
+            }
+            var others = WindowMatcher.Assign(
+                pending.Where(i => !BrowserSession.Applies(i)).Select(i => (i.Id, specs[i.Id])).ToList(), now, pollClaimed,
                 bonus: (_, w) => before.Contains(w.Handle) ? 0 : 40,
                 allowed: (_, w) => lateFallback || !before.Contains(w.Handle));
+            foreach (var (id, w) in others) assigned[id] = w;
             foreach (var (id, w) in assigned)
             {
                 matched[id] = w;

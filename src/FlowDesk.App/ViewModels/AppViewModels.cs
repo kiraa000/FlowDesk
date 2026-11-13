@@ -352,6 +352,7 @@ public partial class AppViewModels : ObservableObject
         if (!await Ui.ConfirmAsync("Delete workspace?",
             $"Delete {workspace.Name}? Your apps and files will not be deleted.", "Delete workspace")) return;
         Services.Data.Workspaces.Remove(workspace.Model); WorkspacesCollection.Remove(workspace);
+        Services.Tracker.ForgetWorkspace(workspace.Model.Id);
         Services.Switcher.ResetSession(workspace.Model.Id);
         Services.Settings.ClearActiveWorkspaceIfMatches(workspace.Model.Id);
         if (Services.Switcher.ActiveWorkspaceId == workspace.Model.Id) Services.Switcher.ClearActive();

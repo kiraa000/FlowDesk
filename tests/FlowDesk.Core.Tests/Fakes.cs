@@ -32,6 +32,9 @@ internal sealed class FakeWindowSystem : IWindowSystem
         return w;
     }
 
+    /// <summary>Removes a window as if the app had closed it (keeps the handle counter moving).</summary>
+    public void CloseWindow(long handle) => Windows.RemoveAll(w => w.Handle == handle);
+
     public IReadOnlyList<WindowInfo> GetAppWindows() => Windows.ToList();
     public WindowInfo? Get(long handle) => Windows.FirstOrDefault(w => w.Handle == handle);
     public bool IsAlive(long handle) => Windows.Any(w => w.Handle == handle);

@@ -1,6 +1,12 @@
 // FlowDesk.Probe - exercise the window core on the real desktop.
 //   list                         print open app windows (what capture sees)
 //   capture <file.json>          save all open, includable windows as a workspace
+//   capture-match <file.json> <substring>
+//                                like capture, but only windows whose title, exe path or arguments
+//                                contain <substring> (case-insensitive): isolate one disposable app/profile
+//                                e.g. Chrome started with
+//                                --user-data-dir="D:\Workspace\_projects\FlowDesk\sol-tasks\realtest-001\chrome-profile"
+//                                then: capture-match ...\realtest-001\chrome.json chrome-profile
 //   restore <file.json>          open/move everything back, print the report
 //   layout <grid|two|sidebar|cascade> <file.json>   tile the workspace's open windows
 //   desktops [dllDir]            read-only virtual desktop check via VirtualDesktopAccessor.dll
@@ -49,6 +55,20 @@ switch (cmd)
         var workspace = new Workspace { Name = "Probe capture", Items = items, LayoutSavedAt = DateTimeOffset.Now };
         File.WriteAllText(args[1], JsonSerializer.Serialize(workspace, JsonStore.Options));
         Console.WriteLine($"saved {items.Count} items to {args[1]}");
+        break;
+    }
+
+    case "capture-match":
+    {
+        if (args.Length < 3) { Console.WriteLine("usage: capture-match <file.json> <substring>"); break; }
+        string needle = args[2];
+        bool Hit(string? s) => s is not null && s.Contains(needle, StringComparison.OrdinalIgnoreCase);
+        var items = capture.CaptureOpenWindows()
+            .Where(c => c.Problem is null && (Hit(c.Window.Title) || Hit(c.Window.ExePath) || Hit(c.Window.Arguments)))
+            .Select(c => c.Item).ToList();
+        var workspace = new Workspace { Name = "Probe capture", Items = items, LayoutSavedAt = DateTimeOffset.Now };
+        File.WriteAllText(args[1], JsonSerializer.Serialize(workspace, JsonStore.Options));
+        Console.WriteLine($"saved {items.Count} items matching \"{needle}\" to {args[1]}");
         break;
     }
 
@@ -126,7 +146,7 @@ switch (cmd)
     }
 
     default:
-        Console.WriteLine("usage: list | capture <f> | restore <f> | layout <preset> <f> | focus <exe> <sec> [mode] | switch <a> <b>");
+        Console.WriteLine("usage: list | capture <f> | capture-match <f> <substring> | restore <f> | layout <preset> <f> | focus <exe> <sec> [mode] | switch <a> <b>");
         break;
 }
 

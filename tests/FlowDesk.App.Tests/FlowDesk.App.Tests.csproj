@@ -25,6 +25,7 @@
     <Compile Include="..\..\src\FlowDesk.App\Services\RestoreReportText.cs" Link="RestoreReportText.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\NewWindowEligibility.cs" Link="NewWindowEligibility.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\BrowserNoticeSelection.cs" Link="BrowserNoticeSelection.cs" />
+    <Compile Include="..\..\src\FlowDesk.App\Services\SaveOpenWindowsBinding.cs" Link="SaveOpenWindowsBinding.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\StartupResume.cs" Link="StartupResume.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Autosave\AutoSaveCoordinator.cs" Link="AutoSaveCoordinator.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Autosave\AutoSaveSavePolicy.cs" Link="AutoSaveSavePolicy.cs" />

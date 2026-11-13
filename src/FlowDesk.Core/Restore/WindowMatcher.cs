@@ -33,6 +33,8 @@ public sealed record MatchSpec
         ItemKind.Website => new MatchSpec
         {
             Kind = item.Kind, ExeName = AppKeys.ExeName(browserExe ?? item.App?.ExePath), Title = item.Window?.Title,
+            BrowserProcessKey = item.App is { } a && ShellLauncher.IsBrowser(a.ExePath)
+                ? BrowserSession.ProcessKey(a.ExePath, a.Arguments) : null,
         },
         ItemKind.File => new MatchSpec
         {

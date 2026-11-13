@@ -6,6 +6,7 @@ using CommunityToolkit.Mvvm.Input;
 using FlowDesk.App.Services;
 using FlowDesk.Core.Capture;
 using FlowDesk.Core.Model;
+using FlowDesk.Core.Windows;
 
 namespace FlowDesk.App.ViewModels;
 
@@ -121,6 +122,7 @@ public partial class SaveOpenWindowsViewModel(AppViewModels owner) : ObservableO
         var selected = Candidates.Where(c => c.Selected && c.CanSelect).ToArray();
         if (selected.Length == 0) { Error = "Select at least one window, or create an empty workspace from Workspaces."; return; }
         List<WorkspaceItem> items = [];
+        List<(WorkspaceItem Item, WindowInfo Window)> saved = [];
         foreach (var candidate in selected)
         {
             var item = candidate.Source.Item.Clone();
@@ -130,9 +132,13 @@ public partial class SaveOpenWindowsViewModel(AppViewModels owner) : ObservableO
                 { Error = "Use a complete http or https link on each line."; return; }
                 item.Kind = ItemKind.Website; item.Urls = urls;
             }
-            items.Add(item);
+            items.Add(item); saved.Add((item, candidate.Source.Window));
         }
-        owner.Edit(owner.Add(new Workspace { Name = Name.Trim(), Items = items }));
+        var workspace = owner.Add(new Workspace { Name = Name.Trim(), Items = items });
+        // The workspace now owns these exact windows: the first Open reuses them instead of matching
+        // identical titles against windows that belong to another workspace.
+        SaveOpenWindowsBinding.Bind(owner.Services.Tracker, workspace.Model, saved);
+        owner.Edit(workspace);
     }
     [RelayCommand] private void Cancel() => owner.Navigate(AppPage.Workspaces);
 }

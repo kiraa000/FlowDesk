@@ -195,6 +195,102 @@ public class RestoreTests
         Assert.Equal("b", switcher.ActiveWorkspaceId);
     }
 
+    [Fact]
+    public async Task Switch_AB_A_keeps_identical_title_windows_in_their_own_workspaces()
+    {
+        var capture = new WorkspaceCapture(_sys, _tracker, new NoFolders());
+        var switcher = new WorkspaceSwitcher(_sys, _tracker, capture, _restorer);
+        var paintA = _sys.Add(@"C:\apps\mspaint.exe", "Untitled - Paint");
+        var paintB = _sys.Add(@"C:\apps\mspaint.exe", "Untitled - Paint");
+        var a = new Workspace
+        {
+            Id = "a", Name = "A",
+            Items = [Build.App(@"C:\apps\mspaint.exe", "Untitled - Paint", new(0, 0, 800, 600))],
+        };
+        var b = new Workspace
+        {
+            Id = "b", Name = "B",
+            Items = [Build.App(@"C:\apps\mspaint.exe", "Untitled - Paint", new(500, 400, 800, 600))],
+        };
+
+        await switcher.SwitchToAsync(a, null);
+        Assert.Contains(_sys.Placed, p => p.Handle == paintA.Handle && p.Rect == new PixelRect(0, 0, 800, 600));
+
+        await switcher.SwitchToAsync(b, a);
+        Assert.Contains(_sys.Placed, p => p.Handle == paintB.Handle && p.Rect == new PixelRect(500, 400, 800, 600));
+        Assert.Contains(paintA.Handle, _sys.Minimized); // A's own window is tucked away, not shared
+
+        await switcher.SwitchToAsync(a, b);
+        Assert.Contains(paintB.Handle, _sys.Minimized); // B's window, not A's, is minimized on return
+        Assert.Equal(WindowShow.Normal, _sys.Get(paintA.Handle)!.Show);
+        Assert.Equal(new PixelRect(0, 0, 800, 600), _sys.Get(paintA.Handle)!.NormalRect);
+    }
+
+    [Fact]
+    public async Task Switch_shared_single_instance_window_is_still_reused_by_both_workspaces()
+    {
+        var capture = new WorkspaceCapture(_sys, _tracker, new NoFolders());
+        var switcher = new WorkspaceSwitcher(_sys, _tracker, capture, _restorer);
+        var spotify = _sys.Add(@"C:\apps\spotify.exe", "Spotify");
+        var a = new Workspace
+        {
+            Id = "a", Name = "A",
+            Items = [Build.App(@"C:\apps\spotify.exe", "Spotify", new(0, 0, 600, 600))],
+        };
+        var b = new Workspace
+        {
+            Id = "b", Name = "B",
+            Items = [Build.App(@"C:\apps\spotify.exe", "Spotify", new(1000, 0, 600, 600))],
+        };
+
+        await switcher.SwitchToAsync(a, null);
+        await switcher.SwitchToAsync(b, a);
+
+        // The only window is bound to A, but B must still use it (no unbound alternative).
+        Assert.Empty(_launcher.Launched);
+        Assert.Contains(_sys.Placed, p => p.Handle == spotify.Handle && p.Rect == new PixelRect(1000, 0, 600, 600));
+        Assert.DoesNotContain(spotify.Handle, _sys.Minimized);
+    }
+
+    [Fact]
+    public void ForgetWorkspace_clears_ownership_and_session_for_only_that_workspace()
+    {
+        var window = _sys.Add(@"C:\apps\code.exe", "proj - Visual Studio Code");
+        var item = Build.App(@"C:\apps\code.exe", "proj - Visual Studio Code");
+        var placement = new Dictionary<string, SavedWindow> { [item.Id] = item.Window! };
+        _tracker.Bind("a", item.Id, window);
+        _tracker.SetSession("a", placement);
+        _tracker.Bind("b", item.Id, window);
+        _tracker.SetSession("b", placement);
+
+        _tracker.ForgetWorkspace("a");
+
+        Assert.Null(_tracker.Live(_sys, "a", item.Id));
+        Assert.Empty(_tracker.HandlesOf("a"));
+        Assert.Null(_tracker.GetSession("a"));
+        Assert.NotNull(_tracker.Live(_sys, "b", item.Id));
+        Assert.NotNull(_tracker.GetSession("b"));
+        Assert.False(_tracker.IsBoundToOtherWorkspace("b", window));
+    }
+
+    [Fact]
+    public void IsBoundToOtherWorkspace_ignores_a_recycled_handle()
+    {
+        var tracker = new SessionTracker();
+        var old = new WindowInfo
+        {
+            Handle = 100, ProcessId = 11, ExePath = @"C:\apps\code.exe", Title = "proj - Visual Studio Code",
+            ClassName = "Win", NormalRect = new(0, 0, 800, 600), Show = WindowShow.Normal,
+        };
+        tracker.Bind("a", "item", old);
+
+        Assert.True(tracker.IsBoundToOtherWorkspace("b", old));
+        Assert.False(tracker.IsBoundToOtherWorkspace("a", old));
+        // Windows recycles handles: a new window with the old handle but another PID must not count.
+        Assert.False(tracker.IsBoundToOtherWorkspace("b", old with { ProcessId = 12 }));
+        Assert.False(tracker.IsBoundToOtherWorkspace("b", old with { ExePath = @"C:\apps\other.exe" }));
+    }
+
     private sealed class NoFolders : IFolderPathSource
     {
         public IReadOnlyDictionary<long, string> GetOpenFolders() => new Dictionary<long, string>();

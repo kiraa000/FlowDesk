@@ -35,7 +35,7 @@ public sealed class ShellLauncher : IAppLauncher
             return item.Kind switch
             {
                 ItemKind.App => LaunchApp(item.App, BrowserSession.Applies(item)),
-                ItemKind.Website => LaunchUrls(item.Urls, item.App?.ExePath),
+                ItemKind.Website => LaunchUrls(item.Urls, item.App),
                 ItemKind.File => LaunchFile(item),
                 ItemKind.Folder => LaunchFolder(item.Path),
                 _ => LaunchResult.Fail("Unknown item type"),
@@ -95,18 +95,23 @@ public sealed class ShellLauncher : IAppLauncher
     }
 
     /// <summary>Opens all URLs in ONE new window of the chosen (or default) browser so the window can be placed.</summary>
-    private static LaunchResult LaunchUrls(List<string> urls, string? preferredBrowser)
+    private static LaunchResult LaunchUrls(List<string> urls, AppRef? preferredApp)
     {
         var valid = urls.Where(IsWebUrl).ToList();
         if (valid.Count == 0) return LaunchResult.Fail("No valid http(s) links");
+        string? preferredBrowser = preferredApp?.ExePath;
+        string? profileArgs = BrowserSession.ProfileArgs(preferredBrowser, preferredApp?.Arguments);
+        // If a captured profile cannot be launched, never silently substitute the user's default browser.
+        if (profileArgs is not null && (string.IsNullOrEmpty(preferredBrowser) || !File.Exists(preferredBrowser)))
+            return LaunchResult.Fail("The browser for the saved profile could not be found");
         string? browser = !string.IsNullOrEmpty(preferredBrowser) && File.Exists(preferredBrowser) ? preferredBrowser : DefaultBrowserExe();
         string name = Model.AppKeys.ExeName(browser);
         string quoted = string.Join(' ', valid.Select(u => "\"" + u.Replace("\"", "%22") + "\""));
 
         if (browser is not null && Chromium.Contains(name))
-            Process.Start(new ProcessStartInfo(browser, "--new-window " + quoted) { UseShellExecute = false });
+            Process.Start(new ProcessStartInfo(browser, (profileArgs is null ? "" : profileArgs + " ") + "--new-window " + quoted) { UseShellExecute = false });
         else if (browser is not null && Gecko.Contains(name))
-            Process.Start(new ProcessStartInfo(browser, "-new-window " + quoted) { UseShellExecute = false });
+            Process.Start(new ProcessStartInfo(browser, (profileArgs is null ? "" : profileArgs + " ") + "-new-window " + quoted) { UseShellExecute = false });
         else
         {
             foreach (var u in valid) Process.Start(new ProcessStartInfo(u) { UseShellExecute = true });
