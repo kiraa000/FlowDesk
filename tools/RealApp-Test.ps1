@@ -18,7 +18,7 @@ if ($Mode -eq 'Parse') {
 }
 $RootRepo = 'D:\Workspace\_projects\FlowDesk\flowdesk-app'
 $RunDir = 'D:\Workspace\_projects\FlowDesk\sol-tasks\realtest-001'
-$BuildDir = 'D:\Workspace\Builds\FlowDesk Builds\FlowDesk-2026-11-13b'
+$BuildDir = 'D:\Workspace\Builds\FlowDesk Builds\FlowDesk-2026-11-13c'
 $AppExe = Join-Path $BuildDir 'FlowDesk.App.exe'
 $ShotDir = Join-Path $RunDir 'shots'
 $LogPath = Join-Path $RunDir 'RealApp-Test.log'
@@ -430,6 +430,10 @@ function Wait-Ui([scriptblock]$test, [int]$seconds = 20) {
     }
     return $null
 }
+function Test-UiUsable($e) {
+    if (-not $e) { return $false }
+    try { return ($e.Current.IsEnabled -and -not $e.Current.IsOffscreen) } catch { return $false }
+}
 function Navigate([string]$page) {
     $item = @(Get-ByContains $page ([System.Windows.Automation.ControlType]::ListItem) | Where-Object { $_.Current.Name -eq $page })[0]
     if (-not $item) { $item = @(Get-ByName $page ([System.Windows.Automation.ControlType]::ListItem))[0] }
@@ -518,6 +522,26 @@ function Open-Workspace([string]$name) {
     if (-not $btn) { throw ('Open button not found for workspace ' + $name) }
     Invoke-Element $btn
     Start-Sleep -Seconds 1
+}
+function Open-SavePage {
+    # Shared entry for both save flows: the populated "New workspace" split-button/button main action,
+    # or (when there are no workspaces yet) the visible enabled empty-state "Save open windows" button.
+    # Resolve by live state and usability, never by order or title alone.
+    $entry = $null
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    while (-not $entry -and $sw.Elapsed.TotalSeconds -lt 15) {
+        $entry = @(Get-ByName 'New workspace' ([System.Windows.Automation.ControlType]::SplitButton) | Where-Object { Test-UiUsable $_ })[0]
+        if (-not $entry) { $entry = @(Get-ByName 'New workspace' ([System.Windows.Automation.ControlType]::Button) | Where-Object { Test-UiUsable $_ })[0] }
+        if (-not $entry) { $entry = @(Get-ByName 'Save open windows' ([System.Windows.Automation.ControlType]::Button) | Where-Object { Test-UiUsable $_ })[0] }
+        if (-not $entry) { Start-Sleep -Milliseconds 300 }
+    }
+    if (-not $entry) { throw 'Save entry not found: no usable New workspace split-button/button or empty-state Save open windows button' }
+    Log ('SAVE entry: ' + $entry.Current.ControlType.ProgrammaticName + ' "' + $entry.Current.Name + '"')
+    Invoke-Element $entry
+    # The page title is the reliable marker (the empty-state button shares its text but is a Button).
+    $savePage = Wait-Ui { param() @(Get-ByName 'Save open windows' ([System.Windows.Automation.ControlType]::Text) | Where-Object { Test-UiUsable $_ }).Count -gt 0 } 15
+    if (-not $savePage) { throw 'Save open windows page did not open' }
+    Start-Sleep -Milliseconds 800
 }
 function Get-StatusTexts {
     $all = Get-UiAll (Get-AppRoot)
@@ -1025,11 +1049,29 @@ function Launch-Calculator {
     Add-Owned 'Calculator' $w $calcProc | Out-Null
     return $w
 }
+function Get-CanonicalFolderPath([string]$path) {
+    if (-not $path) { return '' }
+    try { $full = [IO.Path]::GetFullPath($path) } catch { return '' }
+    # Exact comparison needs one spelling: canonical full path without a trailing separator (keep "C:\").
+    if ($full.Length -gt 3 -and ($full.EndsWith('\') -or $full.EndsWith('/'))) { $full = $full.Substring(0, $full.Length - 1) }
+    return $full
+}
+function Test-SameFolderPath([string]$a, [string]$b) {
+    $ca = Get-CanonicalFolderPath $a; $cb = Get-CanonicalFolderPath $b
+    if (-not $ca -or -not $cb) { return $false }
+    return [string]::Equals($ca, $cb, [StringComparison]::OrdinalIgnoreCase)
+}
 function Get-ExplorerWindowsFor([string]$path) {
+    # ALL windows whose Shell folder is this exact canonical full path, not just the first match.
     $handles = @()
+    $want = Get-CanonicalFolderPath $path
+    if (-not $want) { return $handles }
     $shell = New-Object -ComObject Shell.Application
     foreach ($f in $shell.Windows()) {
-        try { if ($f.Document.Folder.Self.Path -eq $path) { $handles += [int64]$f.HWND } } catch { }
+        try {
+            $got = $f.Document.Folder.Self.Path
+            if (Test-SameFolderPath $got $want) { $h = [int64]$f.HWND; if ($h -ne 0) { $handles += $h } }
+        } catch { }
     }
     return $handles
 }
@@ -1038,24 +1080,70 @@ function Get-ExplorerWindowFor([string]$path) {
     if ($handles.Count -gt 0) { return [int64]$handles[0] }
     return 0
 }
-function Launch-Explorer([string]$path, [string]$group, [int]$timeout = 15) {
+function Get-OwnedWindowByGroup([string]$group) {
+    $rec = @($script:Owned | Where-Object { $_.Group -eq $group -and [RT]::Alive([int64]$_.Hwnd) })[0]
+    if ($rec -and (Test-RecordedProcess $rec)) {
+        $live = [RT]::Window([int64]$rec.Hwnd)
+        if ($live -and [uint32]$live.Pid -eq [uint32]$rec.Pid -and (Get-AppProcessId $live) -eq $rec.AppPid) { return $live }
+    }
+    return $null
+}
+function Launch-Explorer([string]$path, [string]$group, [int]$timeout = 40) {
     $before = @{}; foreach ($w in (Get-RTWindows)) { $before[[int64]$w.Handle] = $true }
     $started = Get-Date
     $pending = [pscustomobject]@{ Path=$path; Group=$group; BaselineHandles=@($before.Keys); Started=$started; ResolvedHwnd=[int64]0 }
     [void]$script:ExplorerPending.Add($pending)
     $p = Start-Process -FilePath explorer.exe -ArgumentList ('"' + $path + '"') -PassThru
     Register-LaunchedProcess $group $p
+    # Shell COM can lag the launch or transiently fail while Explorer registers the folder. Poll all
+    # exact canonical path matches and adopt only a CabinetWClass HWND absent from the pre-launch
+    # baseline; a known pre-existing window for the same folder is never adopted or killed, and we
+    # never launch a second Explorer for the same request.
     $sw = [Diagnostics.Stopwatch]::StartNew()
+    $lastScanError = ''
+    $lastMatchCount = 0
     while ($sw.Elapsed.TotalSeconds -lt $timeout) {
-        $h = Get-ExplorerWindowFor $path
-        if ($h -ne 0 -and -not $before.ContainsKey([int64]$h)) {
+        $handles = @()
+        try {
+            $handles = @(Get-ExplorerWindowsFor $path)
+            $lastScanError = ''
+        } catch {
+            if ($_.Exception.Message -ne $lastScanError) { Log ('WARN Explorer scan for ' + $path + ' failed transiently: ' + $_.Exception.Message); $lastScanError = $_.Exception.Message }
+        }
+        $lastMatchCount = $handles.Count
+        foreach ($h in $handles) {
+            if ($h -eq 0 -or $before.ContainsKey([int64]$h)) { continue }
             $w = [RT]::Window([int64]$h)
-            if ($w) { $pending.ResolvedHwnd = [int64]$w.Handle; Add-Owned $group $w $null | Out-Null; return $w }
+            if (-not $w -or $w.Class -ne 'CabinetWClass') { continue }
+            $pending.ResolvedHwnd = [int64]$w.Handle
+            Add-Owned $group $w $null | Out-Null
+            return $w
         }
         Start-Sleep -Milliseconds 400
     }
-    Log ('Explorer pending request kept for cleanup: ' + $group + ' path=' + $path + ' baseline=' + @($before.Keys).Count)
+    Log ('Explorer pending request kept for cleanup: ' + $group + ' path=' + $path + ' baseline=' + @($before.Keys).Count + ' exactMatches=' + $lastMatchCount + ' waited=' + [int]$sw.Elapsed.TotalSeconds + 's')
     return $null
+}
+function Resolve-PendingExplorerWindows {
+    # Late Shell registration: re-evaluate every unresolved request under the same exact-path,
+    # baseline-excluded, CabinetWClass-only rules. Never launches a second Explorer.
+    $resolved = @()
+    foreach ($req in @($script:ExplorerPending)) {
+        if ($req.ResolvedHwnd -ne 0) { continue }
+        $handles = @()
+        try { $handles = @(Get-ExplorerWindowsFor $req.Path) }
+        catch { Log ('WARN Explorer rescan for ' + $req.Path + ' failed transiently: ' + $_.Exception.Message); continue }
+        foreach ($h in $handles) {
+            if ($h -eq 0 -or @($req.BaselineHandles) -contains [int64]$h) { continue }
+            $w = [RT]::Window([int64]$h)
+            if (-not $w -or $w.Class -ne 'CabinetWClass') { continue }
+            $req.ResolvedHwnd = [int64]$w.Handle
+            Add-Owned $req.Group $w $null | Out-Null
+            $resolved += $w
+            break
+        }
+    }
+    return $resolved
 }
 function Launch-Chrome {
     $exe = 'C:\Program Files\Google\Chrome\Application\chrome.exe'
@@ -1371,6 +1459,11 @@ $paintA = Launch-Paint
 $calc = Launch-Calculator
 $explorerA = Launch-Explorer $FolderA 'Explorer-A'
 $chrome = Launch-Chrome
+# A folder window can register just after the bounded wait; with the other fixtures now launched,
+# re-check the pending exact-path request before setup is reported missing. Rescan never relaunches.
+$lateExplorerWindows = @(Resolve-PendingExplorerWindows)
+foreach ($w in $lateExplorerWindows) { Log ('Explorer late registration adopted: ' + (Format-Window $w)) }
+if (-not $explorerA) { $explorerA = Get-OwnedWindowByGroup 'Explorer-A' }
 Log ('Launched: notepad=' + $(if($notepadA){$notepadA.Handle}else{'FAIL'}) + ' paint=' + $(if($paintA){$paintA.Handle}else{'FAIL'}) + ' calc=' + $(if($calc){$calc.Handle}else{'SKIP'}) + ' explorer=' + $(if($explorerA){$explorerA.Handle}else{'FAIL'}) + ' chrome=' + $(if($chrome){$chrome.Handle}else{'FAIL'}))
 
 # ---- arrange known rects ----
@@ -1435,13 +1528,7 @@ try {
     # The Save page snapshots windows when it opens; take the expected rects again right before that,
     # because browsers can change their own size after our arrange pass (stale expectations looked like a restore bug).
     Sync-ExpectedLive 'PRESAVE' $targets $expected $mons
-    $newBtn = @(Get-ByName 'New workspace' ([System.Windows.Automation.ControlType]::SplitButton))[0]
-    if (-not $newBtn) { $newBtn = @(Get-ByName 'New workspace' ([System.Windows.Automation.ControlType]::Button))[0] }
-    if (-not $newBtn) { throw 'New workspace button not found' }
-    Invoke-Element $newBtn
-    $savePage = Wait-Ui { param() @(Get-ByName 'Save open windows' ([System.Windows.Automation.ControlType]::Text)).Count -gt 0 } 10
-    if (-not $savePage) { throw 'Save open windows page did not open' }
-    Start-Sleep -Milliseconds 800
+    Open-SavePage
     # Deselect everything (the page preselects all selectable windows, including the user's).
     $cbs = @(Get-UiAll (Get-AppRoot) | Where-Object { $_.Current.ControlType -eq [System.Windows.Automation.ControlType]::CheckBox })
     foreach ($cb in $cbs) { Set-Toggle $cb $false }
@@ -1616,6 +1703,8 @@ try {
     $notepadB = Launch-Notepad $NotesB 'Notepad-B'
     $paintB = Launch-PaintB
     $explorerB = Launch-Explorer $FolderB 'Explorer-B'
+    $null = Resolve-PendingExplorerWindows
+    if (-not $explorerB) { $explorerB = Get-OwnedWindowByGroup 'Explorer-B' }
     $bWins = @()
     if ($notepadB) { $bWins += [pscustomobject]@{ Name='Notepad'; Win=$notepadB; X=1200; Y=200; W=560; H=400 } }
     if ($paintB)   { $bWins += [pscustomobject]@{ Name='Paint'; Win=$paintB; X=500; Y=300; W=520; H=600 } }
@@ -1634,11 +1723,7 @@ try {
     }
     Log ('B expected: ' + (($bWins | ForEach-Object { $_.Name + '=' + $bExpected[$_.Name].X + ',' + $bExpected[$_.Name].Y + ' ' + $bExpected[$_.Name].W + 'x' + $bExpected[$_.Name].H + ' show=' + $bExpected[$_.Name].Show }) -join '; '))
     Navigate 'Workspaces'
-    $newBtn = @(Get-ByName 'New workspace' ([System.Windows.Automation.ControlType]::SplitButton))[0]
-    if (-not $newBtn) { $newBtn = @(Get-ByName 'New workspace' ([System.Windows.Automation.ControlType]::Button))[0] }
-    Invoke-Element $newBtn
-    $null = Wait-Ui { param() @(Get-ByName 'Save open windows' ([System.Windows.Automation.ControlType]::Text)).Count -gt 0 } 10
-    Start-Sleep -Milliseconds 800
+    Open-SavePage
     $cbs = @(Get-UiAll (Get-AppRoot) | Where-Object { $_.Current.ControlType -eq [System.Windows.Automation.ControlType]::CheckBox })
     foreach ($cb in $cbs) { Set-Toggle $cb $false }
     Start-Sleep -Milliseconds 300
