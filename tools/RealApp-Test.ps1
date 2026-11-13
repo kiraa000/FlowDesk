@@ -18,7 +18,7 @@ if ($Mode -eq 'Parse') {
 }
 $RootRepo = 'D:\Workspace\_projects\FlowDesk\flowdesk-app'
 $RunDir = 'D:\Workspace\_projects\FlowDesk\sol-tasks\realtest-001'
-$BuildDir = 'D:\Workspace\Builds\FlowDesk Builds\FlowDesk-2026-11-12'
+$BuildDir = 'D:\Workspace\Builds\FlowDesk Builds\FlowDesk-2026-11-13'
 $AppExe = Join-Path $BuildDir 'FlowDesk.App.exe'
 $ShotDir = Join-Path $RunDir 'shots'
 $LogPath = Join-Path $RunDir 'RealApp-Test.log'
