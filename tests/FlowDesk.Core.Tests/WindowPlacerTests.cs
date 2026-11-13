@@ -1,3 +1,4 @@
+using FlowDesk.Core.Layout;
 using FlowDesk.Core.Model;
 using FlowDesk.Core.Windows;
 
@@ -14,6 +15,7 @@ public class WindowPlacerTests
     private const int ShowNormal = 1;       // SW_SHOWNORMAL
     private const int ShowMaximized = 3;    // SW_SHOWMAXIMIZED
     private const int ShowNoActivate = 4;   // SW_SHOWNOACTIVATE
+    private const int ShowNA = 8;           // SW_SHOWNA
     private const int ShowMinNoActivate = 7; // SW_SHOWMINNOACTIVE
     private const int ShowRestore = 9;      // SW_RESTORE
 
@@ -147,15 +149,64 @@ public class WindowPlacerTests
     }
 
     [Fact]
-    public void Hung_window_gets_an_asynchronous_move_and_does_not_block()
+    public void Hung_window_is_placed_without_a_synchronous_show_and_does_not_block()
     {
+        // Regardless of whether the implementation uses an asynchronous move or an asynchronous placement,
+        // it must never call the synchronous ShowWindow family on a hung window and must not block.
         var api = new FakePlacementApi { Hung = true };
 
         var outcome = WindowPlacer.Place(api, Target, WindowShow.Maximized);
 
         Assert.Equal(PlaceOutcome.Ok, outcome);
-        Assert.Equal(new[] { "SetRect:async" }, api.Ops);
         Assert.Equal(Target, api.LastRequestedRect);
+        Assert.DoesNotContain(api.Ops, o => o.StartsWith("Show"));
+    }
+
+    [Fact]
+    public void Hung_iconic_window_targeting_normal_must_unminimize()
+    {
+        // Regression for Calculator: a hung hosted frame used to get only an asynchronous rect move,
+        // so the requested show state was silently ignored and the window stayed iconic.
+        var api = new FakePlacementApi { Hung = true, Iconic = true };
+
+        var outcome = WindowPlacer.Place(api, Target, WindowShow.Normal);
+
+        Assert.Equal(PlaceOutcome.Ok, outcome);
+        Assert.False(api.Iconic);
+        Assert.False(api.Maximized);
+        Assert.Equal(Target, api.RestoreRect);
+    }
+
+    [Fact]
+    public void Hung_iconic_window_targeting_maximized_must_apply_the_show_state()
+    {
+        var api = new FakePlacementApi { Hung = true, Iconic = true };
+
+        var outcome = WindowPlacer.Place(api, Target, WindowShow.Maximized);
+
+        Assert.Equal(PlaceOutcome.Ok, outcome);
+        Assert.False(api.Iconic);
+        Assert.True(api.Maximized);
+        Assert.Equal(Target, api.RestoreRect);
+    }
+
+    [Fact]
+    public void Layout_applies_a_hung_minimized_window_through_the_same_placement_path()
+    {
+        var api = new FakePlacementApi { Hung = true, Iconic = true };
+        var window = new WindowInfo
+        {
+            Handle = 42, ProcessId = 7164, ExePath = @"C:\Windows\System32\ApplicationFrameHost.exe",
+            Title = "Calculator", ClassName = "ApplicationFrameWindow", NormalRect = new(1400, 120, 418, 635),
+            Show = WindowShow.Minimized, MonitorDevice = "\\\\.\\DISPLAY1",
+        };
+        var sys = new PlacerWindowSystem(api, window);
+
+        var result = new LayoutApplier(sys).Apply(LayoutPreset.TwoColumns, [window]);
+
+        Assert.Equal(PlaceOutcome.Ok, Assert.Single(result).Outcome);
+        Assert.False(api.Iconic);
+        Assert.Contains(api.Ops, o => o.StartsWith("SetPlacement:"));
     }
 
     [Fact]
@@ -178,6 +229,143 @@ public class WindowPlacerTests
         Assert.Equal(PlaceOutcome.Failed, outcome);
     }
 
+    [Fact]
+    public void Hung_async_placement_denied_by_the_os_is_reported_as_access_denied()
+    {
+        var api = new FakePlacementApi { Hung = true, PlacementFails = true, LastError = 5 };
+
+        var outcome = WindowPlacer.Place(api, Target, WindowShow.Normal);
+
+        Assert.Equal(PlaceOutcome.AccessDenied, outcome);
+        Assert.Equal(0, api.Pauses);
+    }
+
+    [Fact]
+    public void Hung_async_placement_other_failure_is_reported_as_failed()
+    {
+        var api = new FakePlacementApi { Hung = true, PlacementFails = true, LastError = 87 };
+
+        var outcome = WindowPlacer.Place(api, Target, WindowShow.Normal);
+
+        Assert.Equal(PlaceOutcome.Failed, outcome);
+        Assert.Contains("SetPlacement:Normal", api.Ops);
+        Assert.Equal(0, api.Pauses);
+    }
+
+    [Fact]
+    public void Hung_window_that_disappears_during_bounded_polling_reports_window_gone()
+    {
+        var api = new FakePlacementApi { Hung = true, Iconic = true, IgnorePlacementState = true, VanishAfterPauses = 2 };
+
+        var outcome = WindowPlacer.Place(api, Target, WindowShow.Normal);
+
+        Assert.Equal(PlaceOutcome.WindowGone, outcome);
+        Assert.Equal(2, api.Pauses);
+    }
+
+    [Fact]
+    public void Hung_frame_held_iconic_returns_failed_after_exactly_twenty_pauses_without_a_sync_show()
+    {
+        var api = new FakePlacementApi { Hung = true, Iconic = true, IgnorePlacementState = true };
+
+        var outcome = WindowPlacer.Place(api, Target, WindowShow.Normal);
+
+        Assert.Equal(PlaceOutcome.Failed, outcome);
+        Assert.True(api.Iconic);
+        Assert.Equal(20, api.Pauses);
+        Assert.DoesNotContain(api.Ops, o => o.StartsWith("Show"));
+    }
+
+    [Fact]
+    public void Hung_frame_whose_state_applies_after_three_polls_succeeds()
+    {
+        var api = new FakePlacementApi { Hung = true, Iconic = true, PlacementAppliesAfterPauses = 3 };
+
+        var outcome = WindowPlacer.Place(api, Target, WindowShow.Normal);
+
+        Assert.Equal(PlaceOutcome.Ok, outcome);
+        Assert.False(api.Iconic);
+        Assert.Equal(3, api.Pauses);
+    }
+
+    [Fact]
+    public void Non_hung_fallback_that_stays_iconic_after_the_sync_show_goes_async()
+    {
+        // Hosted frames can ignore SW_SHOWNOACTIVATE and SW_RESTORE. The normal branch must not report
+        // success after SetRect while still iconic; it falls into the same bounded async placement path.
+        var api = new FakePlacementApi { Hung = false, Iconic = true, IgnoreSynchronousShow = true };
+
+        var outcome = WindowPlacer.Place(api, Target, WindowShow.Normal);
+
+        Assert.Equal(PlaceOutcome.Ok, outcome);
+        Assert.False(api.Iconic);
+        Assert.Contains("Show4", api.Ops);
+        Assert.Contains("Show9", api.Ops);
+        Assert.Contains("SetPlacement:Normal", api.Ops);
+        Assert.Equal(0, api.Pauses);
+    }
+
+    [Fact]
+    public void Hung_window_targeting_maximized_sends_the_maximized_command_and_applies_it()
+    {
+        var api = new FakePlacementApi { Hung = true, Iconic = true };
+
+        var outcome = WindowPlacer.Place(api, Target, WindowShow.Maximized);
+
+        Assert.Equal(PlaceOutcome.Ok, outcome);
+        Assert.Contains("SetPlacement:Maximized", api.Ops);
+        Assert.False(api.Iconic);
+        Assert.True(api.Maximized);
+    }
+
+    [Fact]
+    public void Hung_window_targeting_minimized_sends_the_minimized_command_and_keeps_it_iconic()
+    {
+        var api = new FakePlacementApi { Hung = true, Iconic = false };
+
+        var outcome = WindowPlacer.Place(api, Target, WindowShow.Minimized);
+
+        Assert.Equal(PlaceOutcome.Ok, outcome);
+        Assert.Contains("SetPlacement:Minimized", api.Ops);
+        Assert.True(api.Iconic);
+        Assert.False(api.Maximized);
+    }
+
+    [Theory]
+    [InlineData(WindowShow.Normal, false, false, true, ShowNoActivate)]    // already normal: move without activating
+    [InlineData(WindowShow.Normal, true, false, true, ShowRestore)]        // iconic -> normal
+    [InlineData(WindowShow.Normal, false, true, true, ShowRestore)]        // maximized -> normal
+    [InlineData(WindowShow.Maximized, false, true, true, ShowNA)]          // already max on target: no activation
+    [InlineData(WindowShow.Maximized, false, true, false, ShowMaximized)]  // max on another monitor: transition
+    [InlineData(WindowShow.Maximized, false, false, true, ShowMaximized)]  // normal -> maximized
+    [InlineData(WindowShow.Maximized, true, false, true, ShowMaximized)]   // iconic -> maximized
+    [InlineData(WindowShow.Minimized, false, false, true, ShowMinNoActivate)] // minimize without activating
+    public void Async_show_command_keeps_nonactivating_state_and_only_transitions_with_restore_or_maximize(
+        WindowShow requested, bool minimized, bool maximized, bool onTargetMonitor, int expected)
+    {
+        Assert.Equal(expected, WindowPlacer.AsyncShowCommand(requested, minimized, maximized, onTargetMonitor));
+    }
+
+    [Fact]
+    public void Workspace_conversion_subtracts_left_and_top_work_area_offsets_on_a_negative_monitor()
+    {
+        var monitor = new PixelRect(-2560, 0, 2560, 1440);
+        var work = new PixelRect(-2480, 40, 2480, 1367); // left 80 px + top 40 px taskbar
+        var screen = new PixelRect(-2400, 100, 800, 600);
+
+        Assert.Equal(new PixelRect(-2480, 60, 800, 600), WindowPlacer.ToWorkspaceRect(screen, monitor, work, toolWindow: false));
+    }
+
+    [Fact]
+    public void Workspace_conversion_leaves_tool_windows_in_screen_coordinates()
+    {
+        var monitor = new PixelRect(-2560, 0, 2560, 1440);
+        var work = new PixelRect(-2480, 40, 2480, 1367);
+        var screen = new PixelRect(-2400, 100, 800, 600);
+
+        Assert.Equal(screen, WindowPlacer.ToWorkspaceRect(screen, monitor, work, toolWindow: true));
+    }
+
     private static void AssertShowBeforeFirstMove(FakePlacementApi api, int command)
     {
         int show = api.Ops.IndexOf("Show" + command);
@@ -197,10 +385,19 @@ public class WindowPlacerTests
     {
         public bool WindowExists { get; set; } = true;
         public bool Hung { get; set; }
+        public bool PlacementFails { get; set; }
         public bool Iconic { get; set; }
         public bool Maximized { get; set; }
         public bool RestoreWasMaximized { get; set; }
         public bool IgnoreNonActivatingShow { get; set; }
+        /// <summary>Every synchronous ShowWindow command is ignored (hosted/frozen frame behaviour).</summary>
+        public bool IgnoreSynchronousShow { get; set; }
+        /// <summary>The async placement returns true but never applies its show state (held iconic).</summary>
+        public bool IgnorePlacementState { get; set; }
+        /// <summary>Apply the async placement state only after this many Pause polls (0 = immediately).</summary>
+        public int PlacementAppliesAfterPauses { get; set; }
+        /// <summary>The window disappears once this many Pause polls have elapsed (null = never).</summary>
+        public int? VanishAfterPauses { get; set; }
         public bool OnTargetMonitor { get; set; } = true;
         public bool MoveSucceeds { get; set; } = true;
         public int LastError { get; set; }
@@ -208,6 +405,8 @@ public class WindowPlacerTests
         public PixelRect RestoreRect { get; private set; } = new(10, 10, 800, 600);
         public PixelRect LastRequestedRect { get; private set; }
         public List<string> Ops { get; } = [];
+        public int Pauses { get; private set; }
+        private WindowShow? _pendingShow;
 
         public bool IsWindow => WindowExists;
         public bool IsHung => Hung;
@@ -227,9 +426,48 @@ public class WindowPlacerTests
 
         public bool RectMatches(PixelRect target) => RestoreRect == target;
 
+        /// <summary>
+        /// Models the async <c>SetWindowPlacement</c> call: it returns the native result and applies the
+        /// requested show state immediately unless a delay/ignore switch models the owning thread's lag.
+        /// </summary>
+        public bool SetPlacementAsync(PixelRect target, WindowShow show)
+        {
+            Ops.Add("SetPlacement:" + show);
+            LastRequestedRect = target;
+            if (!WindowExists || PlacementFails) return false;
+            RestoreRect = target;
+            if (IgnorePlacementState || PlacementAppliesAfterPauses > 0)
+            {
+                _pendingShow = show;
+                return true;
+            }
+            ApplyShow(show);
+            return true;
+        }
+
+        private void ApplyShow(WindowShow show)
+        {
+            switch (show)
+            {
+                case WindowShow.Normal:
+                    Iconic = false;
+                    Maximized = false;
+                    break;
+                case WindowShow.Maximized:
+                    Iconic = false;
+                    Maximized = true;
+                    break;
+                case WindowShow.Minimized:
+                    Iconic = true;
+                    Maximized = false;
+                    break;
+            }
+        }
+
         public void Show(int command)
         {
             Ops.Add("Show" + command);
+            if (IgnoreSynchronousShow) return;
             switch (command)
             {
                 case ShowNormal:
@@ -259,8 +497,38 @@ public class WindowPlacerTests
             }
         }
 
-        public void Pause() { }
+        public void Pause()
+        {
+            Pauses++;
+            if (VanishAfterPauses is { } vanish && Pauses >= vanish) WindowExists = false;
+            if (_pendingShow is { } show && !IgnorePlacementState && Pauses >= PlacementAppliesAfterPauses)
+            {
+                ApplyShow(show);
+                _pendingShow = null;
+            }
+        }
 
         public IEnumerable<string> RectMoves() => Ops.Where(o => o.StartsWith("SetRect"));
+    }
+
+    /// <summary>
+    /// Minimal IWindowSystem whose Place is the real WindowPlacer over a fake API, so a LayoutApplier test can
+    /// prove the layout path ends in the same minimized/hung placement logic instead of a separate one.
+    /// </summary>
+    private sealed class PlacerWindowSystem(FakePlacementApi api, WindowInfo window) : IWindowSystem
+    {
+        public int OwnProcessId => 1;
+        public IReadOnlyList<WindowInfo> GetAppWindows() => [window];
+        public WindowInfo? Get(long handle) => handle == window.Handle ? window : null;
+        public bool IsAlive(long handle) => handle == window.Handle;
+        public IReadOnlyList<MonitorInfo> GetMonitors() =>
+            [new("\\\\.\\DISPLAY1", new(0, 0, 1920, 1080), new(0, 0, 1920, 1040), true, 96)];
+        public PlaceOutcome Place(long handle, PixelRect normalRect, WindowShow show) =>
+            WindowPlacer.Place(api, normalRect, show);
+        public (int L, int T, int R, int B) GetInvisibleBorders(long handle) => (0, 0, 0, 0);
+        public void BringToFront(long handle) { }
+        public bool Activate(long handle) => true;
+        public void Close(long handle) { }
+        public void Minimize(long handle) { }
     }
 }

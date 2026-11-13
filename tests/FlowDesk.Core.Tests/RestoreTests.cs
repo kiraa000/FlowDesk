@@ -32,6 +32,24 @@ public class RestoreTests
     }
 
     [Fact]
+    public async Task Packaged_aumid_window_is_restored_through_the_common_place_path_without_a_bypass()
+    {
+        // The frame is owned by ApplicationFrameHost; WindowInfo.ProcessId/Aumid identify the packaged app.
+        // Restore must still call IWindowSystem.Place for it (no AUMID-only launch/leave bypass).
+        var frame = _sys.Add(@"C:\Windows\System32\ApplicationFrameHost.exe", "Calculator", "ApplicationFrameWindow",
+            show: WindowShow.Minimized, aumid: "Microsoft.WindowsCalculator_8wekyb3d8bbwe!App", pid: 7164);
+        var item = Build.App("", "Calculator", new(1400, 120, 418, 635), aumid: "Microsoft.WindowsCalculator_8wekyb3d8bbwe!App");
+
+        var report = await _restorer.RestoreAsync(new Workspace { Items = [item] }, Build.Fast());
+
+        Assert.Empty(_launcher.Launched);
+        Assert.Equal(ItemOutcome.Reused, report.Items[0].Outcome);
+        Assert.Contains(_sys.Placed, p => p.Handle == frame.Handle && p.Rect == new PixelRect(1400, 120, 418, 635)
+                                          && p.Show == WindowShow.Normal);
+        Assert.Equal(WindowShow.Normal, _sys.Get(frame.Handle)!.Show);
+    }
+
+    [Fact]
     public async Task Launches_missing_app_waits_for_its_window_then_places_it()
     {
         var item = Build.App(@"C:\apps\notes.exe", "Notes", new(0, 0, 640, 480));

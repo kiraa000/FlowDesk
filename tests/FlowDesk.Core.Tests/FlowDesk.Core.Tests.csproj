@@ -14,7 +14,8 @@
     <ProjectReference Include="..\..\src\FlowDesk.Core\FlowDesk.Core.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <!-- Link the pure Probe plan validator so "every item must be the exact captured Chrome profile" is testable. -->
+    <!-- Link the pure Probe plan validators so their desktop-free rules are testable. -->
     <Compile Include="..\..\tools\FlowDesk.Probe\RestoreWatchPlan.cs" Link="Probe\RestoreWatchPlan.cs" />
+    <Compile Include="..\..\tools\FlowDesk.Probe\UwpRestorePlan.cs" Link="Probe\UwpRestorePlan.cs" />
   </ItemGroup>
 </Project>

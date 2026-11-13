@@ -163,6 +163,23 @@ public sealed class Win32WindowSystem : IWindowSystem
         public bool SetRect(PixelRect target, bool asynchronous = false) =>
             SetWindowPos(h, 0, target.X, target.Y, target.Width, target.Height,
                 SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER | (asynchronous ? SWP_ASYNCWINDOWPOS : 0));
+        public bool SetPlacementAsync(PixelRect target, WindowShow show)
+        {
+            var wp = new WINDOWPLACEMENT { length = Marshal.SizeOf<WINDOWPLACEMENT>() };
+            if (!GetWindowPlacement(h, ref wp)) return false;
+            var r = new RECT { Left = target.X, Top = target.Y, Right = target.Right, Bottom = target.Bottom };
+            nint monitor = MonitorFromRect(ref r, MONITOR_DEFAULTTONEAREST);
+            var mi = new MONITORINFOEX { cbSize = Marshal.SizeOf<MONITORINFOEX>() };
+            if (!GetMonitorInfoW(monitor, ref mi)) return false;
+            var normal = WindowPlacer.ToWorkspaceRect(target,
+                PixelRect.FromLtrb(mi.rcMonitor.Left, mi.rcMonitor.Top, mi.rcMonitor.Right, mi.rcMonitor.Bottom),
+                PixelRect.FromLtrb(mi.rcWork.Left, mi.rcWork.Top, mi.rcWork.Right, mi.rcWork.Bottom),
+                (GetWindowLongPtr(h, GWL_EXSTYLE) & WS_EX_TOOLWINDOW) != 0);
+            wp.flags = 0x0004; // WPF_ASYNCWINDOWPLACEMENT; clear stale RESTORETOMAXIMIZED/min-position flags
+            wp.showCmd = WindowPlacer.AsyncShowCommand(show, IsIconic(h), IsZoomed(h), IsOnTargetMonitor(target));
+            wp.rcNormalPosition = new RECT { Left = normal.X, Top = normal.Y, Right = normal.Right, Bottom = normal.Bottom };
+            return SetWindowPlacement(h, ref wp);
+        }
         public bool RectMatches(PixelRect target) => Win32WindowSystem.RectMatches(h, target);
         public void Show(int command) => ShowWindow(h, command);
         public void Pause() => Thread.Sleep(30);

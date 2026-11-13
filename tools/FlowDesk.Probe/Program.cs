@@ -12,6 +12,14 @@
 //                                restore once, then poll captured Chrome-profile windows every 250 ms:
 //                                Place attempts with actual rect identity/DPI, late resize, closure, replacement
 //   layout <grid|two|sidebar|cascade> <file.json>   tile the workspace's open windows
+//   uwp-restore <CalculatorAppPid> [seconds 1..10, default 3]
+//                                minimize the ONE ApplicationFrameWindow whose child pid is exactly that
+//                                CalculatorApp.exe process, then run Place (Restore) and LayoutApplier
+//                                (Layout), printing raw frame/child pids, core show/rect, native iconic/hung.
+//                                Refuses zero/multiple frames and non-CalculatorApp pids; no title guessing.
+//                                Opus steps: start Calculator by hand, then in PowerShell:
+//                                  Get-Process CalculatorApp | Select-Object Id, ProcessName, StartTime
+//                                  .\FlowDesk.Probe.exe uwp-restore <Id> 3
 //   desktops [dllDir]            read-only virtual desktop check via VirtualDesktopAccessor.dll
 //   focus <exeName> <seconds> [gentle|normal|strict] block an app for a while
 using System.Text.Json;
@@ -104,6 +112,27 @@ switch (cmd)
         break;
     }
 
+    case "uwp-restore":
+    {
+        if (args.Length < 2 || !int.TryParse(args[1], out int appPid))
+        {
+            UwpRestore.PrintUsage();
+            Environment.ExitCode = 2;
+            break;
+        }
+        int seconds = UwpRestore.DefaultSeconds;
+        if (args.Length > 2 && (!int.TryParse(args[2], out seconds)
+            || seconds < UwpRestore.MinSeconds || seconds > UwpRestore.MaxSeconds))
+        {
+            Console.Error.WriteLine($"uwp-restore: seconds must be a whole number {UwpRestore.MinSeconds}..{UwpRestore.MaxSeconds}, got \"{args[2]}\"");
+            UwpRestore.PrintUsage();
+            Environment.ExitCode = 2;
+            break;
+        }
+        Environment.ExitCode = await UwpRestore.RunAsync(appPid, seconds);
+        break;
+    }
+
     case "focus":
     {
         var settings = new FocusSettings
@@ -157,7 +186,7 @@ switch (cmd)
     }
 
     default:
-        Console.WriteLine("usage: list | capture <f> | capture-match <f> <substring> | restore <f> | restore-watch <f> <1..60> | layout <preset> <f> | focus <exe> <sec> [mode] | switch <a> <b>");
+        Console.WriteLine("usage: list | capture <f> | capture-match <f> <substring> | restore <f> | restore-watch <f> <1..60> | layout <preset> <f> | uwp-restore <CalculatorAppPid> [1..10] | focus <exe> <sec> [mode] | switch <a> <b>");
         break;
 }
 

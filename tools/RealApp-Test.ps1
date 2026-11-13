@@ -986,8 +986,32 @@ function Get-FixtureArgumentMatch([string]$cmd) {
     return ''
 }
 # Ownership proof for a fixture-looking window: recorded identity, exact fixture path as a command-
-# line argument, or descent from a process this run launched. Fresh pid and baseline exclusion are
-# required before either command-line/descendant path is accepted.
+# line argument, a fresh Notepad title naming a known fixture file under RunDir, or descent from a
+# process this run launched. Fresh pid and baseline exclusion are required before any non-recorded
+# path is accepted.
+# Title proof for a fresh fixture Notepad: the exact live window (fetched by handle in Get-FixtureOwnership)
+# must contain one known fixture file name configured under RunDir and still present, with a clean boundary
+# so a longer/differently suffixed name never matches. Baseline exclusion and the recorded identity route
+# above still take precedence; this only accepts windows this run could have opened.
+function Get-FixtureTitleProof([string]$title) {
+    if (-not $title) { return '' }
+    foreach ($f in @($NotesA,$NotesB,$NotesC,$NotesC2)) {
+        $leaf = [IO.Path]::GetFileName($f)
+        if (-not $leaf) { continue }
+        $i = $title.IndexOf($leaf, [StringComparison]::OrdinalIgnoreCase)
+        if ($i -lt 0) { continue }
+        $before = if ($i -gt 0) { $title[$i - 1] } else { [char]0 }
+        $afterIndex = $i + $leaf.Length
+        $after = if ($afterIndex -lt $title.Length) { $title[$afterIndex] } else { [char]0 }
+        if ([char]::IsLetterOrDigit($before) -or [char]::IsLetterOrDigit($after) -or @('_','.','-') -contains $before -or @('_','.','-') -contains $after) { continue }
+        $full = [IO.Path]::GetFullPath($f)
+        $runPrefix = [IO.Path]::GetFullPath($RunDir).TrimEnd([char]'\') + '\'
+        if (-not $full.StartsWith($runPrefix, [StringComparison]::OrdinalIgnoreCase)) { continue }
+        if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { continue }
+        return $leaf
+    }
+    return ''
+}
 function Get-FixtureOwnership([uint32]$procId, [int64]$handle, $baseline) {
     if ($baseline -and $baseline.ContainsKey([int64]$handle)) {
         return [pscustomobject]@{ Owned=$false; Reason='window handle belongs to the pre-test user baseline' }
@@ -997,16 +1021,27 @@ function Get-FixtureOwnership([uint32]$procId, [int64]$handle, $baseline) {
         if (Test-RecordedProcess $rec) { return [pscustomobject]@{ Owned=$true; Reason='recorded owned process/window' } }
     }
     if ($recs.Count -gt 0) { return [pscustomobject]@{ Owned=$false; Reason='recorded process start no longer matches' } }
+    $live = [RT]::Window($handle)
+    if (-not $live) { return [pscustomobject]@{ Owned=$false; Reason='exact handle is no longer a window' } }
+    if ([uint32]$live.Pid -ne $procId) {
+        return [pscustomobject]@{ Owned=$false; Reason=('exact handle pid ' + $live.Pid + ' != captured pid ' + $procId) }
+    }
     $pi = Get-ProcInfo $procId
     if (-not $pi.Start) { return [pscustomobject]@{ Owned=$false; Reason='process start is unreadable' } }
-    if ($pi.Start -lt $script:TaskStart.AddSeconds(-10)) {
-        return [pscustomobject]@{ Owned=$false; Reason=('process started ' + $pi.Start.ToString('HH:mm:ss') + ', before this run') }
+    if ($pi.Start -lt $script:TaskStart) {
+        return [pscustomobject]@{ Owned=$false; Reason=('process started ' + $pi.Start.ToString('HH:mm:ss') + ', before this run began') }
     }
     $cmd = ''; $cmdReadable = $false
     try { $cmd = (Get-CimInstance Win32_Process -Filter ('ProcessId=' + $procId) -ErrorAction Stop).CommandLine; $cmdReadable = $true } catch { }
     $argMatch = ''
     if ($cmdReadable -and $cmd) { $argMatch = Get-FixtureArgumentMatch $cmd }
     if ($argMatch) { return [pscustomobject]@{ Owned=$true; Reason=('exact fixture argument path in command line: ' + $argMatch) } }
+    if ($pi.Name -ieq 'notepad') {
+        $leafProof = Get-FixtureTitleProof $live.Title
+        if ($leafProof) {
+            return [pscustomobject]@{ Owned=$true; Reason=('fresh Notepad pid=' + $procId + ' start=' + $pi.Start.ToString('HH:mm:ss') + ' >= run start; title leaf "' + $leafProof + '" has clean boundary and exists under ' + $RunDir + '; baseline-excluded') }
+        }
+    }
     foreach ($lrec in @($script:LaunchedProcesses)) {
         if ($lrec.Name -in @('explorer','ApplicationFrameHost')) { continue }
         if ([uint32]$lrec.Pid -eq $procId) {
@@ -1027,6 +1062,7 @@ function Get-FixtureOwnership([uint32]$procId, [int64]$handle, $baseline) {
         }
     }
     $why = if (-not $cmdReadable) { 'command line unreadable' } elseif (-not $cmd) { 'command line empty' } else { 'command line has no exact fixture argument path' }
+    if ($pi.Name -ieq 'notepad') { $why += '; title has no clean fixture leaf' }
     return [pscustomobject]@{ Owned=$false; Reason=('fresh pid ' + $procId + ', ' + $why + '; not a recorded launch/descendant') }
 }
 function Close-FixtureWindows([string]$reason, $baseline) {
@@ -1034,20 +1070,24 @@ function Close-FixtureWindows([string]$reason, $baseline) {
     $patterns = @('*notes-a.txt*','*notes-b.txt*','*notes-c.txt*','*notes-c2.txt*')
     foreach ($w in @([RT]::WindowsAll() | Where-Object { $t = $_.Title; @($patterns | Where-Object { $t -like $_ }).Count -gt 0 })) {
         try {
-            if ($baseline -and $baseline.ContainsKey([int64]$w.Handle)) {
+            $h = [int64]$w.Handle
+            if ($baseline -and $baseline.ContainsKey($h)) {
                 Log ('USER fixture-looking window is a pre-test baseline; leaving it untouched: ' + (Format-Window $w))
                 continue
             }
-            $proof = Get-FixtureOwnership ([uint32]$w.Pid) ([int64]$w.Handle) $baseline
+            $live = [RT]::Window($h)
+            if (-not $live) { continue }
+            $proof = Get-FixtureOwnership ([uint32]$live.Pid) $h $baseline
             if (-not $proof.Owned) {
-                $msg = (Format-Window $w) + ' reason=' + $proof.Reason
+                $msg = (Format-Window $live) + ' reason=' + $proof.Reason
                 Log ('WARN leave fixture-looking window with unproven ownership: ' + $msg)
                 $left += $msg
                 continue
             }
-            Add-Owned 'Fixture-cleanup' $w $null | Out-Null
-            if (-not (Close-RTWindowOwned $w ($reason + ' fixture'))) {
-                $left += ((Format-Window $w) + ' reason=ownership proven but close failed')
+            Log ('FIXTURE ownership proven: ' + (Format-Window $live) + ' proof=' + $proof.Reason)
+            Add-Owned 'Fixture-cleanup' $live $null | Out-Null
+            if (-not (Close-RTWindowOwned $live ($reason + ' fixture'))) {
+                $left += ((Format-Window $live) + ' reason=ownership proven but close failed')
             }
         } catch { $left += ('fixture close 0x' + ('{0:X}' -f [int64]$w.Handle) + ' failed: ' + $_.Exception.Message) }
     }
@@ -1504,24 +1544,35 @@ function Stop-TestChrome([string]$Profile) {
 }
 function Invoke-TestCleanup([string]$ChromeProfile, $UserBaseline, [uint32[]]$FlowDeskPids) {
     $uiaOk = $true; $leftWs = @(); $fixtureLeftovers = @()
+    # A data-isolated run restores the exact pre-run flowdesk.json/settings in the finally block, so the
+    # test workspaces vanish with that restore. UIA deletion is therefore bypassed and must not gate
+    # cleanup: its FindAll can throw "Unrecognized error" after a Delete click when the old provider goes
+    # stale. The precise failing stage is unknown from the old log, so it is not guessed here.
+    $isolated = [bool]($script:DataBackup -and @(Get-BackupRecordFailures $script:DataBackup).Count -eq 0)
     # A delayed UWP Calculator child may appear after the launch wait; collect only a unique, attributable
     # one from the recorded launch interval. Never kill every Calculator process started after TaskStart.
     try { Collect-PendingCalculatorChild } catch { Log ('WARN pending calculator collection failed: ' + $_.Exception.Message) }
-    # 1. Workspace deletion through the app UI. This is the only UIA-dependent part of cleanup and is
-    #    allowed to fail; native handle/PID cleanup below always runs. Data restore also removes test data.
-    if (Get-AppProcess) {
-        try {
-            Navigate 'Workspaces'
-            foreach ($name in @('RT Work A','RT Work B')) {
+    # 1. Workspace deletion through the app UI is only a fallback when the data backup is not valid.
+    if ($isolated) {
+        Log 'cleanup: isolated data run; UIA workspace deletion bypassed; workspaces restored by data-isolation finally'
+    } elseif (Get-AppProcess) {
+        try { Navigate 'Workspaces' }
+        catch { $uiaOk = $false; Log ('WARN cleanup UI failed at stage=navigate; native cleanup continues: ' + $_.Exception.Message) }
+        foreach ($name in @('RT Work A','RT Work B')) {
+            $stage = 'find'
+            try {
                 $found = @(Get-ByName $name ([System.Windows.Automation.ControlType]::Text)).Count -gt 0
                 if (-not $found) { continue }
+                $stage = 'actions'
                 $act = Get-WorkspaceActionsButton $name
                 if (-not $act) { Log ('No actions button for ' + $name); continue }
                 Invoke-Element $act; Start-Sleep -Milliseconds 700
+                $stage = 'delete-menu'
                 $del = @(Get-ByName 'Delete' ([System.Windows.Automation.ControlType]::MenuItem) -Desktop)[0]
                 if (-not $del) { $del = @(Get-ByName 'Delete' ([System.Windows.Automation.ControlType]::MenuItem))[0] }
                 if ($del) {
                     Invoke-Element $del; Start-Sleep -Milliseconds 700
+                    $stage = 'confirm-dialog'
                     $dlg = @(Get-ByName 'Delete workspace?' ([System.Windows.Automation.ControlType]::Window))[0]
                     if ($dlg) {
                         $confirm = @($dlg.FindAll([System.Windows.Automation.TreeScope]::Descendants,[System.Windows.Automation.Condition]::TrueCondition) | Where-Object { $_.Current.Name -eq 'Delete workspace' -and $_.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button })[0]
@@ -1529,13 +1580,18 @@ function Invoke-TestCleanup([string]$ChromeProfile, $UserBaseline, [uint32[]]$Fl
                     }
                 }
                 Start-Sleep -Seconds 1
+            } catch {
+                $uiaOk = $false
+                Log ('WARN cleanup UI failed for ' + $name + ' at stage=' + $stage + '; native cleanup continues: ' + $_.Exception.Message)
             }
+        }
+        try {
             Navigate 'Workspaces'
             $texts = @(Get-UiAll (Get-AppRoot) | Where-Object { $_.Current.ControlType -eq [System.Windows.Automation.ControlType]::Text } | ForEach-Object { $_.Current.Name })
             $leftWs = @('RT Work A','RT Work B','RT Layout' | Where-Object { $texts -contains $_ })
         } catch {
             $uiaOk = $false
-            Log ('WARN cleanup UI failed; native cleanup continues: ' + $_.Exception.Message)
+            Log ('WARN cleanup UI recheck failed; native cleanup continues: ' + $_.Exception.Message)
         }
     } else { Log 'cleanup: FlowDesk UI is not running; workspace deletion skipped' }
     # 2. Close every recorded owned window by its exact HWND (no FindAll dependency).
@@ -1552,7 +1608,8 @@ function Invoke-TestCleanup([string]$ChromeProfile, $UserBaseline, [uint32[]]$Fl
     #    Only WM_CLOSE on folder windows; the Explorer host process is never killed.
     try { Close-PendingExplorerWindows } catch { Log ('WARN pending explorer sweep failed: ' + $_.Exception.Message) }
     # 4. Fixture-title sweep for windows that never got recorded (ownership still proven by recorded
-    #    identity, exact command-line fixture path, or a recorded launch/descendant; never by title alone).
+    #    identity, exact command-line fixture path, a fresh Notepad fixture title under RunDir, or a
+    #    recorded launch/descendant; never by title alone).
     try { $fixtureLeftovers = @(Close-FixtureWindows 'cleanup' $UserBaseline) }
     catch { $fixtureLeftovers = @('fixture sweep failed: ' + $_.Exception.Message); Log ('WARN fixture sweep failed: ' + $_.Exception.Message) }
     foreach ($l in @($fixtureLeftovers)) { Log ('LEFTOVER fixture: ' + $l) }
@@ -1590,9 +1647,10 @@ function Invoke-TestCleanup([string]$ChromeProfile, $UserBaseline, [uint32[]]$Fl
     catch { $compareOk = $false; Log ('WARN user-window compare failed (cleanup is not a pass): ' + $_.Exception.Message) }
     foreach ($u in @($issues)) { Log ('USER ISSUE: ' + $u) }
     $ok = $closeOk -and $remainingOwned -eq 0 -and $remainingLaunches -eq 0 -and $flowLeft -eq 0 -and $profileGone -and $compareOk -and $issues.Count -eq 0 -and $fixtureLeftovers.Count -eq 0
-    Log ('Cleanup: uia=' + $uiaOk + ' workspaces=' + $(if($uiaOk){($leftWs -join ',')}else{'unknown'}) + ' remainingOwned=' + $remainingOwned + ' remainingLaunched=' + $remainingLaunches + ' profileGone=' + $profileGone + ' testFlowDeskLeft=' + $flowLeft + ' userIssues=' + $issues.Count + ' fixtureLeftovers=' + $fixtureLeftovers.Count + ' compareOk=' + $compareOk)
+    $wsText = if ($isolated) { 'bypassed-data-isolation' } elseif ($uiaOk) { ($leftWs -join ',') } else { 'unknown' }
+    Log ('Cleanup: uia=' + $uiaOk + ' workspaces=' + $wsText + ' remainingOwned=' + $remainingOwned + ' remainingLaunched=' + $remainingLaunches + ' profileGone=' + $profileGone + ' testFlowDeskLeft=' + $flowLeft + ' userIssues=' + $issues.Count + ' fixtureLeftovers=' + $fixtureLeftovers.Count + ' compareOk=' + $compareOk)
     return [pscustomobject]@{
-        Ok=$ok; UiaOk=$uiaOk; WorkspacesLeft=($leftWs -join ','); RemainingOwned=$remainingOwned
+        Ok=$ok; UiaOk=$uiaOk; WorkspacesLeft=$wsText; RemainingOwned=$remainingOwned
         RemainingLaunched=$remainingLaunches; ProfileGone=$profileGone; TestFlowDeskLeft=$flowLeft; UserIssues=$issues.Count; CompareOk=$compareOk
         UserIssueDetails=@($issues); FixtureLeftovers=@($fixtureLeftovers)
     }

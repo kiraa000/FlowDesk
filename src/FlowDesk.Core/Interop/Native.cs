@@ -76,8 +76,8 @@ internal static class Native
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowTextW(nint hwnd, StringBuilder sb, int max);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetClassNameW(nint hwnd, StringBuilder sb, int max);
     [DllImport("user32.dll")] public static extern bool GetWindowRect(nint hwnd, out RECT rect);
-    [DllImport("user32.dll")] public static extern bool GetWindowPlacement(nint hwnd, ref WINDOWPLACEMENT wp);
-    [DllImport("user32.dll")] public static extern bool SetWindowPlacement(nint hwnd, ref WINDOWPLACEMENT wp);
+    [DllImport("user32.dll", SetLastError = true)] public static extern bool GetWindowPlacement(nint hwnd, ref WINDOWPLACEMENT wp);
+    [DllImport("user32.dll", SetLastError = true)] public static extern bool SetWindowPlacement(nint hwnd, ref WINDOWPLACEMENT wp);
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool SetWindowPos(nint hwnd, nint after, int x, int y, int cx, int cy, uint flags);
     [DllImport("user32.dll")] public static extern bool ShowWindowAsync(nint hwnd, int cmd);
