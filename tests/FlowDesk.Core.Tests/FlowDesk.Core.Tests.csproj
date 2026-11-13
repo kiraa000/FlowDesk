@@ -13,4 +13,8 @@
     <Using Include="Xunit" />
     <ProjectReference Include="..\..\src\FlowDesk.Core\FlowDesk.Core.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- Link the pure Probe plan validator so "every item must be the exact captured Chrome profile" is testable. -->
+    <Compile Include="..\..\tools\FlowDesk.Probe\RestoreWatchPlan.cs" Link="Probe\RestoreWatchPlan.cs" />
+  </ItemGroup>
 </Project>

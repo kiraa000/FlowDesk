@@ -15,7 +15,7 @@ public enum ItemOutcome
     LaunchedNoWindow,
     /// <summary>Could not start the item (missing file, program not found, ...).</summary>
     LaunchFailed,
-    /// <summary>Found the window but Windows refused to move it (it runs as administrator).</summary>
+    /// <summary>Found the window but Windows or the app refused the requested placement.</summary>
     PlaceDenied,
     /// <summary>Deliberately not started; the detail says why (e.g. the browser is already running).</summary>
     Skipped,
@@ -63,6 +63,7 @@ public sealed class WorkspaceRestorer(IWindowSystem windows, IAppLauncher launch
         var matched = new Dictionary<string, WindowInfo>();
         var claimed = new HashSet<long>();
         var specs = new Dictionary<string, MatchSpec>();
+        var deferredBrowserReports = new HashSet<string>();
         string? browser = null;
 
         void Report(WorkspaceItem item, ItemOutcome o, string? detail = null)
@@ -75,11 +76,17 @@ public sealed class WorkspaceRestorer(IWindowSystem windows, IAppLauncher launch
                 detail = "Opened your default browser profile" + (detail is null ? "" : ". " + detail);
             var r = new ItemResult(item.Id, item.Name, o, detail);
             results[item.Id] = r;
-            progress?.Report(r);
+            // A browser can accept SetWindowPos and then impose other bounds. Publish its final
+            // completion only after verification, so progress never counts one item twice.
+            if (o == ItemOutcome.Pending || !deferredBrowserReports.Contains(item.Id)) progress?.Report(r);
         }
 
         SavedWindow? Placement(WorkspaceItem item) =>
             opt.Overrides is not null && opt.Overrides.TryGetValue(item.Id, out var s) ? s : item.Window;
+
+        bool IsBrowserItem(WorkspaceItem item) => item.Kind is ItemKind.App or ItemKind.Website
+            && ShellLauncher.IsBrowser(item.App?.ExePath is { Length: > 0 } exe ? exe
+                : item.Kind == ItemKind.Website ? browser : null);
 
         foreach (var item in ws.Items)
         {
@@ -119,6 +126,7 @@ public sealed class WorkspaceRestorer(IWindowSystem windows, IAppLauncher launch
         foreach (var item in ws.Items.Where(i => !matched.ContainsKey(i.Id)))
         {
             ct.ThrowIfCancellationRequested();
+            if (IsBrowserItem(item)) deferredBrowserReports.Add(item.Id);
             string? sessionKey = null;
             if (BrowserSession.Applies(item))
             {
@@ -222,6 +230,31 @@ public sealed class WorkspaceRestorer(IWindowSystem windows, IAppLauncher launch
                 }
             }
         }
+
+        // A bounded verification, not an enforcement loop. A successful native move is not proof
+        // that the browser kept it: minimum-size constraints and its own startup bounds can win.
+        // Keep the actual window bound, but do not claim it is in place or guess the cause.
+        foreach (var item in ws.Items.Where(i => deferredBrowserReports.Contains(i.Id)
+                     && launchedIds.Contains(i.Id) && results[i.Id].Outcome == ItemOutcome.Launched))
+        {
+            if (Placement(item) is not { } saved) continue;
+            var original = matched[item.Id];
+            var current = windows.Get(original.Handle);
+            if (current is null || current.ProcessId != original.ProcessId || current.AppKey != original.AppKey)
+            {
+                Report(item, ItemOutcome.LaunchedNoWindow, "The browser window closed or was replaced after opening");
+                matched.Remove(item.Id); // never bind a closed/recycled handle to this workspace
+                continue;
+            }
+            var target = DisplayMapper.Map(saved, windows.GetMonitors());
+            if (current.Show != saved.Show || (saved.Show == WindowShow.Normal && !Near(current.NormalRect, target)))
+                Report(item, ItemOutcome.PlaceDenied,
+                    $"The browser controls its window size or position: requested {target.Width}x{target.Height} at ({target.X},{target.Y}) ({saved.Show}), " +
+                    $"actual {current.NormalRect.Width}x{current.NormalRect.Height} at ({current.NormalRect.X},{current.NormalRect.Y}) ({current.Show}). " +
+                    "The browser is open, but the saved placement could not be kept.");
+        }
+        foreach (var id in deferredBrowserReports)
+            if (results.TryGetValue(id, out var final)) progress?.Report(final);
 
         // 6. Stack in saved order (bottom first) and focus the top one.
         var stack = ws.Items.Where(i => matched.ContainsKey(i.Id) && results[i.Id].Outcome is ItemOutcome.Reused or ItemOutcome.Launched)

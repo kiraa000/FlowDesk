@@ -123,7 +123,9 @@ public class WorkspaceRestorerSettleTests
 
         var report = await restorer.RestoreAsync(Workspace(item), Settling());
 
-        Assert.Equal(ItemOutcome.Launched, report.Items[0].Outcome);
+        // TASK-006c: final launched-browser verification sees the recycled identity and reports
+        // LaunchedNoWindow; the handle is never rebound or moved by a later settle pass.
+        Assert.Equal(ItemOutcome.LaunchedNoWindow, report.Items[0].Outcome);
         Assert.True(recycled);
         Assert.Equal(1, sys.PlaceCount); // only the original placement, no settle move
         var window = Assert.Single(inner.Windows);

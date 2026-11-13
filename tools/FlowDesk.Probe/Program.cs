@@ -8,6 +8,9 @@
 //                                --user-data-dir="D:\Workspace\_projects\FlowDesk\sol-tasks\realtest-001\chrome-profile"
 //                                then: capture-match ...\realtest-001\chrome.json chrome-profile
 //   restore <file.json>          open/move everything back, print the report
+//   restore-watch <file.json> <1..60 seconds>
+//                                restore once, then poll captured Chrome-profile windows every 250 ms:
+//                                Place attempts with actual rect identity/DPI, late resize, closure, replacement
 //   layout <grid|two|sidebar|cascade> <file.json>   tile the workspace's open windows
 //   desktops [dllDir]            read-only virtual desktop check via VirtualDesktopAccessor.dll
 //   focus <exeName> <seconds> [gentle|normal|strict] block an app for a while
@@ -19,6 +22,7 @@ using FlowDesk.Core.Model;
 using FlowDesk.Core.Restore;
 using FlowDesk.Core.Storage;
 using FlowDesk.Core.Windows;
+using FlowDesk.Probe;
 
 var ws = new Win32WindowSystem();
 var tracker = new SessionTracker();
@@ -80,6 +84,13 @@ switch (cmd)
         var report = await restorer.RestoreAsync(workspace, progress: progress);
         Console.WriteLine($"restored {report.Placed}/{report.Items.Count} in {report.Elapsed.TotalSeconds:0.0}s");
         foreach (var r in report.Items) Console.WriteLine($"  {r.Outcome,-16} {r.Name} {r.Detail}");
+        break;
+    }
+
+    case "restore-watch":
+    {
+        if (args.Length < 3) { RestoreWatch.PrintUsage(); Environment.ExitCode = 2; break; }
+        Environment.ExitCode = await RestoreWatch.RunAsync(Load(args[1]), args[2]);
         break;
     }
 
@@ -146,7 +157,7 @@ switch (cmd)
     }
 
     default:
-        Console.WriteLine("usage: list | capture <f> | capture-match <f> <substring> | restore <f> | layout <preset> <f> | focus <exe> <sec> [mode] | switch <a> <b>");
+        Console.WriteLine("usage: list | capture <f> | capture-match <f> <substring> | restore <f> | restore-watch <f> <1..60> | layout <preset> <f> | focus <exe> <sec> [mode] | switch <a> <b>");
         break;
 }
 

@@ -156,6 +156,9 @@ public static class RT {
   return list;
  }
  public static RTWin Window(long h) { return IsWindow((IntPtr)h) ? Read((IntPtr)h) : null; }
+ // True while the exact HWND still exists. Used for close verification so a closed window is not
+ // mistaken for a ghost object (Read/Window on a dead handle returns null, but polling by title can keep matching).
+ public static bool Alive(long h) { return IsWindow((IntPtr)h); }
  public static bool SetPos(long h, int x, int y, int w, int hh) {
   if (IsIconic((IntPtr)h)) ShowWindow((IntPtr)h, 9);
   return SetWindowPos((IntPtr)h, IntPtr.Zero, x, y, w, hh, 0x0010 | 0x0004 | 0x0040);
@@ -219,6 +222,153 @@ public static class RTShot { [DllImport("user32.dll")] public static extern bool
         $g.Dispose(); $bmp.Dispose()
         return $path
     } catch { return '' }
+}
+
+# ---------- data isolation (pure helpers; explicit paths, so they can be exercised on temp fixtures) ----------
+# The app has no data-dir override (JsonStore uses %LOCALAPPDATA%\FlowDesk), so Full backs up the real files,
+# writes known-clean data, and restores the originals (hash-verified) after every test FlowDesk is stopped.
+$script:DataDir = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'FlowDesk'
+$script:DataFileNames = @(
+    'flowdesk.json','flowdesk.json.bak','flowdesk.json.tmp',
+    'app-settings.json','app-settings.json.bak','app-settings.json.tmp')
+function Get-FileSha256([string]$Path) {
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf -ErrorAction Stop)) { return '' }
+    return (Get-FileHash -LiteralPath $Path -Algorithm SHA256 -ErrorAction Stop).Hash.ToUpperInvariant()
+}
+function Backup-DataFiles([string]$DataDir, [string]$BackupDir, [string[]]$Names) {
+    if (Test-Path -LiteralPath $BackupDir -ErrorAction Stop) { throw ('Backup directory already exists: ' + $BackupDir) }
+    New-Item -ItemType Directory -Path $BackupDir -ErrorAction Stop | Out-Null
+    $files = @()
+    foreach ($name in $Names) {
+        $src = Join-Path $DataDir $name
+        $exists = Test-Path -LiteralPath $src -PathType Leaf -ErrorAction Stop
+        $hash = if ($exists) { Get-FileSha256 $src } else { '' }
+        $dst = Join-Path $BackupDir $name
+        if ($exists) {
+            Copy-Item -LiteralPath $src -Destination $dst -ErrorAction Stop
+            if ((Get-FileSha256 $dst) -ne $hash) { throw ('Backup hash mismatch for ' + $name) }
+        }
+        $files += [pscustomobject]@{ Name=$name; Existed=$exists; Sha256=$hash; BackupPath=$(if ($exists) { $dst } else { '' }) }
+    }
+    $corrupt = @()
+    if (Test-Path -LiteralPath $DataDir -PathType Container -ErrorAction Stop) {
+        foreach ($item in @(Get-ChildItem -LiteralPath $DataDir -Filter 'flowdesk.json.corrupt-*' -File -ErrorAction Stop)) {
+            $hash = Get-FileSha256 $item.FullName
+            $dst = Join-Path $BackupDir $item.Name
+            Copy-Item -LiteralPath $item.FullName -Destination $dst -ErrorAction Stop
+            if ((Get-FileSha256 $dst) -ne $hash) { throw ('Backup hash mismatch for corrupt companion ' + $item.Name) }
+            $corrupt += [pscustomobject]@{ Name=$item.Name; SourcePath=$item.FullName; Sha256=$hash; BackupPath=$dst }
+        }
+    }
+    return [pscustomobject]@{ DataDir=$DataDir; BackupDir=$BackupDir; Files=$files; CorruptFiles=$corrupt }
+}
+function Get-BackupRecordFailures($Record) {
+    if (-not $Record) { return @('no backup record') }
+    $failures = @()
+    foreach ($f in @($Record.Files)) {
+        if (-not $f.Existed) { continue }
+        if (-not (Test-Path -LiteralPath $f.BackupPath -PathType Leaf -ErrorAction SilentlyContinue)) { $failures += ('backup missing: ' + $f.Name); continue }
+        if ((Get-FileSha256 $f.BackupPath) -ne $f.Sha256) { $failures += ('backup hash mismatch: ' + $f.Name) }
+    }
+    foreach ($c in @($Record.CorruptFiles)) {
+        if (-not (Test-Path -LiteralPath $c.BackupPath -PathType Leaf -ErrorAction SilentlyContinue)) { $failures += ('backup missing: ' + $c.Name); continue }
+        if ((Get-FileSha256 $c.BackupPath) -ne $c.Sha256) { $failures += ('backup hash mismatch: ' + $c.Name) }
+    }
+    return $failures
+}
+function Restore-DataFiles($Record) {
+    if (-not $Record) { return [pscustomobject]@{ Ok=$false; RestoreBlocked=$false; Failures=@('no backup record') } }
+    # Prevalidate every backup before the first overwrite/removal: a damaged backup must not half-restore.
+    $pre = @(Get-BackupRecordFailures $Record)
+    if ($pre.Count -gt 0) {
+        return [pscustomobject]@{ Ok=$false; RestoreBlocked=$false; Failures=@($pre | ForEach-Object { 'prevalidate: ' + $_ }) }
+    }
+    $failures = @()
+    foreach ($f in @($Record.Files)) {
+        $dst = Join-Path $Record.DataDir $f.Name
+        try {
+            if ($f.Existed) {
+                Copy-Item -LiteralPath $f.BackupPath -Destination $dst -Force -ErrorAction Stop
+                if ((Get-FileSha256 $dst) -ne $f.Sha256) { $failures += ('hash mismatch after restore: ' + $f.Name) }
+            } else {
+                if (Test-Path -LiteralPath $dst -ErrorAction Stop) { Remove-Item -LiteralPath $dst -Force -ErrorAction Stop }
+                if (Test-Path -LiteralPath $dst -ErrorAction Stop) { $failures += ('test-created file not removed: ' + $f.Name) }
+            }
+        } catch { $failures += ('restore failed: ' + $f.Name + ': ' + $_.Exception.Message) }
+    }
+    $knownCorrupt = @($Record.CorruptFiles | ForEach-Object { $_.Name })
+    $currentCorrupt = @()
+    try { $currentCorrupt = @(Get-ChildItem -LiteralPath $Record.DataDir -Filter 'flowdesk.json.corrupt-*' -File -ErrorAction Stop) }
+    catch { $failures += ('corrupt companion inventory failed: ' + $_.Exception.Message) }
+    foreach ($c in $currentCorrupt) {
+        if ($knownCorrupt -contains $c.Name) { continue }
+        try {
+            Remove-Item -LiteralPath $c.FullName -Force -ErrorAction Stop
+            if (Test-Path -LiteralPath $c.FullName -ErrorAction Stop) { $failures += ('new corrupt companion not removed: ' + $c.Name) }
+        } catch { $failures += ('new corrupt companion removal failed: ' + $c.Name + ': ' + $_.Exception.Message) }
+    }
+    foreach ($c in @($Record.CorruptFiles)) {
+        try {
+            Copy-Item -LiteralPath $c.BackupPath -Destination $c.SourcePath -Force -ErrorAction Stop
+            if ((Get-FileSha256 $c.SourcePath) -ne $c.Sha256) { $failures += ('pre-existing corrupt companion restore hash mismatch: ' + $c.Name) }
+        } catch { $failures += ('pre-existing corrupt companion restore failed: ' + $c.Name + ': ' + $_.Exception.Message) }
+    }
+    return [pscustomobject]@{ Ok=($failures.Count -eq 0); RestoreBlocked=$false; Failures=$failures }
+}
+function Restore-TestData($Record) {
+    if (-not $Record) { return [pscustomobject]@{ Ok=$false; RestoreBlocked=$false; Failures=@('no backup record') } }
+    # Never overwrite the user's files while any FlowDesk (owned or not) still has them open.
+    $alive = @(Get-FlowDeskProcesses)
+    if ($alive.Count -gt 0) {
+        return [pscustomobject]@{ Ok=$false; RestoreBlocked=$true; Failures=@('FlowDesk still running; data overwrite refused for pid=' + (($alive | ForEach-Object { $_.Id }) -join ',') + '; backup retained for manual restore') }
+    }
+    return Restore-DataFiles $Record
+}
+function Get-CleanFlowDeskJson {
+    return ([ordered]@{
+        Version = 1
+        Workspaces = @()
+        Focus = [ordered]@{ DurationMinutes=25; Strictness='Normal'; Blocked=@(); Allowed=@(); BlockAllExceptAllowed=$false }
+        TourCompleted = $true
+    } | ConvertTo-Json -Depth 8)
+}
+function Get-CleanAppSettingsJson {
+    return ([ordered]@{
+        Theme='System'; MinimizePrevious=$true; LaunchTimeoutSeconds=20; Width=1100; Height=720
+        FocusIconPaths=@{}; AutosaveOff=@(); AlwaysAddNewWindows=@(); BrowserRestoreNoticesSeen=@(); WindowShortcutsEnabled=$false
+    } | ConvertTo-Json -Depth 5)
+}
+function Write-CleanDataFiles([string]$DataDir) {
+    if (-not (Test-Path -LiteralPath $DataDir -ErrorAction Stop)) { New-Item -ItemType Directory -Path $DataDir -ErrorAction Stop | Out-Null }
+    # System.Text.Json reads the stream directly for flowdesk.json, so write UTF-8 without a BOM.
+    $utf8 = New-Object System.Text.UTF8Encoding($false)
+    [IO.File]::WriteAllText((Join-Path $DataDir 'flowdesk.json'), (Get-CleanFlowDeskJson), $utf8)
+    [IO.File]::WriteAllText((Join-Path $DataDir 'app-settings.json'), (Get-CleanAppSettingsJson), $utf8)
+}
+function Get-PersistedFocusRules([string]$DataDir) {
+    $path = Join-Path $DataDir 'flowdesk.json'
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $null }
+    try {
+        $data = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+        if (-not $data.Focus) { return ,@() }
+        return ,@($data.Focus.Blocked)
+    } catch { return $null }
+}
+function Test-FocusRulesAreNotepadOnly($Rules, [int]$ExpectedCount = -1) {
+    if ($null -eq $Rules) { return $false }
+    $list = @($Rules)
+    if ($ExpectedCount -ge 0 -and $list.Count -ne $ExpectedCount) { return $false }
+    foreach ($r in $list) {
+        $name = [string]$r.Name; $exe = [string]$r.ExeName; $aumid = [string]$r.Aumid
+        if ($exe) { if ($exe.ToLowerInvariant() -ne 'notepad') { return $false } }
+        elseif ($aumid) { if ($aumid -notmatch '(?i)notepad') { return $false } }
+        elseif ($name -notmatch '^(?i)Notepad$') { return $false }
+    }
+    return $true
+}
+function Format-FocusRules($Rules) {
+    if ($null -eq $Rules) { return '<unreadable>' }
+    return (@(@($Rules) | ForEach-Object { ([string]$_.Name) + '/' + ([string]$_.ExeName) + '/' + ([string]$_.Aumid) }) -join '; ')
 }
 
 # ---------- UIA ----------
@@ -538,7 +688,9 @@ function Wait-NoWindow([scriptblock]$match, [int]$timeout = 10) {
     $sw = [Diagnostics.Stopwatch]::StartNew()
     while ($sw.Elapsed.TotalSeconds -lt $timeout) {
         $found = $false
-        foreach ($w in (Get-RTWindows)) { if (& $match $w) { $found = $true; break } }
+        # Do not name this loop variable $w: caller predicates close over $w, and a local $w would shadow
+        # it (dynamic scope), making the predicate compare a window with itself.
+        foreach ($cand in (Get-RTWindows)) { if (& $match $cand) { $found = $true; break } }
         if (-not $found) { return $true }
         Start-Sleep -Milliseconds 250
     }
@@ -572,9 +724,23 @@ function Compare-UserWindows($before, $ownedHandles, $excludedPids) {
 
 # ---------- app launching ----------
 $script:Owned = New-Object System.Collections.ArrayList
+$script:LaunchedProcesses = New-Object System.Collections.ArrayList
+$script:CalcSkipReason = ''
+$script:CalcLaunchPending = $null
+$script:ExplorerPending = New-Object System.Collections.ArrayList
 $script:FlowDeskBaselinePids = @()
 $script:FlowDeskOwnedPids = New-Object System.Collections.ArrayList
 $script:FlowDeskOwnedStart = @{}
+function Register-LaunchedProcess([string]$group, $p) {
+    if (-not $p) { return }
+    try {
+        $procId = [uint32]$p.Id
+        $pi = Get-Process -Id $procId -ErrorAction Stop
+        if (@($script:LaunchedProcesses | Where-Object { [uint32]$_.Pid -eq $procId }).Count -gt 0) { return }
+        [void]$script:LaunchedProcesses.Add([pscustomobject]@{ Group=$group; Pid=$procId; Name=$pi.ProcessName; Start=$pi.StartTime })
+        Log ('LAUNCHED ' + $group + ' pid=' + $procId + ' name=' + $pi.ProcessName + ' start=' + $pi.StartTime.ToString('HH:mm:ss'))
+    } catch { Log ('WARN could not record launched ' + $group + ': ' + $_.Exception.Message) }
+}
 function Add-Owned([string]$group, $w, $proc) {
     $pi = Get-ProcInfo $w.Pid
     $appPid = Get-AppProcessId $w
@@ -648,34 +814,41 @@ function Test-TaskOwnedProcess([uint32]$procId) {
 function Close-FixtureWindows([string]$reason) {
     $patterns = @('*notes-a.txt*','*notes-b.txt*','*notes-c.txt*','*notes-c2.txt*')
     foreach ($w in @([RT]::WindowsAll() | Where-Object { $t = $_.Title; @($patterns | Where-Object { $t -like $_ }).Count -gt 0 })) {
-        if (-not (Test-TaskOwnedProcess ([uint32]$w.Pid))) {
-            Log ('WARN leave fixture-looking window with unproven ownership: ' + (Format-Window $w))
-            continue
-        }
-        Add-Owned 'Fixture-cleanup' $w $null | Out-Null
-        [void](Close-RTWindowOwned $w ($reason + ' fixture'))
+        try {
+            if (-not (Test-TaskOwnedProcess ([uint32]$w.Pid))) {
+                Log ('WARN leave fixture-looking window with unproven ownership: ' + (Format-Window $w))
+                continue
+            }
+            Add-Owned 'Fixture-cleanup' $w $null | Out-Null
+            [void](Close-RTWindowOwned $w ($reason + ' fixture'))
+        } catch { Log ('WARN fixture close 0x' + ('{0:X}' -f [int64]$w.Handle) + ' failed: ' + $_.Exception.Message) }
     }
 }
 function Stop-OwnedFlowDesk([int]$timeoutSeconds = 8) {
     foreach ($procId in @($script:FlowDeskOwnedPids | Sort-Object -Descending)) {
-        $p = Get-Process -Id $procId -ErrorAction SilentlyContinue
-        if (-not $p) { continue }
-        $expectedStart = $script:FlowDeskOwnedStart[[uint32]$procId]
-        if (-not $expectedStart -or $p.StartTime -ne $expectedStart) {
-            Log ('WARN not closing pid=' + $procId + ': process start no longer matches the recorded instance')
-            continue
-        }
-        Log ('Closing test-owned FlowDesk pid=' + $procId + ' hwnd=0x' + ('{0:X}' -f $p.MainWindowHandle))
-        if ($p.MainWindowHandle -ne 0) { [void][RT]::Close([int64]$p.MainWindowHandle) }
-        if (-not $p.WaitForExit($timeoutSeconds * 1000)) {
-            Log ('FlowDesk pid=' + $procId + ' ignored close; stopping it')
-            Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue
-        }
-        Start-Sleep -Milliseconds 300
+        try {
+            $p = Get-Process -Id $procId -ErrorAction SilentlyContinue
+            if (-not $p) { continue }
+            $expectedStart = $script:FlowDeskOwnedStart[[uint32]$procId]
+            if (-not $expectedStart -or $p.StartTime -ne $expectedStart) {
+                Log ('WARN not closing pid=' + $procId + ': process start no longer matches the recorded instance')
+                continue
+            }
+            Log ('Closing test-owned FlowDesk pid=' + $procId + ' hwnd=0x' + ('{0:X}' -f $p.MainWindowHandle))
+            if ($p.MainWindowHandle -ne 0) { [void][RT]::Close([int64]$p.MainWindowHandle) }
+            if (-not $p.WaitForExit($timeoutSeconds * 1000)) {
+                Log ('FlowDesk pid=' + $procId + ' ignored close; force-stopping exact instance')
+                Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue
+                try { [void]$p.WaitForExit($timeoutSeconds * 1000) } catch { }
+            }
+            if (-not $p.HasExited) { Log ('WARN FlowDesk pid=' + $procId + ' is still alive after force-stop') }
+            Start-Sleep -Milliseconds 300
+        } catch { Log ('WARN FlowDesk stop pid=' + $procId + ' failed: ' + $_.Exception.Message) }
     }
     $left = @(Get-FlowDeskProcesses | Where-Object { $script:FlowDeskOwnedPids -contains [uint32]$_.Id })
     $others = @(Get-FlowDeskProcesses | Where-Object { $script:FlowDeskOwnedPids -notcontains [uint32]$_.Id })
     foreach ($p in $others) { Log ('FlowDesk pid=' + $p.Id + ' was not started by this test; leaving it running') }
+    Log ('FlowDesk stop: remaining owned=' + $left.Count + ' pids=' + (($left | ForEach-Object { $_.Id }) -join ','))
     return $left.Count
 }
 function Get-ProcessPid($p) { if ($p) { return [uint32]$p.Id } else { return [uint32]0 } }
@@ -683,70 +856,205 @@ function Launch-Notepad([string]$file, [string]$group) {
     $before = @{}; foreach ($w in (Get-RTWindows)) { $before[[int64]$w.Handle] = $true }
     $started = Get-Date
     $p = Start-Process -FilePath notepad.exe -ArgumentList ('"' + $file + '"') -PassThru
+    Register-LaunchedProcess $group $p
     $leaf = [IO.Path]::GetFileName($file)
     $launchedPid = Get-ProcessPid $p
     $w = Find-RTWindow { param($x) ($x.Title -like ('*' + $leaf + '*')) -or ($launchedPid -ne 0 -and [uint32]$x.Pid -eq [uint32]$launchedPid) } $before 30
     if (-not $w) {
         # Packaged Notepad can surface its window after the first scan. Accept a matching title only
-        # when its process started with this launch, so a window we did not start is never adopted.
+        # when the owning process is a proven descendant of this launch, never a fresh user instance.
         foreach ($x in (Get-RTWindows)) {
             if ($x.Title -notlike ('*' + $leaf + '*')) { continue }
-            $pi2 = Get-ProcInfo $x.Pid
-            if ($pi2.Start -and $pi2.Start -ge $started.AddSeconds(-4)) { $w = $x; break }
+            if ($launchedPid -ne 0 -and (Test-DescendantOfLaunched ([uint32]$x.Pid) ([uint32]$launchedPid) $started)) { $w = $x; break }
         }
     }
-    if (-not $w) { return $null }
-    $pi = Get-ProcInfo $w.Pid
-    if ($pi.Start -and $pi.Start -lt $started.AddSeconds(-4)) { Log ('NOTE Notepad window older than launch: ' + $w.Title) }
+    if (-not $w) { Log ('Notepad unobserved: launched pid=' + $launchedPid + ' produced no proven window; tracked for cleanup'); return $null }
     Add-Owned $group $w $p | Out-Null
     return $w
 }
+function Test-DescendantOfLaunched([uint32]$CandidatePid, [uint32]$LaunchedPid, [datetime]$LaunchedStart) {
+    if ($CandidatePid -eq 0 -or $LaunchedPid -eq 0) { return $false }
+    $cur = [uint32]$CandidatePid
+    for ($i = 0; $i -lt 8; $i++) {
+        if ($cur -eq $LaunchedPid) { return $true }
+        try { $ci = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $cur) -ErrorAction Stop } catch { return $false }
+        if (-not $ci -or -not $ci.ParentProcessId) { return $false }
+        $created = $null; try { $created = [datetime]$ci.CreationDate } catch { }
+        if ($created -and $created -lt $LaunchedStart.AddSeconds(-4)) { return $false }
+        $parent = [uint32]$ci.ParentProcessId
+        if ($parent -eq 0 -or $parent -eq $cur) { return $false }
+        $cur = $parent
+    }
+    return $false
+}
+function Find-LaunchedPaintWindow([string]$group, [uint32]$LaunchedPid, [datetime]$Started, $Before) {
+    $w = Find-RTWindow { param($x) ($x.Title -like '*Paint*') -and ($x.Class -ne 'Chrome_WidgetWin_1') -and ($LaunchedPid -ne 0) -and ([uint32]$x.Pid -eq [uint32]$LaunchedPid) } $Before 25
+    if ($w) { return $w }
+    # Packaged Paint may hand off to a child. Accept only a window owned by a PROVEN descendant, never
+    # an arbitrary freshly started same-name process. More than one candidate is ambiguous: no adoption.
+    $candidates = @(Get-RTWindows | Where-Object {
+        (-not $Before.ContainsKey([int64]$_.Handle)) -and ($_.Title -like '*Paint*') -and ($_.Class -ne 'Chrome_WidgetWin_1') -and
+        ($LaunchedPid -ne 0) -and (Test-DescendantOfLaunched ([uint32]$_.Pid) $LaunchedPid $Started)
+    })
+    if ($candidates.Count -eq 1) {
+        Log ('PAINT handoff: window pid=' + $candidates[0].Pid + ' is a descendant of launched pid=' + $LaunchedPid)
+        return $candidates[0]
+    }
+    if ($candidates.Count -gt 1) { Log ('WARN Paint handoff ambiguous: ' + $candidates.Count + ' descendant windows; no adoption'); return $null }
+    Log ('Paint unobserved: launched pid=' + $LaunchedPid + ' produced no direct or descendant window; tracked for cleanup')
+    return $null
+}
 function Launch-Paint {
     $before = @{}; foreach ($w in (Get-RTWindows)) { $before[[int64]$w.Handle] = $true }
+    $started = Get-Date
     $p = Start-Process -FilePath mspaint.exe -PassThru
-    $w = Find-RTWindow { param($x) ($x.Title -like '*Paint*') -and ($x.Class -ne 'Chrome_WidgetWin_1') } $before 25
+    Register-LaunchedProcess 'Paint-A' $p
+    $launchedPid = Get-ProcessPid $p
+    $w = Find-LaunchedPaintWindow 'Paint-A' ([uint32]$launchedPid) $started $before
     if (-not $w) { return $null }
     Add-Owned 'Paint-A' $w $p | Out-Null
     return $w
 }
 function Launch-PaintB {
     $before = @{}; foreach ($w in (Get-RTWindows)) { $before[[int64]$w.Handle] = $true }
+    $started = Get-Date
     $p = Start-Process -FilePath mspaint.exe -PassThru
-    $w = Find-RTWindow { param($x) ($x.Title -like '*Paint*') -and ($x.Class -ne 'Chrome_WidgetWin_1') } $before 25
+    Register-LaunchedProcess 'Paint-B' $p
+    $launchedPid = Get-ProcessPid $p
+    $w = Find-LaunchedPaintWindow 'Paint-B' ([uint32]$launchedPid) $started $before
     if (-not $w) { return $null }
     Add-Owned 'Paint-B' $w $p | Out-Null
     return $w
 }
+function Get-CalculatorProcesses { @(Get-Process -Name CalculatorApp, Calculator, WindowsCalculator -ErrorAction SilentlyContinue) }
+function Get-CalculatorWindows { @(Get-RTWindows | Where-Object { $_.Title -eq 'Calculator' }) }
+function Get-CalculatorCandidates([datetime]$Started, [uint32[]]$BeforePids, [datetime]$Until = [datetime]::MaxValue) {
+    @(Get-CalculatorProcesses | Where-Object {
+        if ($BeforePids -contains [uint32]$_.Id) { return $false }
+        try { $t = $_.StartTime } catch { return $false }
+        return ($t -and $t -ge $Started.AddSeconds(-4) -and $t -le $Until)
+    })
+}
+function Collect-PendingCalculatorChild {
+    $pending = $script:CalcLaunchPending
+    if (-not $pending -or $pending.Resolved) { return }
+    try {
+        # Only processes started inside the recorded launch interval are attributable to this launch;
+        # a Calculator opened later could be the user's and is never killed.
+        $newCandidates = @(Get-CalculatorCandidates $pending.Started $pending.BeforePids $pending.Until)
+        $apps = @($newCandidates | Where-Object { $_.ProcessName -eq 'CalculatorApp' })
+        if ($apps.Count -eq 1) {
+            Register-LaunchedProcess 'CalculatorApp-delayed' $apps[0]
+            Log ('CALC delayed child collected pid=' + $apps[0].Id + ' start=' + $apps[0].StartTime.ToString('HH:mm:ss') + ' (launch interval)')
+        } elseif ($apps.Count -gt 1) {
+            Log ('WARN Calculator delayed child ambiguous: CalculatorApp pids=' + (($apps | ForEach-Object { $_.Id }) -join ',') + '; not killed')
+        } elseif ($newCandidates.Count -gt 0) {
+            Log ('WARN Calculator delayed candidates unattributable: ' + (($newCandidates | ForEach-Object { $_.ProcessName + ':' + $_.Id }) -join ',') + '; not killed')
+        } else { Log 'Calculator delayed child: none observed' }
+    } catch { Log ('WARN Calculator pending scan failed: ' + $_.Exception.Message) }
+    $pending.Resolved = $true
+}
 function Launch-Calculator {
+    # Preflight BEFORE launching: calc.exe would create an orphan we cannot prove we own.
+    $script:CalcLaunchPending = $null
+    $existingProcs = @(Get-CalculatorProcesses)
+    $existingWins = @(Get-CalculatorWindows)
+    if ($existingProcs.Count -gt 0 -or $existingWins.Count -gt 0) {
+        $script:CalcSkipReason = 'already running (pids=' + (($existingProcs | ForEach-Object { $_.Id }) -join ',') + '; windows=' + $existingWins.Count + '); not launched'
+        Log ('Calculator preflight: ' + $script:CalcSkipReason)
+        return $null
+    }
     $before = @{}; foreach ($w in (Get-RTWindows)) { $before[[int64]$w.Handle] = $true }
-    $priorCalc = @(Get-RTWindows | Where-Object { $_.Title -eq 'Calculator' })
+    $beforePids = @($existingProcs | ForEach-Object { [uint32]$_.Id })
+    $started = Get-Date
     $p = Start-Process -FilePath calc.exe -PassThru
-    $w = Find-RTWindow { param($x) $x.Title -eq 'Calculator' } $before 20
-    if (-not $w) { return $null }
-    $calcNow = @(Get-RTWindows | Where-Object { $_.Title -eq 'Calculator' })
-    if ($priorCalc.Count -gt 0 -or $calcNow.Count -ne 1) { Log 'Calculator ownership uncertain (existing or multiple windows).'; return $null }
-    Add-Owned 'Calculator' $w $p | Out-Null
+    Register-LaunchedProcess 'Calculator' $p
+    $script:CalcLaunchPending = [pscustomobject]@{ Started=$started; Until=$started.AddSeconds(25); BeforePids=$beforePids; StubPid=(Get-ProcessPid $p); Resolved=$false }
+    Log ('Calculator launch interval: start=' + $started.ToString('HH:mm:ss') + ' stubPid=' + $script:CalcLaunchPending.StubPid + ' beforePids=[' + ($beforePids -join ',') + ']')
+    $calcProc = $null
+    $calcAmbiguous = $false
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    while ($sw.Elapsed.TotalSeconds -lt 20) {
+        $newCandidates = @(Get-CalculatorCandidates $started $beforePids)
+        $calcApps = @($newCandidates | Where-Object { $_.ProcessName -eq 'CalculatorApp' })
+        if ($calcApps.Count -eq 1) { $calcProc = $calcApps[0]; break }
+        if ($calcApps.Count -gt 1) {
+            $calcAmbiguous = $true
+            Log ('WARN Calculator ambiguous: ' + $calcApps.Count + ' new CalculatorApp pids=[' + (($calcApps | ForEach-Object { $_.Id }) -join ',') + ']; no adoption')
+            break
+        }
+        Start-Sleep -Milliseconds 250
+    }
+    if (-not $calcProc) {
+        # Classic/top-level calculator (no CalculatorApp child) is acceptable only when it is the unique new process.
+        $allNew = @(Get-CalculatorCandidates $started $beforePids)
+        if ($allNew.Count -eq 1 -and $allNew[0].ProcessName -in @('Calculator','WindowsCalculator')) { $calcProc = $allNew[0] }
+        elseif ($allNew.Count -gt 1) { $calcAmbiguous = $true; Log ('WARN Calculator ambiguous: ' + $allNew.Count + ' new processes=[' + (($allNew | ForEach-Object { $_.ProcessName + ':' + $_.Id }) -join ',') + ']; no adoption') }
+    }
+    if (-not $calcProc) {
+        $script:CalcSkipReason = if ($calcAmbiguous) { 'ambiguous multiple new calculator processes; no adoption, only the direct stub is tracked for cleanup' } else { 'no unique new calculator process after launch; stub tracked, pending child retained for cleanup; no window adopted' }
+        Log ('Calculator ownership uncertain: ' + $script:CalcSkipReason)
+        return $null
+    }
+    Register-LaunchedProcess ('Calculator-' + $calcProc.ProcessName) $calcProc
+    $calcPid = [uint32]$calcProc.Id
+    if ($calcProc.ProcessName -eq 'CalculatorApp') {
+        # UWP: require the ApplicationFrameHost frame whose foreign child is exactly this CalculatorApp pid.
+        $w = Find-RTWindow { param($x) $x.Title -eq 'Calculator' -and [uint32]$x.ChildPid -eq [uint32]$calcPid } $before 20
+        if (-not $w) {
+            $script:CalcSkipReason = 'new CalculatorApp pid=' + $calcPid + ' produced no observable window; tracked for cleanup'
+            Log ('Calculator ownership uncertain: ' + $script:CalcSkipReason)
+            return $null
+        }
+        $frame = Get-ProcInfo $w.Pid
+        if ($w.Class -ne 'ApplicationFrameWindow' -or $w.ChildPid -ne $calcPid -or $frame.Name -ne 'ApplicationFrameHost') {
+            $script:CalcSkipReason = 'window 0x' + ('{0:X}' -f [int64]$w.Handle) + ' is not the ApplicationFrameHost frame for CalculatorApp pid=' + $calcPid
+            Log ('Calculator ownership uncertain: ' + $script:CalcSkipReason)
+            return $null
+        }
+    } else {
+        # Direct top-level supported calculator window: the window pid must be that exact new process.
+        $w = Find-RTWindow { param($x) $x.Title -eq 'Calculator' -and [uint32]$x.Pid -eq [uint32]$calcPid -and $x.Class -ne 'ApplicationFrameWindow' } $before 20
+        if (-not $w) {
+            $script:CalcSkipReason = 'new ' + $calcProc.ProcessName + ' pid=' + $calcPid + ' produced no direct Calculator window; tracked for cleanup'
+            Log ('Calculator ownership uncertain: ' + $script:CalcSkipReason)
+            return $null
+        }
+    }
+    $script:CalcLaunchPending.Resolved = $true
+    Add-Owned 'Calculator' $w $calcProc | Out-Null
     return $w
 }
-function Get-ExplorerWindowFor([string]$path) {
+function Get-ExplorerWindowsFor([string]$path) {
+    $handles = @()
     $shell = New-Object -ComObject Shell.Application
     foreach ($f in $shell.Windows()) {
-        try { if ($f.Document.Folder.Self.Path -eq $path) { return $f.HWND } } catch { }
+        try { if ($f.Document.Folder.Self.Path -eq $path) { $handles += [int64]$f.HWND } } catch { }
     }
+    return $handles
+}
+function Get-ExplorerWindowFor([string]$path) {
+    $handles = @(Get-ExplorerWindowsFor $path)
+    if ($handles.Count -gt 0) { return [int64]$handles[0] }
     return 0
 }
 function Launch-Explorer([string]$path, [string]$group, [int]$timeout = 15) {
     $before = @{}; foreach ($w in (Get-RTWindows)) { $before[[int64]$w.Handle] = $true }
-    Start-Process -FilePath explorer.exe -ArgumentList ('"' + $path + '"') | Out-Null
+    $started = Get-Date
+    $pending = [pscustomobject]@{ Path=$path; Group=$group; BaselineHandles=@($before.Keys); Started=$started; ResolvedHwnd=[int64]0 }
+    [void]$script:ExplorerPending.Add($pending)
+    $p = Start-Process -FilePath explorer.exe -ArgumentList ('"' + $path + '"') -PassThru
+    Register-LaunchedProcess $group $p
     $sw = [Diagnostics.Stopwatch]::StartNew()
     while ($sw.Elapsed.TotalSeconds -lt $timeout) {
         $h = Get-ExplorerWindowFor $path
         if ($h -ne 0 -and -not $before.ContainsKey([int64]$h)) {
             $w = [RT]::Window([int64]$h)
-            if ($w) { Add-Owned $group $w $null | Out-Null; return $w }
+            if ($w) { $pending.ResolvedHwnd = [int64]$w.Handle; Add-Owned $group $w $null | Out-Null; return $w }
         }
         Start-Sleep -Milliseconds 400
     }
+    Log ('Explorer pending request kept for cleanup: ' + $group + ' path=' + $path + ' baseline=' + @($before.Keys).Count)
     return $null
 }
 function Launch-Chrome {
@@ -755,7 +1063,8 @@ function Launch-Chrome {
     if (-not (Test-Path -LiteralPath $exe)) { throw 'chrome.exe not found' }
     if (Test-Path -LiteralPath $ChromeProfile) { throw 'Disposable Chrome profile already exists; preserve it and start a new run.' }
     $before = @{}; foreach ($w in (Get-RTWindows)) { $before[[int64]$w.Handle] = $true }
-    Start-Process -FilePath $exe -ArgumentList ('--user-data-dir="' + $ChromeProfile + '" --no-first-run --no-default-browser-check about:blank https://example.com') | Out-Null
+    $p = Start-Process -FilePath $exe -ArgumentList ('--user-data-dir="' + $ChromeProfile + '" --no-first-run --no-default-browser-check about:blank https://example.com') -PassThru
+    Register-LaunchedProcess 'Chrome' $p
     Start-Sleep -Seconds 2
     $sw = [Diagnostics.Stopwatch]::StartNew()
     while ($sw.Elapsed.TotalSeconds -lt 30) {
@@ -771,36 +1080,181 @@ function Launch-Chrome {
     }
     return $null
 }
+function Wait-WindowGone([int64]$Handle, [int]$timeout = 10) {
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    while ($sw.Elapsed.TotalSeconds -lt $timeout) {
+        if (-not [RT]::Alive($Handle)) { return $true }
+        Start-Sleep -Milliseconds 200
+    }
+    return (-not [RT]::Alive($Handle))
+}
 function Close-OwnedWindow($w, [int]$timeout = 10) {
     if (-not $w) { return $true }
-    [RT]::Close([int64]$w.Handle)
-    $ok = Wait-NoWindow { param($x) [int64]$x.Handle -eq [int64]$w.Handle } $timeout
-    if (-not $ok) {
-        $pw = [RT]::Window([int64]$w.Handle)
-        if ($pw) { [RT]::Show([int64]$w.Handle, 6); [RT]::Close([int64]$w.Handle) }
-        $ok = Wait-NoWindow { param($x) [int64]$x.Handle -eq [int64]$w.Handle } 5
-    }
-    return $ok
+    $h = [int64]$w.Handle
+    if (-not [RT]::Alive($h)) { return $true }
+    [RT]::Close($h)
+    if (Wait-WindowGone $h $timeout) { return $true }
+    # Restore once (a minimized/disabled window can ignore WM_CLOSE), then try again.
+    if ([RT]::Alive($h)) { [RT]::Show($h, 9); [RT]::Close($h) }
+    return (Wait-WindowGone $h 5)
 }
 function Close-OwnedGroup([string]$group, [int]$timeout = 10) {
     $items = @($script:Owned | Where-Object Group -eq $group)
     $all = $true
     foreach ($o in $items) {
-        $w = [RT]::Window([int64]$o.Hwnd)
-        if ($w) { $r = Close-RTWindowOwned $w $group; if (-not $r) { $all = $false } }
+        try {
+            $w = [RT]::Window([int64]$o.Hwnd)
+            if ($w) { $r = Close-RTWindowOwned $w $group; if (-not $r) { $all = $false } }
+        } catch { $all = $false; Log ('WARN close group ' + $group + ' 0x' + ('{0:X}' -f [int64]$o.Hwnd) + ' failed: ' + $_.Exception.Message) }
     }
     return $all
 }
 function Close-AllApps {
     $groups = @($script:Owned | ForEach-Object Group | Select-Object -Unique)
-    foreach ($g in $groups) { if ($g -eq 'Chrome') { continue }; [void](Close-OwnedGroup $g 8) }
+    foreach ($g in $groups) {
+        if ($g -eq 'Chrome') { continue }
+        try { [void](Close-OwnedGroup $g 8) } catch { Log ('WARN close group ' + $g + ' failed: ' + $_.Exception.Message) }
+    }
     # Chrome: close every window of the temp profile, then force only its own PIDs if a window ignores close.
-    $chromeItems = @($script:Owned | Where-Object Group -eq 'Chrome')
-    foreach ($o in $chromeItems) { $w = [RT]::Window([int64]$o.Hwnd); if ($w) { [void](Close-RTWindowOwned $w 'chrome') } }
+    foreach ($o in @($script:Owned | Where-Object Group -eq 'Chrome')) {
+        try { $w = [RT]::Window([int64]$o.Hwnd); if ($w) { [void](Close-RTWindowOwned $w 'chrome') } }
+        catch { Log ('WARN chrome close 0x' + ('{0:X}' -f [int64]$o.Hwnd) + ' failed: ' + $_.Exception.Message) }
+    }
     try {
         $pids = @(Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" | Where-Object { $_.CommandLine -like ('*' + $ChromeProfile + '*') } | ForEach-Object { [int]($_.ProcessId) })
-        foreach ($procId in $pids) { if (Get-Process -Id $procId -ErrorAction SilentlyContinue) { Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue } }
-    } catch { }
+        foreach ($procId in $pids) {
+            try { if (Get-Process -Id $procId -ErrorAction SilentlyContinue) { Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue } }
+            catch { Log ('WARN chrome pid=' + $procId + ' stop failed: ' + $_.Exception.Message) }
+        }
+    } catch { Log ('WARN chrome profile process scan failed: ' + $_.Exception.Message) }
+}
+function Close-PendingExplorerWindows {
+    foreach ($req in @($script:ExplorerPending)) {
+        try { $handles = @(Get-ExplorerWindowsFor $req.Path) }
+        catch { Log ('WARN pending explorer scan ' + $req.Path + ' failed: ' + $_.Exception.Message); continue }
+        foreach ($h in $handles) {
+            try {
+                if (@($req.BaselineHandles) -contains [int64]$h) { continue }
+                $w = [RT]::Window([int64]$h)
+                if (-not $w) { continue }
+                Add-Owned $req.Group $w $null | Out-Null
+                [void](Close-RTWindowOwned $w ('explorer pending ' + $req.Path))
+            } catch { Log ('WARN pending explorer close 0x' + ('{0:X}' -f [int64]$h) + ' failed: ' + $_.Exception.Message) }
+        }
+    }
+}
+
+function Stop-LaunchedProcesses {
+    foreach ($rec in @($script:LaunchedProcesses)) {
+        # Never stop Explorer or the UWP frame host. CalculatorApp is the app child and is safe.
+        if ($rec.Name -in @('explorer','ApplicationFrameHost')) { continue }
+        try {
+            $p = Get-Process -Id $rec.Pid -ErrorAction SilentlyContinue
+            if (-not $p) { continue }
+            if ($p.StartTime -ne $rec.Start) { Log ('WARN not stopping launched pid=' + $rec.Pid + ': start no longer matches'); continue }
+            Log ('Force-stopping launched ' + $rec.Name + ' pid=' + $rec.Pid + ' start=' + $rec.Start.ToString('HH:mm:ss'))
+            Stop-Process -Id $rec.Pid -Force -ErrorAction SilentlyContinue
+        } catch { Log ('WARN launched pid=' + $rec.Pid + ' stop failed: ' + $_.Exception.Message) }
+    }
+}
+function Stop-TestChrome([string]$Profile) {
+    try {
+        $pids = @(Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" | Where-Object { $_.CommandLine -like ('*' + $Profile + '*') } | ForEach-Object { [int]$_.ProcessId })
+    } catch { Log ('WARN chrome profile cleanup failed: ' + $_.Exception.Message); return }
+    foreach ($procId in $pids) {
+        try { if (Get-Process -Id $procId -ErrorAction SilentlyContinue) { Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue } }
+        catch { Log ('WARN chrome pid=' + $procId + ' stop failed: ' + $_.Exception.Message) }
+    }
+}
+function Invoke-TestCleanup([string]$ChromeProfile, $UserBaseline, [uint32[]]$FlowDeskPids) {
+    $uiaOk = $true; $leftWs = @()
+    # A delayed UWP Calculator child may appear after the launch wait; collect only a unique, attributable
+    # one from the recorded launch interval. Never kill every Calculator process started after TaskStart.
+    try { Collect-PendingCalculatorChild } catch { Log ('WARN pending calculator collection failed: ' + $_.Exception.Message) }
+    # 1. Workspace deletion through the app UI. This is the only UIA-dependent part of cleanup and is
+    #    allowed to fail; native handle/PID cleanup below always runs. Data restore also removes test data.
+    if (Get-AppProcess) {
+        try {
+            Navigate 'Workspaces'
+            foreach ($name in @('RT Work A','RT Work B')) {
+                $found = @(Get-ByName $name ([System.Windows.Automation.ControlType]::Text)).Count -gt 0
+                if (-not $found) { continue }
+                $act = Get-WorkspaceActionsButton $name
+                if (-not $act) { Log ('No actions button for ' + $name); continue }
+                Invoke-Element $act; Start-Sleep -Milliseconds 700
+                $del = @(Get-ByName 'Delete' ([System.Windows.Automation.ControlType]::MenuItem) -Desktop)[0]
+                if (-not $del) { $del = @(Get-ByName 'Delete' ([System.Windows.Automation.ControlType]::MenuItem))[0] }
+                if ($del) {
+                    Invoke-Element $del; Start-Sleep -Milliseconds 700
+                    $dlg = @(Get-ByName 'Delete workspace?' ([System.Windows.Automation.ControlType]::Window))[0]
+                    if ($dlg) {
+                        $confirm = @($dlg.FindAll([System.Windows.Automation.TreeScope]::Descendants,[System.Windows.Automation.Condition]::TrueCondition) | Where-Object { $_.Current.Name -eq 'Delete workspace' -and $_.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button })[0]
+                        if ($confirm) { Invoke-Element $confirm }
+                    }
+                }
+                Start-Sleep -Seconds 1
+            }
+            Navigate 'Workspaces'
+            $texts = @(Get-UiAll (Get-AppRoot) | Where-Object { $_.Current.ControlType -eq [System.Windows.Automation.ControlType]::Text } | ForEach-Object { $_.Current.Name })
+            $leftWs = @('RT Work A','RT Work B','RT Layout' | Where-Object { $texts -contains $_ })
+        } catch {
+            $uiaOk = $false
+            Log ('WARN cleanup UI failed; native cleanup continues: ' + $_.Exception.Message)
+        }
+    } else { Log 'cleanup: FlowDesk UI is not running; workspace deletion skipped' }
+    # 2. Close every recorded owned window by its exact HWND (no FindAll dependency).
+    $closeOk = $true
+    foreach ($o in @($script:Owned)) {
+        try {
+            $h = [int64]$o.Hwnd
+            if (-not [RT]::Alive($h)) { continue }
+            $w = [RT]::Window($h)
+            if ($w -and -not (Close-RTWindowOwned $w 'cleanup')) { $closeOk = $false }
+        } catch { $closeOk = $false; Log ('WARN cleanup close 0x' + ('{0:X}' -f [int64]$o.Hwnd) + ' failed: ' + $_.Exception.Message) }
+    }
+    # 3. Pending Explorer folder requests: sweep exact Shell folder HWNDs excluding the pre-launch baseline.
+    #    Only WM_CLOSE on folder windows; the Explorer host process is never killed.
+    try { Close-PendingExplorerWindows } catch { Log ('WARN pending explorer sweep failed: ' + $_.Exception.Message) }
+    # 4. Fixture-title sweep for windows that never got recorded (ownership still proven by PID/start).
+    try { Close-FixtureWindows 'cleanup' } catch { Log ('WARN fixture sweep failed: ' + $_.Exception.Message) }
+    # 5. Force-stop exact launched/recorded instances. UWP Calculator is killed by its CalculatorApp
+    #    child pid (never the ApplicationFrameHost frame); Explorer is never killed.
+    try { Stop-LaunchedProcesses } catch { Log ('WARN launched-process stop failed: ' + $_.Exception.Message) }
+    foreach ($rec in @($script:Owned | Where-Object { $_.Process -in @('notepad','mspaint','chrome','CalculatorApp') })) {
+        try {
+            if (Test-RecordedProcess $rec) {
+                Log ('Force-stopping recorded pid=' + $rec.AppPid + ' process=' + $rec.Process + ' start=' + $rec.Start.ToString('HH:mm:ss'))
+                Stop-Process -Id $rec.AppPid -Force -ErrorAction SilentlyContinue
+            }
+        } catch { Log ('WARN recorded-process stop failed: ' + $_.Exception.Message) }
+    }
+    Stop-TestChrome $ChromeProfile
+    $profileGone = $false
+    try {
+        if (Test-Path -LiteralPath $ChromeProfile) { Remove-Item -LiteralPath $ChromeProfile -Recurse -Force }
+        $profileGone = -not (Test-Path -LiteralPath $ChromeProfile)
+    } catch { Log ('WARN chrome profile removal failed: ' + $_.Exception.Message) }
+    $flowLeft = -1
+    try { $flowLeft = Stop-OwnedFlowDesk } catch { Log ('WARN FlowDesk stop failed: ' + $_.Exception.Message) }
+    Start-Sleep -Milliseconds 700
+    $ownedHandles = @(Get-OwnedHandles)
+    $remainingOwned = @($ownedHandles | Where-Object { [RT]::Alive([int64]$_) }).Count
+    $remainingLaunches = @($script:LaunchedProcesses | Where-Object {
+        if ($_.Name -in @('explorer','ApplicationFrameHost')) { return $false }
+        $p = Get-Process -Id $_.Pid -ErrorAction SilentlyContinue
+        if (-not $p) { return $false }
+        try { return ($p.StartTime -eq $_.Start) } catch { return $false }
+    }).Count
+    $issues = @()
+    $compareOk = $true
+    try { if ($UserBaseline) { $issues = @(Compare-UserWindows $UserBaseline $ownedHandles $FlowDeskPids) } }
+    catch { $compareOk = $false; Log ('WARN user-window compare failed (cleanup is not a pass): ' + $_.Exception.Message) }
+    $ok = $closeOk -and $remainingOwned -eq 0 -and $remainingLaunches -eq 0 -and $flowLeft -eq 0 -and $profileGone -and $compareOk -and $issues.Count -eq 0
+    Log ('Cleanup: uia=' + $uiaOk + ' workspaces=' + $(if($uiaOk){($leftWs -join ',')}else{'unknown'}) + ' remainingOwned=' + $remainingOwned + ' remainingLaunched=' + $remainingLaunches + ' profileGone=' + $profileGone + ' testFlowDeskLeft=' + $flowLeft + ' userIssues=' + $issues.Count + ' compareOk=' + $compareOk)
+    return [pscustomobject]@{
+        Ok=$ok; UiaOk=$uiaOk; WorkspacesLeft=($leftWs -join ','); RemainingOwned=$remainingOwned
+        RemainingLaunched=$remainingLaunches; ProfileGone=$profileGone; TestFlowDeskLeft=$flowLeft; UserIssues=$issues.Count; CompareOk=$compareOk
+    }
 }
 
 # ---------- snapshot/inspect modes ----------
@@ -846,17 +1300,34 @@ if ($pre.Count -gt 0) {
     exit 2
 }
 $script:FlowDeskBaselinePids = @()
-$app = $null
-$startedApp = $true
-Log 'FlowDesk not running; starting build exe.'
-Start-Process -FilePath $AppExe | Out-Null
-$sw = [Diagnostics.Stopwatch]::StartNew()
-while ($sw.Elapsed.TotalSeconds -lt 30) { $app = Get-AppProcess; if ($app -and $app.MainWindowHandle -ne 0) { break }; Start-Sleep -Milliseconds 500 }
-if (-not $app) { Log 'BLOCKED: FlowDesk.App did not start'; exit 2 }
-if ($startedApp) { Register-FlowDeskOwned @(Get-FlowDeskProcesses | ForEach-Object { [uint32]$_.Id }) }
-$fdPids = @(Get-FlowDeskProcesses | ForEach-Object { [uint32]$_.Id })
-Log ('FlowDesk pid=' + $app.Id + ' hwnd=0x' + ('{0:X}' -f $app.MainWindowHandle) + ' startedByTest=' + $startedApp + ' allFlowDeskPids=' + ($fdPids -join ','))
-Navigate 'Workspaces'
+$script:CleanupStats = $null
+$script:DataRestore = $null
+$script:DataBackup = $null
+$script:RunError = $null
+$step = '7 Cleanup'
+$user0 = @{}
+$fdPids = @()
+$backupDir = Join-Path $RunDir ('data-backup-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + $PID)
+# Outer guard: no matter where UIA/native code throws, the finally block closes every recorded instance
+# and then restores the user's data files (only after all test FlowDesk processes are gone).
+try {
+    $script:DataBackup = Backup-DataFiles $script:DataDir $backupDir $script:DataFileNames
+    Log ('DATA backup: ' + $backupDir + ' [' + (($script:DataBackup.Files | ForEach-Object { $_.Name + '=' + $(if ($_.Existed) { 'present' } else { 'absent' }) }) -join '; ') + ']')
+    Write-CleanDataFiles $script:DataDir
+    if (-not (Test-FocusRulesAreNotepadOnly (Get-PersistedFocusRules $script:DataDir) 0)) { throw 'clean data focus rules are not empty' }
+    Log 'DATA clean test data written (no workspaces, no focus rules, default settings)'
+    $app = $null
+    $startedApp = $true
+    Log 'FlowDesk not running; starting build exe.'
+    $appLauncher = Start-Process -FilePath $AppExe -PassThru
+    Register-FlowDeskOwned @([uint32]$appLauncher.Id)
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    while ($sw.Elapsed.TotalSeconds -lt 30) { $app = Get-AppProcess; if ($app -and $app.MainWindowHandle -ne 0) { break }; Start-Sleep -Milliseconds 500 }
+    if (-not $app) { throw 'BLOCKED: FlowDesk.App did not start' }
+    if ($startedApp) { Register-FlowDeskOwned @(Get-FlowDeskProcesses | ForEach-Object { [uint32]$_.Id }) }
+    $fdPids = @(Get-FlowDeskProcesses | ForEach-Object { [uint32]$_.Id })
+    Log ('FlowDesk pid=' + $app.Id + ' hwnd=0x' + ('{0:X}' -f $app.MainWindowHandle) + ' startedByTest=' + $startedApp + ' allFlowDeskPids=' + ($fdPids -join ','))
+    Navigate 'Workspaces'
 
 # Preflight cleanup of prior RT workspaces is allowed only for the three test names.
 $existing = @(Get-UiAll (Get-AppRoot) | Where-Object { $_.Current.Name -in @('RT Work A','RT Work B','RT Layout') -and $_.Current.ControlType -eq [System.Windows.Automation.ControlType]::Text } | ForEach-Object { $_.Current.Name })
@@ -950,9 +1421,9 @@ if (-not $paintA) { $launchMissing += 'Paint' }
 if (-not $explorerA) { $launchMissing += 'Explorer folder-a' }
 if (-not $chrome) { $launchMissing += 'Chrome temp profile' }
 if ($launchMissing.Count -gt 0) {
-    Add-Result '0 Setup launches' 'BLOCKED' 'Notepad, Paint, Calculator (optional), Explorer folder-a, temp Chrome' ('missing: ' + ($launchMissing -join ', ') + '; Calculator=' + $(if($calc){'owned'}else{'skipped (ownership uncertain)'})) 'continuing with the windows that exist'
+    Add-Result '0 Setup launches' 'BLOCKED' 'Notepad, Paint, Calculator, Explorer folder-a, temp Chrome' ('missing: ' + ($launchMissing -join ', ') + '; Calculator=' + $(if($calc){'owned'}else{'skipped (' + $script:CalcSkipReason + ')'})) 'continuing with the windows that exist'
 } elseif (-not $calc) {
-    Add-Result '0 Setup launches' 'BLOCKED' 'Notepad, Paint, Calculator, Explorer folder-a, temp Chrome' ('Calculator skipped (ownership uncertain); other 4 launched') 'continuing with 4 windows'
+    Add-Result '0 Setup launches' 'BLOCKED' 'Notepad, Paint, Calculator, Explorer folder-a, temp Chrome' ('Calculator skipped (' + $script:CalcSkipReason + '); other 4 launched') 'continuing with 4 windows'
 } else {
     Log 'Setup launches: all 5 disposable windows owned.'
 }
@@ -1367,6 +1838,10 @@ try {
     # Safety: no user Notepad windows, and BlockAll must be off.
     $userNow = Snapshot-UserWindows (Get-OwnedHandles) $fdPids
     $userNotepad = @($userNow.GetEnumerator() | Where-Object { $_.Value.Process -match '^(?i)notepad$' } | ForEach-Object { $_.Value.Title })
+    # Ground truth for isolation is the data file we wrote: no pre-existing focus rules.
+    $persistedPre = Get-PersistedFocusRules $script:DataDir
+    Log ('Focus persisted preflight: ' + (Format-FocusRules $persistedPre))
+    if (-not (Test-FocusRulesAreNotepadOnly $persistedPre 0)) { throw ('BLOCKED: isolated focus data is not clean: ' + (Format-FocusRules $persistedPre)) }
     Navigate 'Focus'
     Start-Sleep -Milliseconds 700
     $blockAll = @(Get-UiAll (Get-AppRoot) | Where-Object { $_.Current.Name -like 'Block every app*' -and (Get-ToggleState $_) -ne 'Unknown' })[0]
@@ -1426,8 +1901,19 @@ try {
     $userNotepad2 = @($userNow2.GetEnumerator() | Where-Object { $_.Value.Process -match '^(?i)notepad$' } | ForEach-Object { $_.Value.Title })
     if ($userNotepad2.Count -gt 0) { throw ('BLOCKED: user Notepad window appeared: ' + ($userNotepad2 -join ', ')) }
     $beforeStartBlocked = @(Get-FocusRuleRows 'Remove blocked app')
-    $foreignBeforeStart = @($beforeStartBlocked | Where-Object { $_ -notmatch '^(?i)Notepad( \| (notepad\.exe|Packaged app))?$' })
-    if ($foreignBeforeStart.Count -gt 0) { throw ('BLOCKED: focus rules changed and now include non-Notepad apps: ' + ($foreignBeforeStart -join '; ')) }
+    # The UI card for our own newly added Notepad can be unreadable; do not treat that as a foreign app.
+    # Readable foreign rules still fail closed, and the isolated data file is the ground truth for the set.
+    $uiaForeign = @($beforeStartBlocked | Where-Object { $_ -ne '<unreadable rule>' -and $_ -notmatch '^(?i)Notepad( \| (notepad\.exe|Packaged app))?$' })
+    if ($uiaForeign.Count -gt 0) { throw ('BLOCKED: focus rules changed and now include non-Notepad apps: ' + ($uiaForeign -join '; ')) }
+    $persistedRules = $null
+    $swRules = [Diagnostics.Stopwatch]::StartNew()
+    while ($swRules.Elapsed.TotalSeconds -lt 8) {
+        $persistedRules = Get-PersistedFocusRules $script:DataDir
+        if (Test-FocusRulesAreNotepadOnly $persistedRules 1) { break }
+        Start-Sleep -Milliseconds 500
+    }
+    Log ('Focus isolated data after add: ' + (Format-FocusRules $persistedRules))
+    if (-not (Test-FocusRulesAreNotepadOnly $persistedRules 1)) { throw ('BLOCKED: isolated focus data is not the expected single Notepad rule: ' + (Format-FocusRules $persistedRules)) }
     # Normal, 25 minutes.
     $normal = @(Get-ByName 'Normal' ([System.Windows.Automation.ControlType]::RadioButton))[0]
     if ($normal) { Select-Element $normal }
@@ -1568,7 +2054,8 @@ try {
     Log ('FlowDesk closed: ' + $allClosed)
     if (-not $allClosed) { throw 'FlowDesk did not close in 20 s' }
     $beforeRestart = @(Get-FlowDeskProcesses | ForEach-Object { [uint32]$_.Id })
-    Start-Process -FilePath $AppExe | Out-Null
+    $appLauncher2 = Start-Process -FilePath $AppExe -PassThru
+    Register-FlowDeskOwned @([uint32]$appLauncher2.Id)
     $app2 = $null
     $sw = [Diagnostics.Stopwatch]::StartNew()
     while ($sw.Elapsed.TotalSeconds -lt 40) { $app2 = Get-AppProcess; if ($app2 -and $app2.MainWindowHandle -ne 0) { break }; Start-Sleep -Milliseconds 500 }
@@ -1577,12 +2064,18 @@ try {
     $fdPids = @(Get-FlowDeskProcesses | ForEach-Object { [uint32]$_.Id })
     Log ('FlowDesk restarted pid=' + $app2.Id + ' hwnd=0x' + ('{0:X}' -f $app2.MainWindowHandle) + ' ownedPids=' + ($script:FlowDeskOwnedPids -join ','))
     Start-Sleep -Seconds 3
-    Register-FlowDeskOwned @(Get-FlowDeskProcesses | ForEach-Object { [uint32]$_.Id })
+    Register-FlowDeskOwned @(Get-FlowDeskProcesses | Where-Object { $beforeRestart -notcontains [uint32]$_.Id } | ForEach-Object { [uint32]$_.Id })
     $fdPids = @(Get-FlowDeskProcesses | ForEach-Object { [uint32]$_.Id })
     Navigate 'Workspaces'
     Open-Workspace 'RT Work A' | Out-Null
     $sum = Wait-Report 'RT Work A' 60
     Start-Sleep -Seconds 2
+    # The restart reopens A's items; record the exact windows it produced (same ownership rules as step 2)
+    # so cleanup closes them even if they are new handles rather than the ones from step 2.
+    foreach ($t in $targets) {
+        $resolved = Resolve-RestoredWindow $t.Name $expected[$t.Name] (Get-RTWindows) $baselineHandles
+        if ($resolved.Window) { Add-Owned $t.Name $resolved.Window $null | Out-Null }
+    }
     $after = @(Get-RTWindows | Where-Object { $_.Title -like '*folder-a*' })[0]
     if (-not $after) { $h = Get-ExplorerWindowFor $FolderA; if ($h) { $after = [RT]::Window([int64]$h) } }
     if (-not $after) { throw 'folder-a window missing after reopen' }
@@ -1604,63 +2097,55 @@ try {
     $null = Save-Shot 'step6-autosave-exception.png'
 }
 
-# ---- STEP 7: cleanup ----
+# ---- STEP 7: cleanup (best effort, independent actions) ----
 $step = '7 Cleanup'
 try {
-    Navigate 'Workspaces'
-    foreach ($name in @('RT Work A','RT Work B')) {
-        $found = @(Get-ByName $name ([System.Windows.Automation.ControlType]::Text)).Count -gt 0
-        if (-not $found) { continue }
-        $act = Get-WorkspaceActionsButton $name
-        if (-not $act) { Log ('No actions button for ' + $name); continue }
-        Invoke-Element $act; Start-Sleep -Milliseconds 700
-        $del = @(Get-ByName 'Delete' ([System.Windows.Automation.ControlType]::MenuItem) -Desktop)[0]
-        if (-not $del) { $del = @(Get-ByName 'Delete' ([System.Windows.Automation.ControlType]::MenuItem))[0] }
-        if ($del) {
-            Invoke-Element $del; Start-Sleep -Milliseconds 700
-            $dlg = @(Get-ByName 'Delete workspace?' ([System.Windows.Automation.ControlType]::Window))[0]
-            if ($dlg) {
-                $confirm = @($dlg.FindAll([System.Windows.Automation.TreeScope]::Descendants,[System.Windows.Automation.Condition]::TrueCondition) | Where-Object { $_.Current.Name -eq 'Delete workspace' -and $_.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button })[0]
-                if ($confirm) { Invoke-Element $confirm }
-            }
-        }
-        Start-Sleep -Seconds 1
-    }
-    Navigate 'Workspaces'
-    $texts = @(Get-UiAll (Get-AppRoot) | Where-Object { $_.Current.ControlType -eq [System.Windows.Automation.ControlType]::Text } | ForEach-Object { $_.Current.Name })
-    $leftWs = @('RT Work A','RT Work B','RT Layout' | Where-Object { $texts -contains $_ })
-    $issues = Compare-UserWindows $user0 (Get-OwnedHandles) $fdPids
-    Close-AllApps
-    Close-FixtureWindows 'cleanup'
-    Start-Sleep -Seconds 2
-    # Force only the exact recorded process instance (PID + StartTime), never a recycled PID.
-    $killPids = @()
-    foreach ($rec in @($script:Owned | Where-Object { $_.Process -in @('notepad','mspaint','chrome') })) {
-        if ($killPids -contains [uint32]$rec.AppPid) { continue }
-        if (Test-RecordedProcess $rec) {
-            Log ('Force-stopping recorded pid=' + $rec.AppPid + ' process=' + $rec.Process + ' start=' + $rec.Start.ToString('HH:mm:ss'))
-            Stop-Process -Id $rec.AppPid -Force -ErrorAction SilentlyContinue
-            $killPids += [uint32]$rec.AppPid
-        } elseif (Get-Process -Id $rec.AppPid -ErrorAction SilentlyContinue) {
-            Log ('WARN not killing pid=' + $rec.AppPid + ': process start no longer matches the recorded instance')
-        }
-    }
-    Start-Sleep -Seconds 1
-    $ownedHandles = @(Get-OwnedHandles)
-    $remainingOwned = @([RT]::WindowsAll() | Where-Object { $ownedHandles -contains [int64]$_.Handle })
-    $flowLeft = Stop-OwnedFlowDesk
-    Start-Sleep -Milliseconds 700
-    $remainingOwned = @([RT]::WindowsAll() | Where-Object { $ownedHandles -contains [int64]$_.Handle })
-    if (Test-Path -LiteralPath $ChromeProfile) { Remove-Item -LiteralPath $ChromeProfile -Recurse -Force }
-    Log ('Cleanup: remainingOwned=' + $remainingOwned.Count + ' workspacesLeft=' + ($leftWs -join ',') + ' chromeProfile=' + (Test-Path -LiteralPath $ChromeProfile) + ' testFlowDeskLeft=' + $flowLeft + ' userIssues=' + $issues.Count)
-    if ($remainingOwned.Count -eq 0 -and $leftWs.Count -eq 0 -and -not (Test-Path -LiteralPath $ChromeProfile) -and $flowLeft -eq 0 -and $issues.Count -eq 0) {
-        Add-Result $step 'PASS' '0 owned windows, 0 RT workspaces, chrome profile removed, test FlowDesk closed, no user window changed' ('remainingOwned=0; workspacesLeft=0; testFlowDeskLeft=0; user changes=0') (($issues -join '; '))
-    } else {
-        Add-Result $step 'FAIL' '0 owned windows, 0 RT workspaces, chrome profile removed, test FlowDesk closed, no user window changed' ('remainingOwned=' + $remainingOwned.Count + '; workspacesLeft=' + ($leftWs -join ',') + '; profileExists=' + (Test-Path -LiteralPath $ChromeProfile) + '; testFlowDeskLeft=' + $flowLeft + '; user changes=' + $issues.Count) (($issues -join '; '))
-        $null = Save-Shot 'step7-cleanup-fail.png'
-    }
+    $script:CleanupStats = Invoke-TestCleanup $ChromeProfile $user0 $fdPids
 } catch {
-    Add-Result $step 'FAIL' 'cleanup' ($_.Exception.Message) 'see log'
+    Log ('WARN cleanup wrapper failed: ' + $_.Exception.Message)
+}
+} catch {
+    $script:RunError = $_.Exception.Message
+    Log ('RUN ABORTED: ' + $script:RunError)
+} finally {
+    # If an exception skipped step 7, cleanup still runs here. No UIA call is required for this path.
+    if (-not $script:CleanupStats) {
+        try { $script:CleanupStats = Invoke-TestCleanup $ChromeProfile $user0 $fdPids } catch { Log ('WARN fallback cleanup failed: ' + $_.Exception.Message) }
+    }
+    # Stop every test instance before restoring files. A live FlowDesk means the backup must be retained:
+    # overwriting open production data would be worse than a failed restore.
+    $backupPath = if ($script:DataBackup) { $script:DataBackup.BackupDir } else { '<none>' }
+    $flowLeft = -1
+    try { $flowLeft = Stop-OwnedFlowDesk }
+    catch { Log ('WARN final FlowDesk stop failed: ' + $_.Exception.Message); try { $flowLeft = @(Get-FlowDeskProcesses).Count } catch { $flowLeft = -1 } }
+    Start-Sleep -Milliseconds 500
+    if ($flowLeft -ne 0) {
+        $script:DataRestore = [pscustomobject]@{ Ok=$false; RestoreBlocked=$true; Failures=@('test FlowDesk still alive (left=' + $flowLeft + '); data NOT restored; backup retained at ' + $backupPath) }
+        Log ('DATA restore BLOCKED: test FlowDesk left=' + $flowLeft + '; backup retained at ' + $backupPath)
+    } else {
+        try { $script:DataRestore = Restore-TestData $script:DataBackup }
+        catch { $script:DataRestore = [pscustomobject]@{ Ok=$false; RestoreBlocked=$false; Failures=@($_.Exception.Message) } }
+    }
+    $restoreBlocked = [bool]($script:DataRestore -and $script:DataRestore.RestoreBlocked)
+    Log ('DATA restore: ok=' + $script:DataRestore.Ok + ' blocked=' + $restoreBlocked + ' backup=' + $backupPath + $(if ($script:DataRestore.Ok) { '' } else { ' failures=' + ($script:DataRestore.Failures -join '; ') }))
+}
+
+# ---- STEP 7 result: cleanup is only a pass if the user's data was restored and verified ----
+$cleanup = $script:CleanupStats
+if (-not $cleanup) { $cleanup = [pscustomobject]@{ Ok=$false; UiaOk=$false; WorkspacesLeft='unknown'; RemainingOwned=-1; RemainingLaunched=-1; ProfileGone=$false; TestFlowDeskLeft=-1; UserIssues=-1; CompareOk=$false } }
+$restore = $script:DataRestore
+$restoreOk = [bool]($restore -and $restore.Ok)
+$restoreBlocked = [bool]($restore -and $restore.RestoreBlocked)
+$cleanupOk = [bool]$cleanup.Ok
+$stepOk = $cleanupOk -and $restoreOk -and -not $restoreBlocked -and -not $script:RunError
+$actual = 'remainingOwned=' + $cleanup.RemainingOwned + '; remainingLaunched=' + $cleanup.RemainingLaunched + '; workspacesLeft=' + $cleanup.WorkspacesLeft + '; cleanupUia=' + $cleanup.UiaOk + '; compareOk=' + $cleanup.CompareOk + '; profileGone=' + $cleanup.ProfileGone + '; testFlowDeskLeft=' + $cleanup.TestFlowDeskLeft + '; userChanges=' + $cleanup.UserIssues + '; dataRestore=' + $restoreOk + '; restoreBlocked=' + $restoreBlocked + '; restoreBackup=' + $(if ($script:DataBackup) { $script:DataBackup.BackupDir } else { '<none>' })
+if (-not $restoreOk -and $restore) { $actual += '; restoreFailures=' + ($restore.Failures -join '; ') }
+if ($script:RunError) { $actual += '; runError=' + $script:RunError }
+if ($stepOk) {
+    Add-Result $step 'PASS' '0 owned windows/processes, test FlowDesk closed, chrome profile removed, no user window changed, original data restored and hash-verified' $actual ''
+} else {
+    $null = Save-Shot 'step7-cleanup-fail.png'
+    Add-Result $step 'FAIL' '0 owned windows/processes, test FlowDesk closed, chrome profile removed, no user window changed, original data restored and hash-verified' $actual ''
 }
 
 # ---- summary ----
