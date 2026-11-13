@@ -164,6 +164,8 @@ public partial class CandidateViewModel : ObservableObject
             ? Title : Position;
     public bool IsBrowser => Source.IsBrowser;
     public string ExePath => Source.Window.ExePath;
+    /// <summary>Stable id for the trusted real-app script: selects this exact window, not a same-name twin.</summary>
+    public string AutomationId => "window-" + Source.Window.Handle.ToString(System.Globalization.CultureInfo.InvariantCulture);
     public string Glyph => ItemDisplay.Glyph(Source.Item.Kind);
     public CandidateViewModel(CaptureCandidate candidate) { Source = candidate; Selected = CanSelect; }
 }

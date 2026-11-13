@@ -37,6 +37,7 @@
                                      IsEnabled="{Binding CanSelect}"
                                      HorizontalContentAlignment="Stretch"
                                      AutomationProperties.Name="{Binding Name}"
+                                     AutomationProperties.AutomationId="{Binding AutomationId}"
                                     ToolTipService.ToolTip="{Binding Secondary}">
                                     <Grid ColumnSpacing="12">
                                         <Grid.ColumnDefinitions>

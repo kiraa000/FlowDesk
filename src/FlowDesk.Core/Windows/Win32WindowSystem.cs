@@ -144,47 +144,28 @@ public sealed class Win32WindowSystem : IWindowSystem
     }
 
     public PlaceOutcome Place(long handle, PixelRect target, WindowShow show)
+        => WindowPlacer.Place(new NativePlacementApi((nint)handle), target, show);
+
+    private sealed class NativePlacementApi(nint h) : IWindowPlacementApi
     {
-        nint h = (nint)handle;
-        if (!IsWindow(h)) return PlaceOutcome.WindowGone;
-        if (IsHungAppWindow(h))
+        public bool IsWindow => NativeIsWindow(h);
+        private static bool NativeIsWindow(nint handle) => Interop.Native.IsWindow(handle);
+        public bool IsHung => IsHungAppWindow(h);
+        public bool IsMinimized => IsIconic(h);
+        public bool IsMaximized => IsZoomed(h);
+        public uint Dpi => GetDpiForWindow(h);
+        public int LastError => Marshal.GetLastWin32Error();
+        public bool IsOnTargetMonitor(PixelRect target)
         {
-            // Never block on a hung app: post the request and move on.
+            var r = new RECT { Left = target.X, Top = target.Y, Right = target.Right, Bottom = target.Bottom };
+            return MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST) == MonitorFromRect(ref r, MONITOR_DEFAULTTONEAREST);
+        }
+        public bool SetRect(PixelRect target, bool asynchronous = false) =>
             SetWindowPos(h, 0, target.X, target.Y, target.Width, target.Height,
-                SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_ASYNCWINDOWPOS);
-            return PlaceOutcome.Ok;
-        }
-
-        bool min = IsIconic(h), max = IsZoomed(h);
-        if (show == WindowShow.Minimized && min) return PlaceOutcome.Ok; // leave it; restoring would flash it
-        if (show == WindowShow.Maximized && max)
-        {
-            var tr = new RECT { Left = target.X, Top = target.Y, Right = target.Right, Bottom = target.Bottom };
-            if (MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST) == MonitorFromRect(ref tr, MONITOR_DEFAULTTONEAREST))
-                return PlaceOutcome.Ok; // already maximized on the right monitor
-        }
-
-        if (min || max) ShowWindow(h, SW_SHOWNOACTIVATE); // back to normal so the rect applies to the restore position
-
-        uint flags = SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER;
-        uint dpiBefore = GetDpiForWindow(h);
-        if (!SetWindowPos(h, 0, target.X, target.Y, target.Width, target.Height, flags))
-            return Marshal.GetLastWin32Error() == 5 ? PlaceOutcome.AccessDenied : PlaceOutcome.Failed;
-
-        // Crossing to a monitor with another DPI makes the app resize itself in WM_DPICHANGED;
-        // a second call puts the exact size back.
-        if (GetDpiForWindow(h) != dpiBefore || !RectMatches(h, target))
-        {
-            Thread.Sleep(30);
-            SetWindowPos(h, 0, target.X, target.Y, target.Width, target.Height, flags);
-        }
-
-        switch (show)
-        {
-            case WindowShow.Maximized: ShowWindow(h, SW_MAXIMIZE); break; // maximizes on the monitor it now sits on
-            case WindowShow.Minimized: ShowWindow(h, SW_SHOWMINNOACTIVE); break;
-        }
-        return PlaceOutcome.Ok;
+                SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER | (asynchronous ? SWP_ASYNCWINDOWPOS : 0));
+        public bool RectMatches(PixelRect target) => Win32WindowSystem.RectMatches(h, target);
+        public void Show(int command) => ShowWindow(h, command);
+        public void Pause() => Thread.Sleep(30);
     }
 
     private static bool RectMatches(nint h, PixelRect t) =>

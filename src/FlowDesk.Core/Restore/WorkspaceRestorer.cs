@@ -200,17 +200,26 @@ public sealed class WorkspaceRestorer(IWindowSystem windows, IAppLauncher launch
             PlaceOne(item, matched[item.Id], Placement, Report, launched: false);
 
         // 5. Settle: apps that restore their own size after showing get put back once more.
+        // Browsers can resize again after their initial content/profile initialization: give only
+        // launched browsers one additional bounded pass, never an ongoing size-enforcement loop.
         if (launchedIds.Count > 0 && opt.SettleDelay > TimeSpan.Zero)
         {
-            await _delay(opt.SettleDelay, ct).ConfigureAwait(false);
-            var monitors = windows.GetMonitors();
-            foreach (var id in launchedIds)
+            var browserIds = launchedIds.Where(id => ws.Items.Any(i => i.Id == id
+                && ShellLauncher.IsBrowser(i.App?.ExePath ?? (i.Kind == ItemKind.Website ? browser : null)))).ToHashSet();
+            for (int pass = 0; pass < (browserIds.Count > 0 ? 2 : 1); pass++)
             {
-                var item = ws.Items.First(i => i.Id == id);
-                if (Placement(item) is not { } saved || windows.Get(matched[id].Handle) is not { } cur) continue;
-                var target = DisplayMapper.Map(saved, monitors);
-                if (cur.Show != saved.Show || (saved.Show == WindowShow.Normal && !Near(cur.NormalRect, target)))
-                    windows.Place(cur.Handle, target, saved.Show);
+                await _delay(opt.SettleDelay, ct).ConfigureAwait(false);
+                var monitors = windows.GetMonitors();
+                foreach (var id in pass == 0 ? launchedIds : browserIds)
+                {
+                    var item = ws.Items.First(i => i.Id == id);
+                    // Validate the launched identity again: a closed/recycled handle must not be moved.
+                    if (Placement(item) is not { } saved || windows.Get(matched[id].Handle) is not { } cur
+                        || cur.ProcessId != matched[id].ProcessId || cur.AppKey != matched[id].AppKey) continue;
+                    var target = DisplayMapper.Map(saved, monitors);
+                    if (cur.Show != saved.Show || (saved.Show == WindowShow.Normal && !Near(cur.NormalRect, target)))
+                        windows.Place(cur.Handle, target, saved.Show);
+                }
             }
         }
 

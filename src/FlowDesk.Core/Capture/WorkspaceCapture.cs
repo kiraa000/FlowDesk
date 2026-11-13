@@ -105,7 +105,10 @@ public sealed class WorkspaceCapture(IWindowSystem windows, SessionTracker track
         if (missing.Count == 0) return live;
         var claimed = live.Values.Select(w => w.Handle).ToHashSet();
         var open = windows.GetAppWindows().Where(w => w.ProcessId != windows.OwnProcessId).ToList();
-        foreach (var (id, w) in WindowMatcher.Assign(missing.Select(i => (i.Id, MatchSpec.For(i))).ToList(), open, claimed))
+        // Snapshot/save fallback must use the same ownership preference as restore, or a closed binding
+        // can silently adopt another workspace's identical-title window and persist its placement.
+        foreach (var (id, w) in WindowMatcher.Assign(missing.Select(i => (i.Id, MatchSpec.For(i))).ToList(), open, claimed,
+            bonus: (_, w) => tracker.IsBoundToOtherWorkspace(ws.Id, w) ? 0 : 1000))
         {
             live[id] = w;
             if (bindNewMatches) tracker.Bind(ws.Id, id, w);

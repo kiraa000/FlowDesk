@@ -43,11 +43,16 @@ using System;
 using System.Text;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
-public class RTMon { public string Device=""; public int X,Y,W,H,WX,WY,WW,WH; public bool Primary; }
-public class RTWin { public long Handle; public uint Pid; public string Title=""; public string Class=""; public int X,Y,W,H; public bool Min,Max,Visible; public int Right { get { return X+W; } } public int Bottom { get { return Y+H; } } }
+public class RTMon { public string Device=""; public string DeviceName=""; public int X,Y,W,H,WX,WY,WW,WH,Dpi; public bool Primary; }
+public class RTWin {
+ public long Handle; public uint Pid; public uint ChildPid; public string Title=""; public string Class=""; public string Device=""; public int Dpi;
+ public int X,Y,W,H,NormalX,NormalY,NormalW,NormalH; public string Show="";
+ public bool Min,Max,Visible; public int Right { get { return X+W; } } public int Bottom { get { return Y+H; } }
+}
 public static class RT {
  [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc cb, IntPtr l);
  delegate bool EnumProc(IntPtr h, IntPtr l);
+ [DllImport("user32.dll")] static extern bool EnumChildWindows(IntPtr parent, EnumProc cb, IntPtr l);
  [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
  [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetClassName(IntPtr h, StringBuilder s, int n);
  [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint p);
@@ -64,8 +69,44 @@ public static class RT {
  [DllImport("user32.dll")] static extern bool EnumDisplayMonitors(IntPtr hdc, IntPtr clip, MonitorProc cb, IntPtr data);
  delegate bool MonitorProc(IntPtr m, IntPtr hdc, IntPtr rc, IntPtr data);
  [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern bool GetMonitorInfo(IntPtr m, ref MONITORINFO mi);
+ [DllImport("user32.dll", CharSet=CharSet.Unicode, EntryPoint="GetMonitorInfoW")] static extern bool GetMonitorInfoEx(IntPtr m, ref MONITORINFOEX mi);
+ [DllImport("user32.dll")] static extern IntPtr MonitorFromWindow(IntPtr h, uint flags);
+ [DllImport("user32.dll")] static extern bool GetWindowPlacement(IntPtr h, ref WINDOWPLACEMENT wp);
+ [DllImport("user32.dll", SetLastError=true)] static extern bool SetProcessDpiAwarenessContext(IntPtr value);
+ [DllImport("user32.dll")] static extern IntPtr GetThreadDpiAwarenessContext();
+ [DllImport("user32.dll")] static extern bool AreDpiAwarenessContextsEqual(IntPtr a, IntPtr b);
+ [DllImport("Shcore.dll")] static extern int GetDpiForMonitor(IntPtr mon, int dpiType, out uint dpiX, out uint dpiY);
  [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
+ [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }
  [StructLayout(LayoutKind.Sequential)] public struct MONITORINFO { public int cbSize; public RECT rcMonitor; public RECT rcWork; public uint dwFlags; }
+ [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)] public struct MONITORINFOEX {
+  public int cbSize; public RECT rcMonitor; public RECT rcWork; public uint dwFlags;
+  [MarshalAs(UnmanagedType.ByValTStr, SizeConst=32)] public string szDevice;
+ }
+ [StructLayout(LayoutKind.Sequential)] public struct WINDOWPLACEMENT {
+  public int length; public int flags; public int showCmd;
+  public POINT ptMinPosition; public POINT ptMaxPosition; public RECT rcNormalPosition;
+ }
+ /// <summary>Per-Monitor-V2 awareness, so rectangles match FlowDesk's (DPI-unaware PowerShell sees scaled 2048 instead of 2560).</summary>
+ public static bool EnsureDpiAwareness() {
+  IntPtr want = new IntPtr(-4);
+  SetProcessDpiAwarenessContext(want); // may fail when the process is already aware; the thread context is authoritative
+  return AreDpiAwarenessContextsEqual(GetThreadDpiAwarenessContext(), want);
+ }
+ static int DpiOf(IntPtr mon) { uint x, y; return GetDpiForMonitor(mon, 0, out x, out y) == 0 ? (int)x : 96; }
+ static string DeviceOf(IntPtr mon) {
+  var mi = new MONITORINFOEX(); mi.cbSize = Marshal.SizeOf(typeof(MONITORINFOEX));
+  return mon != IntPtr.Zero && GetMonitorInfoEx(mon, ref mi) ? mi.szDevice : "";
+ }
+  public static uint ChildPid(IntPtr h) {
+  uint found = 0, framePid; GetWindowThreadProcessId(h, out framePid);
+  EnumChildWindows(h, delegate(IntPtr c, IntPtr l) {
+   uint pid; GetWindowThreadProcessId(c, out pid);
+   if (pid != 0 && pid != framePid) { found = pid; return false; }
+   return true;
+  }, IntPtr.Zero);
+  return found;
+ }
  static RTWin Read(IntPtr h) {
   var w = new RTWin(); w.Handle = (long)h;
   var sb = new StringBuilder(1024); GetWindowText(h, sb, 1024); w.Title = sb.ToString();
@@ -73,7 +114,35 @@ public static class RT {
   uint pid; GetWindowThreadProcessId(h, out pid); w.Pid = pid;
   RECT r; GetWindowRect(h, out r); w.X = r.Left; w.Y = r.Top; w.W = r.Right-r.Left; w.H = r.Bottom-r.Top;
   w.Min = IsIconic(h); w.Max = IsZoomed(h); w.Visible = IsWindowVisible(h);
+  w.Show = w.Min ? "Minimized" : w.Max ? "Maximized" : "Normal";
+  IntPtr hm = MonitorFromWindow(h, 2);
+  w.Device = DeviceOf(hm); w.Dpi = DpiOf(hm);
+  // UWP: the real app is a child process of ApplicationFrameHost; identify it for ownership checks.
+  if (w.Class == "ApplicationFrameWindow") w.ChildPid = ChildPid(h);
+  // Normal (restore) rect exactly like FlowDesk: outer rect when normal, WINDOWPLACEMENT + work-area offset when not.
+  w.NormalX = w.X; w.NormalY = w.Y; w.NormalW = w.W; w.NormalH = w.H;
+  if (w.Min || w.Max) {
+   var wp = new WINDOWPLACEMENT(); wp.length = Marshal.SizeOf(typeof(WINDOWPLACEMENT));
+   if (GetWindowPlacement(h, ref wp)) {
+    int dx = 0, dy = 0;
+    var mi = new MONITORINFOEX(); mi.cbSize = Marshal.SizeOf(typeof(MONITORINFOEX));
+    if (hm != IntPtr.Zero && GetMonitorInfoEx(hm, ref mi)) { dx = mi.rcWork.Left - mi.rcMonitor.Left; dy = mi.rcWork.Top - mi.rcMonitor.Top; }
+    w.NormalX = wp.rcNormalPosition.Left + dx; w.NormalY = wp.rcNormalPosition.Top + dy;
+    w.NormalW = wp.rcNormalPosition.Right - wp.rcNormalPosition.Left; w.NormalH = wp.rcNormalPosition.Bottom - wp.rcNormalPosition.Top;
+   }
+  }
   return w;
+ }
+ public static List<RTWin> WindowsAll() {
+  var list = new List<RTWin>();
+  EnumWindows(delegate(IntPtr h, IntPtr l) {
+   if (IsWindow(h)) {
+    var w = Read(h);
+    if (w.Title.Length > 0 || w.Class == "CabinetWClass") list.Add(w);
+   }
+   return true;
+  }, IntPtr.Zero);
+  return list;
  }
  public static List<RTWin> Windows() {
   var list = new List<RTWin>();
@@ -98,10 +167,10 @@ public static class RT {
  public static List<RTMon> Monitors() {
   var list = new List<RTMon>(); int i = 0;
   EnumDisplayMonitors(IntPtr.Zero, IntPtr.Zero, delegate(IntPtr m, IntPtr hdc, IntPtr rc, IntPtr data) {
-   var mi = new MONITORINFO(); mi.cbSize = Marshal.SizeOf(typeof(MONITORINFO));
-   if (GetMonitorInfo(m, ref mi)) {
+   var mi = new MONITORINFOEX(); mi.cbSize = Marshal.SizeOf(typeof(MONITORINFOEX));
+   if (GetMonitorInfoEx(m, ref mi)) {
     var d = new RTMon(); i++;
-    d.Device = "Display " + i;
+    d.Device = "Display " + i; d.DeviceName = mi.szDevice; d.Dpi = DpiOf(m);
     d.X = mi.rcMonitor.Left; d.Y = mi.rcMonitor.Top; d.W = mi.rcMonitor.Right-mi.rcMonitor.Left; d.H = mi.rcMonitor.Bottom-mi.rcMonitor.Top;
     d.WX = mi.rcWork.Left; d.WY = mi.rcWork.Top; d.WW = mi.rcWork.Right-mi.rcWork.Left; d.WH = mi.rcWork.Bottom-mi.rcWork.Top;
     d.Primary = (mi.dwFlags & 1) != 0; list.Add(d);
@@ -113,9 +182,19 @@ public static class RT {
 }
 '@
 
+# Must run before any monitor/window call: Windows PowerShell is DPI-unaware on a 125% display
+# (it sees 2048x1152 where FlowDesk sees 2560x1440), which makes every monitor index unreliable.
+$script:TaskStart = Get-Date
+$script:DpiAware = [RT]::EnsureDpiAwareness()
+$script:DpiAwareError = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+
 # ---------- logging and results ----------
 $script:Results = New-Object System.Collections.ArrayList
 function Log([string]$text) { $line = ('{0:HH:mm:ss} {1}' -f (Get-Date), $text); Add-Content -LiteralPath $LogPath -Value $line; Write-Host $line }
+if (-not $script:DpiAware) {
+    Log ('BLOCKED: process DPI awareness is not per-monitor-v2 after SetProcessDpiAwarenessContext (error=' + $script:DpiAwareError + '); rects would be scaled')
+    exit 2
+}
 function Add-Result([string]$step,[string]$status,[string]$expected,[string]$actual,[string]$evidence) {
     [void]$script:Results.Add([pscustomobject]@{ Step=$step; Status=$status; Expected=$expected; Actual=$actual; Evidence=$evidence })
     Log ('RESULT ' + $status + ' | ' + $step + ' | expected: ' + $expected + ' | actual: ' + $actual + ' | ' + $evidence)
@@ -220,6 +299,27 @@ function Find-Ancestor($e, [scriptblock]$predicate) {
     return $null
 }
 function Get-TextOf($e) { @($e.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition) | Where-Object { $_.Current.Name } | ForEach-Object { $_.Current.Name }) }
+function Get-FocusRuleRows([string]$removeName) {
+    $rows = @()
+    $buttons = @(Get-UiAll (Get-AppRoot) | Where-Object { $_.Current.Name -eq $removeName -and $_.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button })
+    $walker = [System.Windows.Automation.TreeWalker]::RawViewWalker
+    foreach ($btn in $buttons) {
+        # Nearest ancestor that is one card tall and holds exactly this Remove button; avoids page-wide texts.
+        $card = $null; $node = $btn
+        for ($i = 0; $i -lt 14; $i++) {
+            $node = $walker.GetParent($node)
+            if (-not $node -or $node -eq [System.Windows.Automation.AutomationElement]::RootElement) { break }
+            $r = $node.Current.BoundingRectangle
+            if ($r.Height -le 0 -or $r.Height -gt 140) { continue }
+            $count = @($node.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition) | Where-Object { $_.Current.Name -eq $removeName }).Count
+            if ($count -eq 1) { $card = $node; break }
+        }
+        if (-not $card) { $rows += '<unreadable rule>'; continue }
+        $names = @(Get-TextOf $card | Where-Object { $_ -ne $removeName })
+        $rows += ($names -join ' | ')
+    }
+    return $rows
+}
 # WinUI's ItemsControl exposes all workspace cards under one Pane (Border/Grid have no automation peers),
 # so an ancestor search cannot isolate a card. The cards are laid out as fixed ~125 px rows: match the
 # name Text to the Open / Workspace actions button on the same visual row instead.
@@ -304,8 +404,124 @@ function Read-ReportDialog {
 # ---------- window helpers ----------
 function Get-RTWindows { @([RT]::Windows()) }
 function Get-ProcInfo([uint32]$procId) {
-    try { $p = Get-Process -Id $procId -ErrorAction Stop; return [pscustomobject]@{ Name = $p.ProcessName; Start = $p.StartTime } }
-    catch { return [pscustomobject]@{ Name = ''; Start = $null } }
+    try { $p = Get-Process -Id $procId -ErrorAction Stop; return [pscustomobject]@{ Name = $p.ProcessName; Start = $p.StartTime; Path = $(try { $p.Path } catch { '' }) } }
+    catch { return [pscustomobject]@{ Name = ''; Start = $null; Path = '' } }
+}
+function Get-AppProcessId($w) {
+    if ($w -and $w.Class -eq 'ApplicationFrameWindow' -and $w.ChildPid -ne 0) { return [uint32]$w.ChildPid }
+    if ($w) { return [uint32]$w.Pid }
+    return [uint32]0
+}
+function Format-Window($w) {
+    if (-not $w) { return 'none' }
+    $pi = Get-ProcInfo $w.Pid
+    return ('hwnd=0x{0:X} pid={1} proc={2} start={3:HH:mm:ss} class={4} title="{5}" show={6} rect={7},{8} {9}x{10} normal={11},{12} {13}x{14} dpi={15} monitor={16}' -f `
+        [int64]$w.Handle,$w.Pid,$pi.Name,$pi.Start,$w.Class,$w.Title,$w.Show,$w.X,$w.Y,$w.W,$w.H,
+        $w.NormalX,$w.NormalY,$w.NormalW,$w.NormalH,$w.Dpi,$w.Device)
+}
+function Log-Window([string]$label, $w) { Log ($label + ': ' + (Format-Window $w)) }
+function Monitor-IndexByDevice([string]$device, $monitors) {
+    for ($i = 0; $i -lt $monitors.Count; $i++) {
+        if ($device -and [string]::Equals($monitors[$i].DeviceName, $device, [StringComparison]::OrdinalIgnoreCase)) { return $i }
+    }
+    return -1
+}
+function Monitor-IndexOfNormal($w, $monitors) {
+    if (-not $w) { return -1 }
+    $cx = $w.NormalX + [int]($w.NormalW / 2); $cy = $w.NormalY + [int]($w.NormalH / 2)
+    for ($i = 0; $i -lt $monitors.Count; $i++) {
+        $m = $monitors[$i]
+        if ($cx -ge $m.X -and $cx -lt ($m.X + $m.W) -and $cy -ge $m.Y -and $cy -lt ($m.Y + $m.H)) { return $i }
+    }
+    return -1
+}
+function Get-SelectedState($e) {
+    $pat = $null
+    try {
+        if ($e.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern, [ref]$pat)) { return [bool]$pat.Current.IsSelected }
+        if ($e.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern, [ref]$pat)) { return ($pat.Current.ToggleState -eq [System.Windows.Automation.ToggleState]::On) }
+    } catch { }
+    return $null
+}
+function Get-CandidateDetails($cbs) {
+    foreach ($cb in @($cbs)) {
+        $name = ''; $id = ''; $help = ''; $x = -1; $y = -1; $enabled = $false; $on = 'Unknown'
+        try { $name = $cb.Current.Name } catch { }
+        try { $id = [string]$cb.Current.AutomationId } catch { }
+        try { $help = [string]$cb.Current.HelpText } catch { }
+        try { $r = $cb.Current.BoundingRectangle; $x = [int]$r.X; $y = [int]$r.Y } catch { }
+        try { $enabled = [bool]$cb.Current.IsEnabled } catch { }
+        try { $on = Get-ToggleState $cb } catch { }
+        $texts = @(); try { $texts = @(Get-TextOf $cb) } catch { }
+        [pscustomobject]@{ Element = $cb; Name = $name; Id = $id; Texts = $texts; Help = $help; X = $x; Y = $y; Enabled = $enabled; Toggle = $on }
+    }
+}
+function Log-Candidates($details) {
+    foreach ($c in @($details)) {
+        Log ('CANDIDATE id="' + $c.Id + '" name="' + $c.Name + '" texts=[' + ($c.Texts -join ' | ') + '] help="' + $c.Help + '" rect=' + $c.X + ',' + $c.Y + ' enabled=' + $c.Enabled + ' toggle=' + $c.Toggle)
+    }
+}
+function Select-SaveCandidateById($details, [int64]$handle, [string]$title, [string]$group) {
+    $id = 'window-' + $handle.ToString([System.Globalization.CultureInfo]::InvariantCulture)
+    $candidates = @($details | Where-Object { $_.Id -eq $id })
+    Log ('CANDIDATES ' + $group + ': ' + $candidates.Count + ' with AutomationId "' + $id + '"; expected title "' + $title + '"')
+    if ($candidates.Count -eq 0) { throw ('BLOCKED: no Save candidate with AutomationId "' + $id + '" for ' + $group + '; window automation wiring is missing') }
+    if ($candidates.Count -gt 1) { throw ('BLOCKED: ' + $candidates.Count + ' Save candidates share AutomationId "' + $id + '" for ' + $group) }
+    $c = $candidates[0]
+    if (-not $c.Enabled) { throw ('BLOCKED: Save candidate ' + $id + ' for ' + $group + ' is disabled') }
+    $titleOk = ($title -and ($c.Name -eq $title -or $c.Help -eq $title -or @($c.Texts | Where-Object { $_ -eq $title }).Count -gt 0))
+    if (-not $titleOk) { throw ('BLOCKED: Save candidate ' + $id + ' for ' + $group + ' does not show expected title "' + $title + '"') }
+    return $c.Element
+}
+function Sync-ExpectedLive([string]$phase, $targets, $expected, $monitors) {
+    foreach ($t in @($targets)) {
+        $w = [RT]::Window([int64]$t.Win.Handle)
+        if (-not $w) { Log ($phase + ' ' + $t.Name + ': window 0x' + ('{0:X}' -f [int64]$t.Win.Handle) + ' is gone'); continue }
+        Log-Window ($phase + ' ' + $t.Name) $w
+        if ($expected.Contains($t.Name)) {
+            $e = $expected[$t.Name]
+            $drift = @([Math]::Abs($w.NormalX - $e.X), [Math]::Abs($w.NormalY - $e.Y), [Math]::Abs($w.NormalW - $e.W), [Math]::Abs($w.NormalH - $e.H))
+            if (@($drift | Where-Object { $_ -gt 0 }).Count -gt 0) {
+                Log ($phase + ' ' + $t.Name + ' drift: normal rect ' + $e.X + ',' + $e.Y + ' ' + $e.W + 'x' + $e.H + ' -> ' + $w.NormalX + ',' + $w.NormalY + ' ' + $w.NormalW + 'x' + $w.NormalH + ' delta=' + ($drift -join ','))
+            }
+        }
+        $appPid = Get-AppProcessId $w; $appPi = Get-ProcInfo $appPid
+        $expected[$t.Name] = [pscustomobject]@{
+            Handle = [int64]$w.Handle; Pid = $w.Pid; AppPid = [uint32]$appPid; Process = $appPi.Name; Path = $appPi.Path
+            Title = $w.Title; Class = $w.Class; Device = $w.Device
+            X = $w.NormalX; Y = $w.NormalY; W = $w.NormalW; H = $w.NormalH
+            Show = $w.Show; Min = $w.Min; Max = $w.Max; Monitor = (Monitor-IndexOfNormal $w $monitors)
+        }
+    }
+}
+function Resolve-RestoredWindow([string]$name, $exp, $now, $baselineHandles) {
+    $raw = switch ($name) {
+        'Notepad' { @($now | Where-Object { $_.Title -like '*notes-a.txt*' }) }
+        'Paint' { @($now | Where-Object { $_.Title -like '*Paint*' -and $_.Class -ne 'Chrome_WidgetWin_1' }) }
+        'Calculator' { @($now | Where-Object { $_.Title -eq 'Calculator' }) }
+        'folder-a' { $h = Get-ExplorerWindowFor $FolderA; if ($h) { @([RT]::Window([int64]$h)) } else { @() } }
+        'Chrome' {
+            try {
+                $pids = @(Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" | Where-Object { $_.CommandLine -like ('*' + $ChromeProfile + '*') } | ForEach-Object { [uint32]$_.ProcessId })
+                @($now | Where-Object { $pids -contains [uint32]$_.Pid -and $_.Class -eq 'Chrome_WidgetWin_1' })
+            } catch { @() }
+        }
+        default { @() }
+    }
+    $ok = @()
+    foreach ($w in @($raw)) {
+        if (-not $w -or ($baselineHandles -contains [int64]$w.Handle)) { continue }
+        $appPid = Get-AppProcessId $w; $pi = Get-ProcInfo $appPid
+        if ($exp.Process -and $pi.Name -ne $exp.Process) { continue }
+        if ($exp.Path -and $pi.Path -and $pi.Path -ne $exp.Path) { continue }
+        # Restored apps must be a newly started process (Calculator: its child app process), not a user instance.
+        if ($name -ne 'folder-a' -and -not ($pi.Start -and $pi.Start -ge $script:TaskStart.AddSeconds(-15))) { continue }
+        $ok += $w
+    }
+    if ($ok.Count -eq 1) { return [pscustomobject]@{ Window = $ok[0]; Reason = '' } }
+    if ($ok.Count -eq 0) { return [pscustomobject]@{ Window = $null; Reason = ('no new owned ' + $name + ' window; user/baseline windows excluded') } }
+    $titles = ($ok | ForEach-Object { '0x' + ('{0:X}' -f [int64]$_.Handle) }) -join ','
+    return [pscustomobject]@{ Window = $null; Reason = ('ambiguous: ' + $ok.Count + ' new ' + $name + ' windows [' + $titles + ']; refusing adoption') }
 }
 function Find-RTWindow([scriptblock]$match, [hashtable]$before = @{}, [int]$timeout = 20, [int]$poll = 200) {
     $sw = [Diagnostics.Stopwatch]::StartNew()
@@ -331,14 +547,6 @@ function Wait-NoWindow([scriptblock]$match, [int]$timeout = 10) {
 function Rect-Delta($w, [int]$x, [int]$y, [int]$ww, [int]$hh) {
     return @([Math]::Abs($w.X - $x), [Math]::Abs($w.Y - $y), [Math]::Abs($w.W - $ww), [Math]::Abs($w.H - $hh))
 }
-function Monitor-Index($r, $monitors) {
-    $cx = $r.X + [int]($r.W / 2); $cy = $r.Y + [int]($r.H / 2)
-    for ($i = 0; $i -lt $monitors.Count; $i++) {
-        $m = $monitors[$i]
-        if ($cx -ge $m.X -and $cx -lt ($m.X + $m.W) -and $cy -ge $m.Y -and $cy -lt ($m.Y + $m.H)) { return $i }
-    }
-    return -1
-}
 function Snapshot-UserWindows($ownedHandles, $excludedPids) {
     $snap = @{}
     foreach ($w in (Get-RTWindows)) {
@@ -346,7 +554,7 @@ function Snapshot-UserWindows($ownedHandles, $excludedPids) {
         if ($excludedPids -contains [uint32]$w.Pid) { continue }
         $pi = Get-ProcInfo $w.Pid
         if ($pi.Name -eq 'FlowDesk.App') { continue }
-        $snap[[int64]$w.Handle] = [pscustomobject]@{ Title=$w.Title; Process=$pi.Name; X=$w.X; Y=$w.Y; W=$w.W; H=$w.H; Min=$w.Min; Max=$w.Max }
+        $snap[[int64]$w.Handle] = [pscustomobject]@{ Title=$w.Title; Process=$pi.Name; Pid=[uint32]$w.Pid; X=$w.X; Y=$w.Y; W=$w.W; H=$w.H; Min=$w.Min; Max=$w.Max }
     }
     return $snap
 }
@@ -364,14 +572,112 @@ function Compare-UserWindows($before, $ownedHandles, $excludedPids) {
 
 # ---------- app launching ----------
 $script:Owned = New-Object System.Collections.ArrayList
+$script:FlowDeskBaselinePids = @()
+$script:FlowDeskOwnedPids = New-Object System.Collections.ArrayList
+$script:FlowDeskOwnedStart = @{}
 function Add-Owned([string]$group, $w, $proc) {
     $pi = Get-ProcInfo $w.Pid
-    [void]$script:Owned.Add([pscustomobject]@{ Group=$group; Hwnd=[int64]$w.Handle; Pid=[uint32]$w.Pid; Process=$pi.Name; Title=$w.Title })
-    Log ('OWNED ' + $group + ' hwnd=0x' + ('{0:X}' -f [int64]$w.Handle) + ' pid=' + $w.Pid + ' process=' + $pi.Name + ' title=' + $w.Title)
+    $appPid = Get-AppProcessId $w
+    $appPi = Get-ProcInfo $appPid
+    $same = @($script:Owned | Where-Object { [int64]$_.Hwnd -eq [int64]$w.Handle })[0]
+    if ($same) {
+        if ([uint32]$same.Pid -ne [uint32]$w.Pid -or $same.Start -ne $appPi.Start) {
+            Log ('REFUSE handle 0x' + ('{0:X}' -f [int64]$w.Handle) + ': recorded pid=' + $same.Pid + ' start=' + $same.Start + ' now pid=' + $w.Pid + ' start=' + $appPi.Start)
+            return $w
+        }
+        Log ('OWNED again ' + $group + ' hwnd=0x' + ('{0:X}' -f [int64]$w.Handle) + ' pid=' + $w.Pid + ' (same owned window)')
+        return $w
+    }
+    [void]$script:Owned.Add([pscustomobject]@{ Group=$group; Hwnd=[int64]$w.Handle; Pid=[uint32]$w.Pid; AppPid=[uint32]$appPid; Process=$appPi.Name; Start=$appPi.Start; Path=$appPi.Path; Class=$w.Class; Title=$w.Title })
+    Log ('OWNED ' + $group + ' hwnd=0x' + ('{0:X}' -f [int64]$w.Handle) + ' pid=' + $w.Pid + ' appPid=' + $appPid + ' process=' + $appPi.Name + ' start=' + $(if($appPi.Start){$appPi.Start.ToString('HH:mm:ss')}else{'?'}) + ' title=' + $w.Title)
     return $w
 }
 function Get-OwnedHandles { @($script:Owned | ForEach-Object { [int64]$_.Hwnd }) }
-function Get-OwnedPids { @($script:Owned | ForEach-Object { [uint32]$_.Pid } | Select-Object -Unique) }
+function Get-FlowDeskProcesses { @(Get-Process -Name FlowDesk.App -ErrorAction SilentlyContinue | Sort-Object StartTime) }
+function Register-FlowDeskOwned([uint32[]]$ids) {
+    foreach ($procId in @($ids | Select-Object -Unique)) {
+        $p = Get-Process -Id $procId -ErrorAction SilentlyContinue
+        if (-not $p) { continue }
+        if ($script:FlowDeskBaselinePids -contains [uint32]$procId) {
+            Log ('FlowDesk pid=' + $procId + ' existed before the test; leaving it alone')
+            continue
+        }
+        if ($script:FlowDeskOwnedPids -contains [uint32]$procId) { continue }
+        [void]$script:FlowDeskOwnedPids.Add([uint32]$procId)
+        $script:FlowDeskOwnedStart[[uint32]$procId] = $p.StartTime
+        Log ('FLOWDESK owned pid=' + $procId + ' start=' + $p.StartTime.ToString('HH:mm:ss'))
+    }
+}
+function Test-RecordedProcess($rec) {
+    if (-not $rec) { return $false }
+    $p = Get-Process -Id $rec.AppPid -ErrorAction SilentlyContinue
+    if (-not $p) { return $false }
+    try { return ($p.StartTime -eq $rec.Start) } catch { return $false }
+}
+function Close-RTWindowOwned($w, [string]$reason) {
+    if (-not $w) { return $true }
+    $rec = @($script:Owned | Where-Object { [int64]$_.Hwnd -eq [int64]$w.Handle })[0]
+    if (-not $rec) {
+        Log ('WARN refuse close (' + $reason + '): window has no ownership record')
+        return $false
+    }
+    if ($rec -and [uint32]$rec.Pid -ne [uint32]$w.Pid) {
+        Log ('WARN refuse close (' + $reason + ') handle 0x' + ('{0:X}' -f [int64]$w.Handle) + ': owned pid=' + $rec.Pid + ' now pid=' + $w.Pid)
+        return $false
+    }
+    if ((Get-AppProcessId $w) -ne $rec.AppPid -or -not (Test-RecordedProcess $rec)) {
+        Log ('WARN refuse close (' + $reason + ') handle 0x' + ('{0:X}' -f [int64]$w.Handle) + ': recorded process start no longer matches')
+        return $false
+    }
+    $ok = Close-OwnedWindow $w 8
+    Log ('CLOSE (' + $reason + ') ' + (Format-Window $w) + ' ok=' + $ok)
+    return $ok
+}
+function Test-TaskOwnedProcess([uint32]$procId) {
+    foreach ($rec in @($script:Owned | Where-Object { $_.Process -notin @('explorer','ApplicationFrameHost','CalculatorApp') -and [uint32]$_.AppPid -eq $procId })) {
+        if (Test-RecordedProcess $rec) { return $true }
+    }
+    $pi = Get-ProcInfo $procId
+    if (-not ($pi.Start -and $pi.Start -ge $script:TaskStart.AddSeconds(-10))) { return $false }
+    try {
+        $cmd = (Get-CimInstance Win32_Process -Filter ('ProcessId=' + $procId) -ErrorAction Stop).CommandLine
+        # Proof it opened a fixture file from this run folder, not a user window that merely shares a title.
+        return ($cmd -and $cmd -like ('*' + $RunDir + '*'))
+    } catch { return $false }
+}
+function Close-FixtureWindows([string]$reason) {
+    $patterns = @('*notes-a.txt*','*notes-b.txt*','*notes-c.txt*','*notes-c2.txt*')
+    foreach ($w in @([RT]::WindowsAll() | Where-Object { $t = $_.Title; @($patterns | Where-Object { $t -like $_ }).Count -gt 0 })) {
+        if (-not (Test-TaskOwnedProcess ([uint32]$w.Pid))) {
+            Log ('WARN leave fixture-looking window with unproven ownership: ' + (Format-Window $w))
+            continue
+        }
+        Add-Owned 'Fixture-cleanup' $w $null | Out-Null
+        [void](Close-RTWindowOwned $w ($reason + ' fixture'))
+    }
+}
+function Stop-OwnedFlowDesk([int]$timeoutSeconds = 8) {
+    foreach ($procId in @($script:FlowDeskOwnedPids | Sort-Object -Descending)) {
+        $p = Get-Process -Id $procId -ErrorAction SilentlyContinue
+        if (-not $p) { continue }
+        $expectedStart = $script:FlowDeskOwnedStart[[uint32]$procId]
+        if (-not $expectedStart -or $p.StartTime -ne $expectedStart) {
+            Log ('WARN not closing pid=' + $procId + ': process start no longer matches the recorded instance')
+            continue
+        }
+        Log ('Closing test-owned FlowDesk pid=' + $procId + ' hwnd=0x' + ('{0:X}' -f $p.MainWindowHandle))
+        if ($p.MainWindowHandle -ne 0) { [void][RT]::Close([int64]$p.MainWindowHandle) }
+        if (-not $p.WaitForExit($timeoutSeconds * 1000)) {
+            Log ('FlowDesk pid=' + $procId + ' ignored close; stopping it')
+            Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue
+        }
+        Start-Sleep -Milliseconds 300
+    }
+    $left = @(Get-FlowDeskProcesses | Where-Object { $script:FlowDeskOwnedPids -contains [uint32]$_.Id })
+    $others = @(Get-FlowDeskProcesses | Where-Object { $script:FlowDeskOwnedPids -notcontains [uint32]$_.Id })
+    foreach ($p in $others) { Log ('FlowDesk pid=' + $p.Id + ' was not started by this test; leaving it running') }
+    return $left.Count
+}
 function Get-ProcessPid($p) { if ($p) { return [uint32]$p.Id } else { return [uint32]0 } }
 function Launch-Notepad([string]$file, [string]$group) {
     $before = @{}; foreach ($w in (Get-RTWindows)) { $before[[int64]$w.Handle] = $true }
@@ -481,7 +787,7 @@ function Close-OwnedGroup([string]$group, [int]$timeout = 10) {
     $all = $true
     foreach ($o in $items) {
         $w = [RT]::Window([int64]$o.Hwnd)
-        if ($w) { $r = Close-OwnedWindow $w $timeout; if (-not $r) { $all = $false } }
+        if ($w) { $r = Close-RTWindowOwned $w $group; if (-not $r) { $all = $false } }
     }
     return $all
 }
@@ -490,7 +796,7 @@ function Close-AllApps {
     foreach ($g in $groups) { if ($g -eq 'Chrome') { continue }; [void](Close-OwnedGroup $g 8) }
     # Chrome: close every window of the temp profile, then force only its own PIDs if a window ignores close.
     $chromeItems = @($script:Owned | Where-Object Group -eq 'Chrome')
-    foreach ($o in $chromeItems) { $w = [RT]::Window([int64]$o.Hwnd); if ($w) { [void](Close-OwnedWindow $w 6) } }
+    foreach ($o in $chromeItems) { $w = [RT]::Window([int64]$o.Hwnd); if ($w) { [void](Close-RTWindowOwned $w 'chrome') } }
     try {
         $pids = @(Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" | Where-Object { $_.CommandLine -like ('*' + $ChromeProfile + '*') } | ForEach-Object { [int]($_.ProcessId) })
         foreach ($procId in $pids) { if (Get-Process -Id $procId -ErrorAction SilentlyContinue) { Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue } }
@@ -526,26 +832,30 @@ if ($Mode -eq 'Inspect') {
 
 # ============================ FULL RUN ============================
 Log '=== REALTEST-001 Full run starting ==='
+Log ('DPI awareness: per-monitor-v2 request=' + $script:DpiAware + ' error=' + $script:DpiAwareError + ' (PowerShell is DPI-unaware by default)')
 $mons = @([RT]::Monitors())
-Log ('Monitors: ' + (($mons | ForEach-Object { $_.Device + ' ' + $_.W + 'x' + $_.H + ' work=' + $_.WW + 'x' + $_.WH + ' primary=' + $_.Primary }) -join '; '))
+Log ('Monitors: ' + (($mons | ForEach-Object { $_.Device + ' ' + $_.DeviceName + ' ' + $_.W + 'x' + $_.H + ' work=' + $_.WW + 'x' + $_.WH + ' dpi=' + $_.Dpi + ' primary=' + $_.Primary }) -join '; '))
 $primary = @($mons | Where-Object Primary)[0]
 if (-not $primary) { $primary = $mons[0] }
 $second = @($mons | Where-Object { $_.Device -ne $primary.Device })[0]
 
-# Preflight: one app process.
-$app = Get-AppProcess
-$startedApp = $false
-if (-not $app) {
-    Log 'FlowDesk not running; starting build exe.'
-    Start-Process -FilePath $AppExe | Out-Null
-    $startedApp = $true
-    $app = $null
-    $sw = [Diagnostics.Stopwatch]::StartNew()
-    while ($sw.Elapsed.TotalSeconds -lt 30) { $app = Get-AppProcess; if ($app -and $app.MainWindowHandle -ne 0) { break }; Start-Sleep -Milliseconds 500 }
+# Full run mutates persisted Focus rules and workspaces, so a pre-existing FlowDesk is never used or closed.
+$pre = @(Get-FlowDeskProcesses)
+if ($pre.Count -gt 0) {
+    Log ('BLOCKED: FlowDesk is already running (pid=' + (($pre | ForEach-Object { $_.Id }) -join ',') + '); close it before running Full')
+    exit 2
 }
+$script:FlowDeskBaselinePids = @()
+$app = $null
+$startedApp = $true
+Log 'FlowDesk not running; starting build exe.'
+Start-Process -FilePath $AppExe | Out-Null
+$sw = [Diagnostics.Stopwatch]::StartNew()
+while ($sw.Elapsed.TotalSeconds -lt 30) { $app = Get-AppProcess; if ($app -and $app.MainWindowHandle -ne 0) { break }; Start-Sleep -Milliseconds 500 }
 if (-not $app) { Log 'BLOCKED: FlowDesk.App did not start'; exit 2 }
-$fdPids = @([uint32]$app.Id)
-Log ('FlowDesk pid=' + $app.Id + ' hwnd=0x' + ('{0:X}' -f $app.MainWindowHandle) + ' startedByTest=' + $startedApp)
+if ($startedApp) { Register-FlowDeskOwned @(Get-FlowDeskProcesses | ForEach-Object { [uint32]$_.Id }) }
+$fdPids = @(Get-FlowDeskProcesses | ForEach-Object { [uint32]$_.Id })
+Log ('FlowDesk pid=' + $app.Id + ' hwnd=0x' + ('{0:X}' -f $app.MainWindowHandle) + ' startedByTest=' + $startedApp + ' allFlowDeskPids=' + ($fdPids -join ','))
 Navigate 'Workspaces'
 
 # Preflight cleanup of prior RT workspaces is allowed only for the three test names.
@@ -572,8 +882,14 @@ if ($existing.Count -gt 0) {
     Navigate 'Workspaces'
 }
 
+# Pick up a bootstrap/child process the launcher may have spawned after the first scan.
+if ($startedApp) {
+    Register-FlowDeskOwned @(Get-FlowDeskProcesses | ForEach-Object { [uint32]$_.Id })
+    $fdPids = @(Get-FlowDeskProcesses | ForEach-Object { [uint32]$_.Id })
+}
 # Baseline user windows BEFORE anything is launched.
 $user0 = Snapshot-UserWindows @() @($fdPids)
+$baselineHandles = @($user0.Keys)
 Log ('User baseline windows: ' + $user0.Count)
 foreach ($k in $user0.Keys) { Log ('USER 0x{0:X} {1} | {2} | {3},{4} {5}x{6} min={7} max={8}' -f $k,$user0[$k].Process,$user0[$k].Title,$user0[$k].X,$user0[$k].Y,$user0[$k].W,$user0[$k].H,$user0[$k].Min,$user0[$k].Max) }
 $fg0 = [RT]::Window([RT]::Foreground()); Log ('Foreground at start: ' + $(if($fg0){$fg0.Title}else{'none'}))
@@ -611,12 +927,14 @@ if ($maxTarget) { [RT]::Show([int64]$maxTarget.Win.Handle, 3); Start-Sleep -Mill
 $expected = [ordered]@{}
 foreach ($t in $targets) {
     $w = [RT]::Window([int64]$t.Win.Handle)
-    $expected[$t.Name] = [pscustomobject]@{ Handle=[int64]$w.Handle; X=$w.X; Y=$w.Y; W=$w.W; H=$w.H; Min=$w.Min; Max=$w.Max; Monitor=(Monitor-Index $w $mons); Title=$w.Title; NormalX=$null; NormalY=$null; NormalW=$null; NormalH=$null }
-    if ($t.Name -eq 'Paint') {
-        # saved normal rect is what we set before maximizing
-        $expected[$t.Name].NormalX = $areas[1].X; $expected[$t.Name].NormalY = $areas[1].Y; $expected[$t.Name].NormalW = $areas[1].W; $expected[$t.Name].NormalH = $areas[1].H
+    $appPid = Get-AppProcessId $w; $appPi = Get-ProcInfo $appPid
+    $expected[$t.Name] = [pscustomobject]@{
+        Handle = [int64]$w.Handle; Pid = $w.Pid; AppPid = [uint32]$appPid; Process = $appPi.Name; Path = $appPi.Path
+        Title = $w.Title; Class = $w.Class; Device = $w.Device
+        X = $w.NormalX; Y = $w.NormalY; W = $w.NormalW; H = $w.NormalH
+        Show = $w.Show; Min = $w.Min; Max = $w.Max; Monitor = (Monitor-IndexOfNormal $w $mons)
     }
-    Log ('ARRANGE ' + $t.Name + ' hwnd=0x' + ('{0:X}' -f $w.Handle) + ' rect=' + $w.X + ',' + $w.Y + ' ' + $w.W + 'x' + $w.H + ' min=' + $w.Min + ' max=' + $w.Max + ' monitor=' + $expected[$t.Name].Monitor)
+    Log ('ARRANGE ' + $t.Name + ': ' + (Format-Window $w) + ' appPid=' + $appPid + ' process=' + $appPi.Name + ' monitor=' + $expected[$t.Name].Monitor)
 }
 $fg = [RT]::Window([RT]::Foreground()); Log ('Foreground before Save UI: ' + $(if($fg){$fg.Title}else{'none'}))
 # FlowDesk names capture items from the executable's FileDescription, so Chrome is saved as "Google Chrome"
@@ -643,6 +961,9 @@ if ($launchMissing.Count -gt 0) {
 $step = '1 Save RT Work A'
 try {
     Navigate 'Workspaces'
+    # The Save page snapshots windows when it opens; take the expected rects again right before that,
+    # because browsers can change their own size after our arrange pass (stale expectations looked like a restore bug).
+    Sync-ExpectedLive 'PRESAVE' $targets $expected $mons
     $newBtn = @(Get-ByName 'New workspace' ([System.Windows.Automation.ControlType]::SplitButton))[0]
     if (-not $newBtn) { $newBtn = @(Get-ByName 'New workspace' ([System.Windows.Automation.ControlType]::Button))[0] }
     if (-not $newBtn) { throw 'New workspace button not found' }
@@ -655,27 +976,20 @@ try {
     foreach ($cb in $cbs) { Set-Toggle $cb $false }
     Start-Sleep -Milliseconds 300
     $cbs = @(Get-UiAll (Get-AppRoot) | Where-Object { $_.Current.ControlType -eq [System.Windows.Automation.ControlType]::CheckBox })
-    $selectedNames = New-Object System.Collections.ArrayList
+    $details = @(Get-CandidateDetails $cbs)
+    Log-Candidates $details
+    $picked = New-Object System.Collections.ArrayList
     foreach ($t in $targets) {
-        $w = [RT]::Window([int64]$t.Win.Handle)
-        $cand = $null
-        if ($t.Name -eq 'Chrome') {
-            # Only OUR temp-profile window, identified by its exact title. If it cannot be matched,
-            # the candidate stays null and step 1 fails safely instead of saving a Personal window.
-            $chromeTitle = if ($w) { $w.Title } else { '' }
-            $cand = @($cbs | Where-Object { $_.Current.Name -eq 'Google Chrome' -and $chromeTitle -ne '' -and (@(Get-TextOf $_) -contains $chromeTitle) })[0]
-        } elseif ($t.Name -eq 'Paint') {
-            $cand = @($cbs | Where-Object { $_.Current.Name -eq 'Paint' })[0]
-        } elseif ($t.Name -eq 'Calculator') {
-            $cand = @($cbs | Where-Object { $_.Current.Name -eq 'Calculator' })[0]
-        } elseif ($t.Name -eq 'folder-a') {
-            $cand = @($cbs | Where-Object { $_.Current.Name -eq 'folder-a' })[0]
-        } else {
-            $cand = @($cbs | Where-Object { $_.Current.Name -eq 'Notepad' })[0]
+        $handle = [int64]$expected[$t.Name].Handle
+        $w = [RT]::Window($handle)
+        $title = if ($w) { $w.Title } else { '' }
+        # Exact ownership: the app exposes the captured window handle as AutomationId "window-<decimal>".
+        $cand = Select-SaveCandidateById $details $handle $title $t.Name
+        if (@($picked | Where-Object { [object]::ReferenceEquals($_, $cand) }).Count -gt 0) {
+            throw ('BLOCKED: two workspace items resolved to the same Save candidate for ' + $t.Name)
         }
-        if (-not $cand) { throw ('Candidate checkbox not found for ' + $t.Name) }
         Set-Toggle $cand $true
-        [void]$selectedNames.Add($t.Name)
+        [void]$picked.Add($cand)
     }
     Start-Sleep -Milliseconds 400
     $on = @($cbs | Where-Object { (Get-ToggleState $_) -eq 'On' })
@@ -719,7 +1033,12 @@ try {
         Add-Result $step 'PASS' ($expectedCount.ToString() + ' named item cards, workspace named RT Work A') $actual 'details page Remove buttons + item text'
     }
 } catch {
-    Add-Result $step 'FAIL' 'workspace RT Work A with ' ($_.Exception.Message) 'see log'
+    $msg = $_.Exception.Message
+    if ($msg -like 'BLOCKED:*') {
+        Add-Result $step 'BLOCKED' 'workspace RT Work A with exactly the owned windows' ($msg -replace '^BLOCKED: ','') 'candidate ownership was not proven'
+    } else {
+        Add-Result $step 'FAIL' 'workspace RT Work A with ' $msg 'see log'
+    }
     $null = Save-Shot 'step1-save-exception.png'
 }
 
@@ -741,42 +1060,55 @@ try {
     $checks = @()
     foreach ($t in $targets) {
         $exp = $expected[$t.Name]
-        $match = $null
-        if ($t.Name -eq 'Notepad') { $match = @($now | Where-Object { $_.Title -like '*notes-a.txt*' })[0] }
-        elseif ($t.Name -eq 'Paint') { $match = @($now | Where-Object { $_.Title -like '*Paint*' -and $_.Class -ne 'Chrome_WidgetWin_1' })[0] }
-        elseif ($t.Name -eq 'Calculator') { $match = @($now | Where-Object { $_.Title -eq 'Calculator' })[0] }
-        elseif ($t.Name -eq 'folder-a') { $h = Get-ExplorerWindowFor $FolderA; if ($h) { $match = [RT]::Window([int64]$h) } }
-        elseif ($t.Name -eq 'Chrome') {
-            try { $pids = @(Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" | Where-Object { $_.CommandLine -like ('*' + $ChromeProfile + '*') } | ForEach-Object { [uint32]$_.ProcessId })
-                  $match = @($now | Where-Object { $pids -contains $_.Pid -and $_.Class -eq 'Chrome_WidgetWin_1' })[0] } catch { }
+        $resolved = Resolve-RestoredWindow $t.Name $exp $now $baselineHandles
+        $match = $resolved.Window
+        if (-not $match) {
+            Log ('RESTORE ' + $t.Name + ': ' + $resolved.Reason)
+            $checks += [pscustomobject]@{ Name=$t.Name; Missing=$true; Delta=@(); Show='Missing'; ExpectedShow=$exp.Show; Line=($t.Name + ': MISSING (' + $resolved.Reason + ')') }
+            continue
         }
-        if (-not $match) { $checks += ($t.Name + ': MISSING'); continue }
         Add-Owned $t.Name $match $null | Out-Null
-        if ($t.Name -eq 'Paint' -and $exp.Max) {
-            $checks += ('Paint: maximized=' + $match.Max + ' rect=' + $match.X + ',' + $match.Y + ' ' + $match.W + 'x' + $match.H + ' expected max')
-        } else {
-            $d = Rect-Delta $match $exp.X $exp.Y $exp.W $exp.H
-            $checks += ($t.Name + ': delta=' + ($d -join ',') + ' rect=' + $match.X + ',' + $match.Y + ' ' + $match.W + 'x' + $match.H)
+        Log-Window ('RESTORE ' + $t.Name) $match
+        # Compare FlowDesk state (restore rect + show) instead of an icon rect or a stale arrange rect.
+        $d = @([Math]::Abs($match.NormalX - $exp.X), [Math]::Abs($match.NormalY - $exp.Y), [Math]::Abs($match.NormalW - $exp.W), [Math]::Abs($match.NormalH - $exp.H))
+        $checks += [pscustomobject]@{
+            Name=$t.Name; Missing=$false; Delta=$d; Show=$match.Show; ExpectedShow=$exp.Show
+            Line=($t.Name + ': delta=' + ($d -join ',') + ' show=' + $match.Show + '/' + $exp.Show + ' rect=' + $match.X + ',' + $match.Y + ' ' + $match.W + 'x' + $match.H)
         }
     }
-    $missing = @($checks | Where-Object { $_ -like '*MISSING*' -or $_ -like '*delta*' -and (($_ -replace '.*delta=','') -match '[1-9][1-9]|1[0-9][0-9]') })
+    # Browsers may resize after the 1.2 s settle: this late read must also pass, so drift cannot hide.
+    $chromeLate = ''
+    $chromeLateOk = $true
+    Start-Sleep -Seconds 3
+    if ($expected.Contains('Chrome')) {
+        try {
+            $pids = @(Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" | Where-Object { $_.CommandLine -like ('*' + $ChromeProfile + '*') } | ForEach-Object { [uint32]$_.ProcessId })
+            $cw = @(Get-RTWindows | Where-Object { $pids -contains $_.Pid -and $_.Class -eq 'Chrome_WidgetWin_1' })[0]
+            if (-not $cw) {
+                $chromeLate = 'lateWindow=MISSING'
+                $chromeLateOk = $false
+            } else {
+                $exp = $expected['Chrome']
+                $late = @([Math]::Abs($cw.NormalX-$exp.X),[Math]::Abs($cw.NormalY-$exp.Y),[Math]::Abs($cw.NormalW-$exp.W),[Math]::Abs($cw.NormalH-$exp.H))
+                $chromeLate = 'lateDelta=' + ($late -join ',') + ' show=' + $cw.Show + '/' + $exp.Show
+                $chromeLateOk = (@($late | Where-Object { $_ -gt 10 }).Count -eq 0 -and $cw.Show -eq $exp.Show)
+                Log-Window 'CHROME LATE' $cw
+                Log ('Chrome late drift check: ' + $chromeLate + ' ok=' + $chromeLateOk)
+            }
+        } catch { $chromeLate = 'lateCheck=ERROR'; $chromeLateOk = $false }
+    }
     $summaryOk = $summary -match ('RT Work A: ' + $expectedCount + ' of ' + $expectedCount + ' windows in place')
-    $badDeltas = @()
-    foreach ($c in $checks) {
-        if ($c -match 'delta=(\d+),(\d+),(\d+),(\d+)') {
-            $vals = @([int]$matches[1],[int]$matches[2],[int]$matches[3],[int]$matches[4])
-            if (@($vals | Where-Object { $_ -gt 10 }).Count -gt 0) { $badDeltas += $c }
-        }
-        if ($c -like '*MISSING*') { $badDeltas += $c }
-    }
-    $maximizedOk = $true
-    $pc = @($checks | Where-Object { $_ -like 'Paint: maximized*' })[0]
-    if ($pc -and $pc -notlike '*maximized=True*') { $maximizedOk = $false }
+    $badDeltas = @($checks | Where-Object { $_.Missing -or @($_.Delta | Where-Object { $_ -gt 10 }).Count -gt 0 })
+    $showBad = @($checks | Where-Object { -not $_.Missing -and $_.Show -ne $_.ExpectedShow })
+    $maximizedOk = @($checks | Where-Object { $_.Name -eq 'Paint' -and $_.Show -eq 'Maximized' }).Count -eq 1
+    $lines = @($checks | ForEach-Object { $_.Line })
     $chromeNote = @($dialogTexts | Where-Object { $_ -like '*Chrome*' -or $_ -like '*browser*' }) -join ' / '
-    if ($summaryOk -and $badDeltas.Count -eq 0 -and $maximizedOk) {
-        Add-Result $step 'PASS' ($expectedCount.ToString() + ' windows back on saved rects/monitor (tolerance 10px), summary "N of N"') ($summary + ' | ' + ($checks -join '; ')) ('dialog: ' + ($dialogTexts -join ' | '))
+    $actual = $summary + ' | ' + ($lines -join '; ')
+    if ($chromeLate) { $actual += ' | ' + $chromeLate }
+    if ($summaryOk -and $badDeltas.Count -eq 0 -and $showBad.Count -eq 0 -and $maximizedOk -and $chromeLateOk) {
+        Add-Result $step 'PASS' ($expectedCount.ToString() + ' windows back in their saved show state/rects (tolerance 10px), summary "N of N"') $actual ('dialog: ' + ($dialogTexts -join ' | '))
     } else {
-        Add-Result $step 'FAIL' ($expectedCount.ToString() + ' windows back on saved rects/monitor') ($summary + ' | ' + ($checks -join '; ')) ('dialog: ' + ($dialogTexts -join ' | '))
+        Add-Result $step 'FAIL' ($expectedCount.ToString() + ' windows back in their saved show state/rects') $actual ('dialog: ' + ($dialogTexts -join ' | '))
         $null = Save-Shot 'step2-restore-fail.png'
     }
     Log ('Chrome reopened note: ' + $chromeNote)
@@ -790,17 +1122,21 @@ $aLive = @{}
 foreach ($t in $targets) {
     $exp = $expected[$t.Name]; $w = [RT]::Window([int64]$exp.Handle)
     if (-not $w) {
-        # the old handle is gone; find the live one by title again
-        $now = Get-RTWindows
-        if ($t.Name -eq 'Notepad') { $w = @($now | Where-Object { $_.Title -like '*notes-a.txt*' })[0] }
-        elseif ($t.Name -eq 'Paint') { $w = @($now | Where-Object { $_.Title -like '*Paint*' -and $_.Class -ne 'Chrome_WidgetWin_1' })[0] }
-        elseif ($t.Name -eq 'Calculator') { $w = @($now | Where-Object { $_.Title -eq 'Calculator' })[0] }
-        elseif ($t.Name -eq 'folder-a') { $h = Get-ExplorerWindowFor $FolderA; if ($h) { $w = [RT]::Window([int64]$h) } }
-        elseif ($t.Name -eq 'Chrome') { try { $pids = @(Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" | Where-Object { $_.CommandLine -like ('*' + $ChromeProfile + '*') } | ForEach-Object { [uint32]$_.ProcessId }); $w = @(Get-RTWindows | Where-Object { $pids -contains $_.Pid -and $_.Class -eq 'Chrome_WidgetWin_1' })[0] } catch { } }
+        # The old handle is gone; re-resolve with the same ownership rules (baseline + executable + new process).
+        $resolved = Resolve-RestoredWindow $t.Name $exp (Get-RTWindows) $baselineHandles
+        $w = $resolved.Window
+        if (-not $w) { Log ('A live ' + $t.Name + ': ' + $resolved.Reason) }
     }
-    if ($w) { $aLive[$t.Name] = [pscustomobject]@{ Handle=[int64]$w.Handle; X=$w.X; Y=$w.Y; W=$w.W; H=$w.H; Min=$w.Min; Max=$w.Max } }
+    if ($w) {
+        $aLive[$t.Name] = [pscustomobject]@{
+            Handle=[int64]$w.Handle; Pid=$w.Pid; Title=$w.Title; Class=$w.Class
+            X=$w.NormalX; Y=$w.NormalY; W=$w.NormalW; H=$w.NormalH; Show=$w.Show; Min=$w.Min; Max=$w.Max
+            VisibleX=$w.X; VisibleY=$w.Y; VisibleW=$w.W; VisibleH=$w.H; Device=$w.Device
+        }
+        Log-Window ('A live ' + $t.Name) $w
+    }
 }
-Log ('A live snapshot: ' + (($aLive.Keys | ForEach-Object { $_ + '=0x' + ('{0:X}' -f $aLive[$_].Handle) }) -join ', '))
+Log ('A live snapshot: ' + (($aLive.Keys | ForEach-Object { $_ + '=0x' + ('{0:X}' -f $aLive[$_].Handle) + '/' + $aLive[$_].Show }) -join ', '))
 
 # ---- STEP 3: B and A -> B -> A ----
 $step = '3 Switch A -> B -> A'
@@ -817,8 +1153,15 @@ try {
     if ($paintB) { [RT]::Top([int64]$paintB.Handle) }
     Start-Sleep -Milliseconds 400
     $bExpected = @{}
-    foreach ($b in $bWins) { $w = [RT]::Window([int64]$b.Win.Handle); $bExpected[$b.Name] = [pscustomobject]@{ X=$w.X; Y=$w.Y; W=$w.W; H=$w.H; Min=$w.Min; Max=$w.Max } }
-    Log ('B expected: ' + (($bWins | ForEach-Object { $_.Name + '=' + $bExpected[$_.Name].X + ',' + $bExpected[$_.Name].Y + ' ' + $bExpected[$_.Name].W + 'x' + $bExpected[$_.Name].H }) -join '; '))
+    foreach ($b in $bWins) {
+        $w = [RT]::Window([int64]$b.Win.Handle)
+        $bExpected[$b.Name] = [pscustomobject]@{
+            Handle=[int64]$w.Handle; Pid=$w.Pid; Title=$w.Title; Class=$w.Class; Device=$w.Device
+            X=$w.NormalX; Y=$w.NormalY; W=$w.NormalW; H=$w.NormalH; Show=$w.Show; Min=$w.Min; Max=$w.Max
+        }
+        Log-Window ('B expected ' + $b.Name) $w
+    }
+    Log ('B expected: ' + (($bWins | ForEach-Object { $_.Name + '=' + $bExpected[$_.Name].X + ',' + $bExpected[$_.Name].Y + ' ' + $bExpected[$_.Name].W + 'x' + $bExpected[$_.Name].H + ' show=' + $bExpected[$_.Name].Show }) -join '; '))
     Navigate 'Workspaces'
     $newBtn = @(Get-ByName 'New workspace' ([System.Windows.Automation.ControlType]::SplitButton))[0]
     if (-not $newBtn) { $newBtn = @(Get-ByName 'New workspace' ([System.Windows.Automation.ControlType]::Button))[0] }
@@ -829,11 +1172,13 @@ try {
     foreach ($cb in $cbs) { Set-Toggle $cb $false }
     Start-Sleep -Milliseconds 300
     $cbs = @(Get-UiAll (Get-AppRoot) | Where-Object { $_.Current.ControlType -eq [System.Windows.Automation.ControlType]::CheckBox })
+    $bDetails = @(Get-CandidateDetails $cbs)
+    Log-Candidates $bDetails
     foreach ($b in $bWins) {
-        if ($b.Name -eq 'Notepad') { $cand = @($cbs | Where-Object { $_.Current.Name -eq 'Notepad' })[0] }
-        elseif ($b.Name -eq 'Paint') { $cand = @($cbs | Where-Object { $_.Current.Name -eq 'Paint' })[0] }
-        else { $cand = @($cbs | Where-Object { $_.Current.Name -eq 'folder-b' })[0] }
-        if (-not $cand) { throw ('B candidate not found: ' + $b.Name) }
+        $w = [RT]::Window([int64]$b.Win.Handle)
+        $title = if ($w) { $w.Title } else { '' }
+        # Exact handle from this launch, not title order: A and B both have "Untitled - Paint".
+        $cand = Select-SaveCandidateById $bDetails ([int64]$b.Win.Handle) $title $b.Name
         Set-Toggle $cand $true
     }
     $on = @($cbs | Where-Object { (Get-ToggleState $_) -eq 'On' })
@@ -857,12 +1202,9 @@ try {
     if ($aLive.ContainsKey('Paint')) { [RT]::Top([int64]$aLive['Paint'].Handle) }
     Open-Workspace 'RT Work A'; $sumA1 = Wait-Report 'RT Work A' 75
     Start-Sleep -Seconds 1
-    $aAfterOne = @{}
-    foreach ($k in $aLive.Keys) { $w = [RT]::Window([int64]$aLive[$k].Handle); if ($w) { $aAfterOne[$k] = [pscustomobject]@{ X=$w.X; Y=$w.Y; W=$w.W; H=$w.H; Min=$w.Min } } }
     if ($paintB) { [RT]::Top([int64]$paintB.Handle) }
     Open-Workspace 'RT Work B'; $sumB = Wait-Report 'RT Work B' 75
     Start-Sleep -Seconds 2
-    $aMin = @($aLive.Keys | Where-Object { $w = [RT]::Window([int64]$aLive[$_].Handle); $w -and $w.Min })
     $bLive = @{}
     foreach ($b in $bWins) { $w = [RT]::Window([int64]$b.Win.Handle); if ($w) { $bLive[$b.Name] = $w } }
     if ($aLive.ContainsKey('Paint')) { [RT]::Top([int64]$aLive['Paint'].Handle) }
@@ -872,28 +1214,54 @@ try {
     $aMinimizedAfter = @()
     foreach ($k in $aLive.Keys) {
         $w = [RT]::Window([int64]$aLive[$k].Handle)
-        if ($w) { $aBack[$k] = $w; if ($w.Min) { $aMinimizedAfter += $k } }
+        if ($w) { $aBack[$k] = $w; if ($w.Min) { $aMinimizedAfter += $k }; Log-Window ('A back ' + $k) $w }
+        else { Log ('A back ' + $k + ': window 0x' + ('{0:X}' -f $aLive[$k].Handle) + ' is gone') }
     }
     $bMinimized = @()
-    foreach ($k in $bLive.Keys) { $w = $bLive[$k]; $cur = [RT]::Window([int64]$w.Handle); if ($cur -and $cur.Min) { $bMinimized += $k } }
-    $aDeltas = @()
-    foreach ($k in $aBack.Keys) { if ($aLive.ContainsKey($k)) { $e2 = $aLive[$k]; $w = $aBack[$k]; $aDeltas += ($k + ':delta=' + ((Rect-Delta $w $e2.X $e2.Y $e2.W $e2.H) -join ',')) } }
-    $bDeltas = @()
-    foreach ($k in $bLive.Keys) { $cur = [RT]::Window([int64]$bLive[$k].Handle); if ($cur -and $bExpected.ContainsKey($k)) { $e2 = $bExpected[$k]; $bDeltas += ($k + ':delta=' + ((Rect-Delta $cur $e2.X $e2.Y $e2.W $e2.H) -join ',')) } }
-    $issues = Compare-UserWindows $user0 (Get-OwnedHandles) $fdPids
-    Log ('A->B->A: A minimized after = [' + ($aMinimizedAfter -join ',') + '] B minimized = [' + ($bMinimized -join ',') + '] userIssues=' + $issues.Count)
-    Log ('A deltas: ' + ($aDeltas -join '; '))
-    Log ('B deltas: ' + ($bDeltas -join '; '))
-    $sumOk = ($sumA1 -match ('RT Work A: ' + $expectedCount + ' of ' + $expectedCount)) -and ($sumB -match ('RT Work B: ' + $bWins.Count + ' of ' + $bWins.Count)) -and ($sumA2 -match ('RT Work A: ' + $expectedCount + ' of ' + $expectedCount))
-    $badA = @($aDeltas | Where-Object { $_ -match 'delta=(\d+),(\d+),(\d+),(\d+)' -and @([int]$matches[1],[int]$matches[2],[int]$matches[3],[int]$matches[4] | Where-Object { $_ -gt 10 }).Count -gt 0 })
-    $badB = @($bDeltas | Where-Object { $_ -match 'delta=(\d+),(\d+),(\d+),(\d+)' -and @([int]$matches[1],[int]$matches[2],[int]$matches[3],[int]$matches[4] | Where-Object { $_ -gt 10 }).Count -gt 0 })
+    foreach ($k in $bLive.Keys) {
+        $cur = [RT]::Window([int64]$bLive[$k].Handle)
+        if ($cur) { Log-Window ('B after ' + $k) $cur; if ($cur.Min) { $bMinimized += $k } }
+    }
+    # Compare the state FlowDesk controls (restore rect + show), not the -32000 minimized icon rect.
+    $aStates = @()
+    foreach ($k in $aLive.Keys) {
+        if (-not $aBack.ContainsKey($k)) { $aStates += [pscustomobject]@{ Name=$k; Missing=$true; RectOk=$false; ShowOk=$false; Line=($k+': MISSING after B->A') }; continue }
+        $e2 = $aLive[$k]; $w = $aBack[$k]
+        $d = @([Math]::Abs($w.NormalX-$e2.X),[Math]::Abs($w.NormalY-$e2.Y),[Math]::Abs($w.NormalW-$e2.W),[Math]::Abs($w.NormalH-$e2.H))
+        $aStates += [pscustomobject]@{ Name=$k; Missing=$false; Delta=$d; Show=$w.Show; ExpectedShow=$e2.Show
+            RectOk=(@($d | Where-Object { $_ -gt 10 }).Count -eq 0); ShowOk=($w.Show -eq $e2.Show)
+            Line=($k+': normalDelta=' + ($d -join ',') + ' show=' + $e2.Show + '->' + $w.Show) }
+    }
+    $bStates = @()
     $expectBMin = if ($minState -eq 'On') { $bWins.Count } else { 0 }
+    foreach ($k in $bLive.Keys) {
+        $cur = [RT]::Window([int64]$bLive[$k].Handle)
+        if (-not $cur -or -not $bExpected.ContainsKey($k)) { $bStates += [pscustomobject]@{ Name=$k; Missing=$true; RectOk=$false; ShowOk=$false; Show='Missing'; ExpectedShow=''; Line=($k+': MISSING after B->A') }; continue }
+        $e2 = $bExpected[$k]
+        $d = @([Math]::Abs($cur.NormalX-$e2.X),[Math]::Abs($cur.NormalY-$e2.Y),[Math]::Abs($cur.NormalW-$e2.W),[Math]::Abs($cur.NormalH-$e2.H))
+        $wantShow = if ($minState -eq 'On') { 'Minimized' } else { $e2.Show }
+        $bStates += [pscustomobject]@{ Name=$k; Missing=$false; Delta=$d; Show=$cur.Show; ExpectedShow=$wantShow
+            RectOk=(@($d | Where-Object { $_ -gt 10 }).Count -eq 0); ShowOk=($cur.Show -eq $wantShow)
+            Line=($k+': normalDelta=' + ($d -join ',') + ' show=' + $cur.Show + '/' + $wantShow) }
+    }
+    $issues = Compare-UserWindows $user0 (Get-OwnedHandles) $fdPids
+    $badA = @($aStates | Where-Object { -not $_.RectOk -or -not $_.ShowOk })
+    $badB = @($bStates | Where-Object { -not $_.RectOk -or -not $_.ShowOk })
+    Log ('A->B->A: A minimized after = [' + ($aMinimizedAfter -join ',') + '] B minimized = [' + ($bMinimized -join ',') + '] userIssues=' + $issues.Count)
+    Log ('A states: ' + (($aStates | ForEach-Object { $_.Line }) -join '; '))
+    Log ('B states: ' + (($bStates | ForEach-Object { $_.Line }) -join '; '))
+    $sumOk = ($sumA1 -match ('RT Work A: ' + $expectedCount + ' of ' + $expectedCount)) -and ($sumB -match ('RT Work B: ' + $bWins.Count + ' of ' + $bWins.Count)) -and ($sumA2 -match ('RT Work A: ' + $expectedCount + ' of ' + $expectedCount))
     $ok = $sumOk -and ($badA.Count -eq 0) -and ($badB.Count -eq 0) -and ($aMinimizedAfter.Count -eq 0) -and ($bMinimized.Count -eq $expectBMin) -and ($issues.Count -eq 0)
-    $actual = ('A minimized=' + $aMinimizedAfter.Count + '; B minimized=' + $bMinimized.Count + '/' + $expectBMin + ' (setting ' + $minState + '); A deltas ' + ($aDeltas -join ',') + '; B deltas ' + ($bDeltas -join ',') + '; user changes=' + $issues.Count + '; summaries: ' + $sumA1 + ' / ' + $sumB + ' / ' + $sumA2)
-    if ($ok) { Add-Result $step 'PASS' ('A back at its rects, B minimized per setting, no user window changed') $actual ('B item cards=' + $bRemoves) }
-    else { Add-Result $step 'FAIL' ('A back at its rects, B minimized per setting, no user window changed') $actual (($issues -join '; ') + ' | ' + ($aDeltas -join '; ') + ' | ' + ($bDeltas -join '; ')); $null = Save-Shot 'step3-switch-fail.png' }
+    $actual = ('A minimized=' + $aMinimizedAfter.Count + '; B minimized=' + $bMinimized.Count + '/' + $expectBMin + ' (setting ' + $minState + '); A states ' + (($aStates | ForEach-Object { $_.Line }) -join ',') + '; B states ' + (($bStates | ForEach-Object { $_.Line }) -join ',') + '; user changes=' + $issues.Count + '; summaries: ' + $sumA1 + ' / ' + $sumB + ' / ' + $sumA2)
+    if ($ok) { Add-Result $step 'PASS' ('A back at its rects/show state, B minimized per setting, no user window changed') $actual ('B item cards=' + $bRemoves) }
+    else { Add-Result $step 'FAIL' ('A back at its rects/show state, B minimized per setting, no user window changed') $actual (($issues -join '; ') + ' | ' + (($badA | ForEach-Object { $_.Line }) -join '; ') + ' | ' + (($badB | ForEach-Object { $_.Line }) -join '; ')); $null = Save-Shot 'step3-switch-fail.png' }
 } catch {
-    Add-Result $step 'FAIL' 'A -> B -> A' ($_.Exception.Message) 'see log'
+    $msg = $_.Exception.Message
+    if ($msg -like 'BLOCKED:*') {
+        Add-Result $step 'BLOCKED' 'A -> B -> A with exactly the owned windows' ($msg -replace '^BLOCKED: ','') 'candidate ownership was not proven'
+    } else {
+        Add-Result $step 'FAIL' 'A -> B -> A' $msg 'see log'
+    }
     $null = Save-Shot 'step3-switch-exception.png'
 }
 
@@ -919,23 +1287,44 @@ try {
     Start-Sleep -Seconds 3
     $statusTexts = @(Get-UiAll (Get-AppRoot) | Where-Object { $_.Current.ControlType -eq [System.Windows.Automation.ControlType]::Text } | ForEach-Object { $_.Current.Name })
     $placed = @($statusTexts | Where-Object { $_ -like 'Placed * windows*' })[0]
-    $allTexts = $statusTexts
-    $labels = @($allTexts | Where-Object { $_ -like 'Display *' -or $_ -like '* × *' })
+    $labels = @($statusTexts | Where-Object { $_ -like 'Display *' -or $_ -like '* × *' })
     $winList = @(Get-ByName 'Windows in layout order' ([System.Windows.Automation.ControlType]::List))[0]
-    $winCount = 0
-    if ($winList) { $winCount = @($winList.FindAll([System.Windows.Automation.TreeScope]::Children,[System.Windows.Automation.Condition]::TrueCondition)).Count }
+    $winCount = 0; $listOrder = @()
+    if ($winList) {
+        $items = @($winList.FindAll([System.Windows.Automation.TreeScope]::Children,[System.Windows.Automation.Condition]::TrueCondition))
+        $winCount = $items.Count
+        $listOrder = @($items | ForEach-Object { $_.Current.Name })
+    }
     $shot = Save-Shot 'step4-layouts.png'
-    Log ('Layout monitor labels: ' + ($labels -join ' | ') + ' ; placed=' + $placed + ' ; listItems=' + $winCount + ' ; shot=' + $shot)
-    # check tiling: all live A windows on one monitor, non-overlapping-ish
+    # Read the monitor the user/app actually selected in the Layouts page (RadioButton "Display N ..."):
+    # core LayoutApplier uses that device, not necessarily the first window's monitor.
+    $monRadios = @(Get-UiAll (Get-AppRoot) | Where-Object {
+        $_.Current.ControlType -eq [System.Windows.Automation.ControlType]::RadioButton -and $_.Current.Name -like 'Display *'
+    })
+    foreach ($r in $monRadios) { Log ('MONITOR choice "' + $r.Current.Name + '" selected=' + (Get-SelectedState $r)) }
+    $selRadio = @($monRadios | Where-Object { (Get-SelectedState $_) -eq $true })[0]
+    if (-not $selRadio) { throw 'BLOCKED: layout monitor selection is not readable; cannot say which single monitor was chosen' }
+    $mLabel = $selRadio.Current.Name
+    if ($mLabel -notmatch '^Display\s+(\d+)') { throw ('BLOCKED: layout monitor label "' + $mLabel + '" has no DISPLAY number') }
+    $chosenDevice = '\\.\DISPLAY' + $matches[1]
+    $chosenIdx = Monitor-IndexByDevice $chosenDevice $mons
+    if ($chosenIdx -lt 0) {
+        throw ('BLOCKED: layout chose "' + $mLabel + '" (' + $chosenDevice + ') but the test process sees [' + (($mons | ForEach-Object { $_.DeviceName }) -join ', ') + ']')
+    }
+    Log ('Layout monitor labels: ' + ($labels -join ' | ') + ' ; chosen=' + $mLabel + ' (' + $chosenDevice + ') idx=' + $chosenIdx + ' ; placed=' + $placed + ' ; listItems=' + $winCount + ' [' + ($listOrder -join ' | ') + '] ; shot=' + $shot)
+    # Check every live A window by its FlowDesk normal rect: a minimized UWP window reports -32000 icon rect,
+    # which must not be mistaken for a second monitor.
     $now = Get-RTWindows
     $aNow = @()
-    foreach ($k in $aLive.Keys) { $w = [RT]::Window([int64]$aLive[$k].Handle); if ($w) { $aNow += $w } }
-    $monIdx = @($aNow | ForEach-Object { Monitor-Index $_ $mons } | Select-Object -Unique)
+    foreach ($k in $aLive.Keys) { $w = [RT]::Window([int64]$aLive[$k].Handle); if ($w) { $aNow += $w; Log-Window ('LAYOUT ' + $k) $w } }
+    $monIdx = @($aNow | ForEach-Object { Monitor-IndexOfNormal $_ $mons } | Select-Object -Unique)
+    $offMonitor = @($aNow | Where-Object { (Monitor-IndexOfNormal $_ $mons) -ne $chosenIdx })
+    $minimizedAfter = @($aNow | Where-Object { $_.Min })
     $tiled = $placed -match 'Placed (\d+) of (\d+)' 
     $placedCount = 0; $totalCount = $aNow.Count
     if ($tiled) { $placedCount = [int]$matches[1]; $totalCount = [int]$matches[2] }
-    $boundsOk = $true
-    if ($monIdx.Count -gt 1) { $boundsOk = $false }
+    $boundsOk = ($offMonitor.Count -eq 0)
+    $shownOk = ($minimizedAfter.Count -eq 0)
     # save layout
     $savePos = @(Get-ByName 'Save as workspace positions' ([System.Windows.Automation.ControlType]::Button))[0]
     $savedMsg = ''
@@ -943,23 +1332,32 @@ try {
     # move one window, then restore layout
     $move = @($aNow | Where-Object { $_.Title -like '*notes-a*' })[0]
     if (-not $move) { $move = $aNow[0] }
-    $mvX = $move.X + 140; $mvY = $move.Y + 90
-    [void][RT]::SetPos([int64]$move.Handle, $mvX, $mvY, $move.W, $move.H)
+    $mvX = $move.NormalX + 140; $mvY = $move.NormalY + 90
+    [void][RT]::SetPos([int64]$move.Handle, $mvX, $mvY, $move.NormalW, $move.NormalH)
     Start-Sleep -Milliseconds 700
     $afterMove = [RT]::Window([int64]$move.Handle)
+    $moveDelta = @([Math]::Abs($afterMove.NormalX-$move.NormalX),[Math]::Abs($afterMove.NormalY-$move.NormalY))
+    $moveOk = (@($moveDelta | Where-Object { $_ -gt 10 }).Count -gt 0)
     Invoke-Element $apply
     Start-Sleep -Seconds 3
     $afterRestore = [RT]::Window([int64]$move.Handle)
-    $restoreDelta = Rect-Delta $afterRestore $move.X $move.Y $move.W $move.H
-    Log ('Layout save: ' + $savedMsg + ' ; tiled=' + $placedCount + '/' + $totalCount + ' monitorIdx=' + ($monIdx -join ',') + ' restoreDelta=' + ($restoreDelta -join ','))
-    if ($tiled -and $placedCount -eq $totalCount -and $boundsOk -and ($savedMsg -ne '') -and (@($restoreDelta | Where-Object { $_ -gt 10 }).Count -eq 0)) {
-        Add-Result $step 'PASS' ('all ' + $totalCount + ' windows tiled on one monitor, positions saved, restore returns the moved window') ('placed ' + $placedCount + '/' + $totalCount + '; monitors=' + ($monIdx -join ',') + '; saved="' + $savedMsg + '"; restore delta=' + ($restoreDelta -join ',') + '; labels=' + $(if($labels.Count){$labels -join ' | '}else{'none'})) ('screenshot ' + $shot)
+    $restoreDelta = @([Math]::Abs($afterRestore.NormalX-$move.NormalX),[Math]::Abs($afterRestore.NormalY-$move.NormalY),[Math]::Abs($afterRestore.NormalW-$move.NormalW),[Math]::Abs($afterRestore.NormalH-$move.NormalH))
+    $countOk = ($totalCount -eq $expectedCount -and $aNow.Count -eq $expectedCount)
+    $stateText = 'chosen=' + $mLabel + ' idx=' + $chosenIdx + '; monitors=' + ($monIdx -join ',') + '; count=' + $aNow.Count + '/' + $expectedCount + '; offMonitor=[' + (($offMonitor | ForEach-Object { $_.Title }) -join ',') + ']; minimizedAfter=[' + (($minimizedAfter | ForEach-Object { $_.Title }) -join ',') + ']; moveDelta=' + ($moveDelta -join ',')
+    Log ('Layout save: ' + $savedMsg + ' ; tiled=' + $placedCount + '/' + $totalCount + ' ' + $stateText + ' restoreDelta=' + ($restoreDelta -join ','))
+    if ($tiled -and $placedCount -eq $totalCount -and $countOk -and $boundsOk -and $shownOk -and $moveOk -and ($savedMsg -ne '') -and (@($restoreDelta | Where-Object { $_ -gt 10 }).Count -eq 0)) {
+        Add-Result $step 'PASS' ('all ' + $expectedCount + ' windows tiled on the chosen monitor, positions saved, restore returns the moved window') ('placed ' + $placedCount + '/' + $totalCount + '; ' + $stateText + '; saved="' + $savedMsg + '"; restore delta=' + ($restoreDelta -join ',') + '; labels=' + $(if($labels.Count){$labels -join ' | '}else{'none'})) ('screenshot ' + $shot)
     } else {
         $null = Save-Shot 'step4-layouts-fail.png'
-        Add-Result $step 'FAIL' ('all ' + $totalCount + ' windows tiled on one monitor, layout saved, restore returns the moved window') ('placed ' + $placedCount + '/' + $totalCount + '; monitors=' + ($monIdx -join ',') + '; saved="' + $savedMsg + '"; restore delta=' + ($restoreDelta -join ',') + '; labels=' + $(if($labels.Count){$labels -join ' | '}else{'none'})) ('screenshot ' + $shot)
+        Add-Result $step 'FAIL' ('all ' + $expectedCount + ' windows tiled on the chosen monitor, positions saved, restore returns the moved window') ('placed ' + $placedCount + '/' + $totalCount + '; ' + $stateText + '; saved="' + $savedMsg + '"; restore delta=' + ($restoreDelta -join ',') + '; labels=' + $(if($labels.Count){$labels -join ' | '}else{'none'})) ('screenshot ' + $shot)
     }
 } catch {
-    Add-Result $step 'FAIL' 'Two columns layout applied, saved and restored' ($_.Exception.Message) 'see log'
+    $msg = $_.Exception.Message
+    if ($msg -like 'BLOCKED:*') {
+        Add-Result $step 'BLOCKED' 'Two columns layout applied on one known monitor' ($msg -replace '^BLOCKED: ','') 'monitor identity not provable'
+    } else {
+        Add-Result $step 'FAIL' 'Two columns layout applied, saved and restored' $msg 'see log'
+    }
     $null = Save-Shot 'step4-layouts-exception.png'
 }
 
@@ -973,9 +1371,13 @@ try {
     Start-Sleep -Milliseconds 700
     $blockAll = @(Get-UiAll (Get-AppRoot) | Where-Object { $_.Current.Name -like 'Block every app*' -and (Get-ToggleState $_) -ne 'Unknown' })[0]
     $blockAllState = if ($blockAll) { Get-ToggleState $blockAll } else { 'Unknown' }
-    Log ('Focus preflight: userNotepad=' + $userNotepad.Count + ' blockAll=' + $blockAllState)
+    $existingBlocked = @(Get-FocusRuleRows 'Remove blocked app')
+    foreach ($rule in $existingBlocked) { Log ('Focus blocked rule: ' + $rule) }
+    $foreignBlocked = @($existingBlocked | Where-Object { $_ -notmatch '^(?i)Notepad( \| (notepad\.exe|Packaged app))?$' })
+    Log ('Focus preflight: userNotepad=' + $userNotepad.Count + ' blockAll=' + $blockAllState + ' blockedRules=' + $existingBlocked.Count + ' foreign=' + $foreignBlocked.Count)
     if ($userNotepad.Count -gt 0) { throw ('BLOCKED: user Notepad window present: ' + ($userNotepad -join ', ')) }
     if ($blockAllState -eq 'On') { throw 'BLOCKED: "Block every app" is On; a session could close user windows' }
+    if ($foreignBlocked.Count -gt 0) { throw ('BLOCKED: existing focus rules other than Notepad could close user apps: ' + ($foreignBlocked -join '; ')) }
     # Ensure notepad is on the blocked list (add it while our Notepad A is still open).
     $blockedTexts = @(Get-UiAll (Get-AppRoot) | Where-Object { $_.Current.ControlType -eq [System.Windows.Automation.ControlType]::Text } | ForEach-Object { $_.Current.Name })
     $addedRule = $false
@@ -1016,14 +1418,16 @@ try {
         Log 'Added Notepad to blocked apps.'
     } else { Log 'Notepad already on blocked apps list; will not remove it.' }
     # Our own Notepad windows would otherwise be closed by the session the moment it starts.
-    foreach ($w in @(Get-RTWindows | Where-Object { $_.Title -like '*notes-a.txt*' -or $_.Title -like '*notes-b.txt*' -or $_.Title -like '*notes-c.txt*' -or $_.Title -like '*notes-c2.txt*' })) {
-        [void](Close-OwnedWindow $w 6)
-    }
+    # Close only test-owned/fresh fixture windows, never a user instance that happens to share a title.
+    Close-FixtureWindows 'focus pre-session'
     Start-Sleep -Seconds 1
     # Re-check just before enforcement starts: a notepad.exe block is global, so no user Notepad may be up.
     $userNow2 = Snapshot-UserWindows (Get-OwnedHandles) $fdPids
     $userNotepad2 = @($userNow2.GetEnumerator() | Where-Object { $_.Value.Process -match '^(?i)notepad$' } | ForEach-Object { $_.Value.Title })
     if ($userNotepad2.Count -gt 0) { throw ('BLOCKED: user Notepad window appeared: ' + ($userNotepad2 -join ', ')) }
+    $beforeStartBlocked = @(Get-FocusRuleRows 'Remove blocked app')
+    $foreignBeforeStart = @($beforeStartBlocked | Where-Object { $_ -notmatch '^(?i)Notepad( \| (notepad\.exe|Packaged app))?$' })
+    if ($foreignBeforeStart.Count -gt 0) { throw ('BLOCKED: focus rules changed and now include non-Notepad apps: ' + ($foreignBeforeStart -join '; ')) }
     # Normal, 25 minutes.
     $normal = @(Get-ByName 'Normal' ([System.Windows.Automation.ControlType]::RadioButton))[0]
     if ($normal) { Select-Element $normal }
@@ -1077,8 +1481,8 @@ try {
         }
     }
     Log ('Blocked rule removed=' + $removed)
-    # close gentle notepad and any notes-c leftovers
-    foreach ($w in @(Get-RTWindows | Where-Object { $_.Title -like '*notes-c.txt*' -or $_.Title -like '*notes-c2.txt*' })) { [void](Close-OwnedWindow $w 5) }
+    # close gentle notepad and any notes-c leftovers (ownership-checked by PID/freshness)
+    Close-FixtureWindows 'focus after gentle'
     $okNorm = $closed -and $idle
     $okGentle = $gentleStays -and $idle2
     if ($okNorm -and $okGentle) {
@@ -1142,20 +1546,39 @@ try {
         Start-Sleep -Seconds 2
     }
     Log ('Autosave status text: ' + $autoText)
-    # Close FlowDesk (no focus session now), reopen it.
+    # Close FlowDesk (no focus session now), reopen it. Never close an instance the test did not start.
     $app = Get-AppProcess
-    [void]$app.CloseMainWindow()
-    $exited = $app.WaitForExit(20000)
-    Log ('FlowDesk closed: ' + $exited)
-    if (-not $exited) { throw 'FlowDesk did not close in 20 s' }
+    if (-not $app -or -not ($script:FlowDeskOwnedPids -contains [uint32]$app.Id)) {
+        throw 'BLOCKED: FlowDesk existed before the test; refusing to close a user instance for the restart step'
+    }
+    $allClosed = $true
+    foreach ($procId in @($script:FlowDeskOwnedPids | Sort-Object -Descending)) {
+        $p = Get-Process -Id $procId -ErrorAction SilentlyContinue
+        if (-not $p) { continue }
+        $expectedStart = $script:FlowDeskOwnedStart[[uint32]$procId]
+        if (-not $expectedStart -or $p.StartTime -ne $expectedStart) {
+            Log ('WARN not closing pid=' + $procId + ' for restart: recorded start no longer matches')
+            $allClosed = $false
+            continue
+        }
+        Log ('Closing FlowDesk for restart: pid=' + $procId + ' hwnd=0x' + ('{0:X}' -f $p.MainWindowHandle))
+        [void]$p.CloseMainWindow()
+        if (-not $p.WaitForExit(20000)) { Log ('FlowDesk pid=' + $procId + ' did not exit for restart'); $allClosed = $false }
+    }
+    Log ('FlowDesk closed: ' + $allClosed)
+    if (-not $allClosed) { throw 'FlowDesk did not close in 20 s' }
+    $beforeRestart = @(Get-FlowDeskProcesses | ForEach-Object { [uint32]$_.Id })
     Start-Process -FilePath $AppExe | Out-Null
     $app2 = $null
     $sw = [Diagnostics.Stopwatch]::StartNew()
     while ($sw.Elapsed.TotalSeconds -lt 40) { $app2 = Get-AppProcess; if ($app2 -and $app2.MainWindowHandle -ne 0) { break }; Start-Sleep -Milliseconds 500 }
     if (-not $app2) { throw 'FlowDesk did not restart' }
-    $fdPids = @([uint32]$app2.Id)
-    Log ('FlowDesk restarted pid=' + $app2.Id + ' hwnd=0x' + ('{0:X}' -f $app2.MainWindowHandle))
+    Register-FlowDeskOwned @(Get-FlowDeskProcesses | Where-Object { $beforeRestart -notcontains [uint32]$_.Id } | ForEach-Object { [uint32]$_.Id })
+    $fdPids = @(Get-FlowDeskProcesses | ForEach-Object { [uint32]$_.Id })
+    Log ('FlowDesk restarted pid=' + $app2.Id + ' hwnd=0x' + ('{0:X}' -f $app2.MainWindowHandle) + ' ownedPids=' + ($script:FlowDeskOwnedPids -join ','))
     Start-Sleep -Seconds 3
+    Register-FlowDeskOwned @(Get-FlowDeskProcesses | ForEach-Object { [uint32]$_.Id })
+    $fdPids = @(Get-FlowDeskProcesses | ForEach-Object { [uint32]$_.Id })
     Navigate 'Workspaces'
     Open-Workspace 'RT Work A' | Out-Null
     $sum = Wait-Report 'RT Work A' 60
@@ -1172,7 +1595,12 @@ try {
         $null = Save-Shot 'step6-autosave-fail.png'
     }
 } catch {
-    Add-Result $step 'FAIL' 'autosave keeps the moved position across restart' ($_.Exception.Message) 'see log'
+    $msg = $_.Exception.Message
+    if ($msg -like 'BLOCKED:*') {
+        Add-Result $step 'BLOCKED' 'autosave keeps the moved position across restart' ($msg -replace '^BLOCKED: ','') 'no user FlowDesk instance is closed'
+    } else {
+        Add-Result $step 'FAIL' 'autosave keeps the moved position across restart' $msg 'see log'
+    }
     $null = Save-Shot 'step6-autosave-exception.png'
 }
 
@@ -1198,23 +1626,37 @@ try {
         }
         Start-Sleep -Seconds 1
     }
-    Close-AllApps
-    Start-Sleep -Seconds 2
-    $remainingOwned = @(Get-RTWindows | Where-Object { (Get-OwnedHandles) -contains [int64]$_.Handle })
-    # force only PIDs we launched and that still hold a surviving owned window
-    foreach ($w in $remainingOwned) { $own = @($script:Owned | Where-Object { [int64]$_.Hwnd -eq [int64]$w.Handle })[0]; if ($own -and $own.Process -notin @('explorer','ApplicationFrameHost','CalculatorApp')) { Stop-Process -Id $own.Pid -Force -ErrorAction SilentlyContinue } }
-    Start-Sleep -Seconds 1
-    $remainingOwned = @(Get-RTWindows | Where-Object { (Get-OwnedHandles) -contains [int64]$_.Handle })
-    if (Test-Path -LiteralPath $ChromeProfile) { Remove-Item -LiteralPath $ChromeProfile -Recurse -Force }
     Navigate 'Workspaces'
     $texts = @(Get-UiAll (Get-AppRoot) | Where-Object { $_.Current.ControlType -eq [System.Windows.Automation.ControlType]::Text } | ForEach-Object { $_.Current.Name })
     $leftWs = @('RT Work A','RT Work B','RT Layout' | Where-Object { $texts -contains $_ })
     $issues = Compare-UserWindows $user0 (Get-OwnedHandles) $fdPids
-    Log ('Cleanup: remainingOwned=' + $remainingOwned.Count + ' workspacesLeft=' + ($leftWs -join ',') + ' chromeProfile=' + (Test-Path -LiteralPath $ChromeProfile) + ' userIssues=' + $issues.Count)
-    if ($remainingOwned.Count -eq 0 -and $leftWs.Count -eq 0 -and -not (Test-Path -LiteralPath $ChromeProfile)) {
-        Add-Result $step 'PASS' '0 owned windows, 0 RT workspaces, chrome profile removed' ('remainingOwned=0; workspacesLeft=0; user changes=' + $issues.Count) (($issues -join '; '))
+    Close-AllApps
+    Close-FixtureWindows 'cleanup'
+    Start-Sleep -Seconds 2
+    # Force only the exact recorded process instance (PID + StartTime), never a recycled PID.
+    $killPids = @()
+    foreach ($rec in @($script:Owned | Where-Object { $_.Process -in @('notepad','mspaint','chrome') })) {
+        if ($killPids -contains [uint32]$rec.AppPid) { continue }
+        if (Test-RecordedProcess $rec) {
+            Log ('Force-stopping recorded pid=' + $rec.AppPid + ' process=' + $rec.Process + ' start=' + $rec.Start.ToString('HH:mm:ss'))
+            Stop-Process -Id $rec.AppPid -Force -ErrorAction SilentlyContinue
+            $killPids += [uint32]$rec.AppPid
+        } elseif (Get-Process -Id $rec.AppPid -ErrorAction SilentlyContinue) {
+            Log ('WARN not killing pid=' + $rec.AppPid + ': process start no longer matches the recorded instance')
+        }
+    }
+    Start-Sleep -Seconds 1
+    $ownedHandles = @(Get-OwnedHandles)
+    $remainingOwned = @([RT]::WindowsAll() | Where-Object { $ownedHandles -contains [int64]$_.Handle })
+    $flowLeft = Stop-OwnedFlowDesk
+    Start-Sleep -Milliseconds 700
+    $remainingOwned = @([RT]::WindowsAll() | Where-Object { $ownedHandles -contains [int64]$_.Handle })
+    if (Test-Path -LiteralPath $ChromeProfile) { Remove-Item -LiteralPath $ChromeProfile -Recurse -Force }
+    Log ('Cleanup: remainingOwned=' + $remainingOwned.Count + ' workspacesLeft=' + ($leftWs -join ',') + ' chromeProfile=' + (Test-Path -LiteralPath $ChromeProfile) + ' testFlowDeskLeft=' + $flowLeft + ' userIssues=' + $issues.Count)
+    if ($remainingOwned.Count -eq 0 -and $leftWs.Count -eq 0 -and -not (Test-Path -LiteralPath $ChromeProfile) -and $flowLeft -eq 0 -and $issues.Count -eq 0) {
+        Add-Result $step 'PASS' '0 owned windows, 0 RT workspaces, chrome profile removed, test FlowDesk closed, no user window changed' ('remainingOwned=0; workspacesLeft=0; testFlowDeskLeft=0; user changes=0') (($issues -join '; '))
     } else {
-        Add-Result $step 'FAIL' '0 owned windows, 0 RT workspaces, chrome profile removed' ('remainingOwned=' + $remainingOwned.Count + '; workspacesLeft=' + ($leftWs -join ',') + '; profileExists=' + (Test-Path -LiteralPath $ChromeProfile)) (($issues -join '; '))
+        Add-Result $step 'FAIL' '0 owned windows, 0 RT workspaces, chrome profile removed, test FlowDesk closed, no user window changed' ('remainingOwned=' + $remainingOwned.Count + '; workspacesLeft=' + ($leftWs -join ',') + '; profileExists=' + (Test-Path -LiteralPath $ChromeProfile) + '; testFlowDeskLeft=' + $flowLeft + '; user changes=' + $issues.Count) (($issues -join '; '))
         $null = Save-Shot 'step7-cleanup-fail.png'
     }
 } catch {
