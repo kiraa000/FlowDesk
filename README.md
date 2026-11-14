@@ -7,7 +7,7 @@ with one click: it relaunches the apps, files, folders and websites, and moves e
 
 Built with C#, .NET 10 and WinUI 3 (Windows App SDK), unpackaged and self-contained.
 
-Current release: **FlowDesk 1.0.0**.
+Current release: **FlowDesk 1.0.0**. New here? Read [GETTING-STARTED.md](GETTING-STARTED.md) (install, use, develop, release).
 
 ## Features
 
@@ -61,7 +61,7 @@ daily files.
 `tools\Publish.ps1` produces a folder that runs on a PC without .NET or the Windows App SDK installed:
 
 ```powershell
-.\tools\Publish.ps1 -Output builds\FlowDesk-1.0.0-task007-<timestamp>
+.\tools\Publish.ps1 -Output builds\FlowDesk-<version>
 ```
 
 Pass `-Output <folder>` to choose the destination. The folder must be new or empty: the script refuses to write
@@ -77,8 +77,8 @@ on the build machine.
 ```powershell
 .\tools\Build-Installer.ps1 `
     -IsccPath "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
-    -PublishOutput "builds\FlowDesk-1.0.0-task007-<timestamp>" `
-    -InstallerOutput "builds\installer-1.0.0-task007-<timestamp>"
+    -PublishOutput "builds\FlowDesk-<version>" `
+    -InstallerOutput "builds\installer-<version>"
 ```
 
 `-IsccPath` is required and is checked, with a clear error, before anything is published. `-PublishOutput` and
@@ -133,7 +133,6 @@ metadata, passes `/DSourceDir` and `/DOutputDirectory` to ISCC, and expects
 - Browser tabs can't be read. Website items reopen saved links in a new browser window.
 - Windows of apps running as administrator can't be moved unless FlowDesk also runs as administrator.
 - Windows on other virtual desktops aren't captured.
-- Suspended Store apps can't be identified until they've been opened once.
 - FlowDesk never kills processes: focus closes windows politely (like clicking X).
 
 ## Contributing
