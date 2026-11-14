@@ -20,6 +20,7 @@ public class DesktopCaptureFilterTests
     [InlineData(2, 0, false, true)]   // shell cloak + valid index 0 on another desktop
     [InlineData(2, 1, true, false)]   // shell cloak but the window IS on the current desktop
     [InlineData(2, -1, false, false)] // shell cloak + no known desktop
+    [InlineData(-1, 1, false, false)] // unknown sentinel: never assume an uncloaked/local window
     [InlineData(1, 1, false, false)]  // app cloak (not a desktop window)
     [InlineData(4, 1, false, false)]  // inherited cloak
     [InlineData(3, 1, false, false)]  // app + shell: mixed reasons are not trusted

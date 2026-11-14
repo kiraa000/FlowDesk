@@ -98,7 +98,8 @@ public sealed class Win32WindowSystem(IVirtualDesktops? desktops = null) : IWind
         }
         if (GetWindowTextLengthW(h) == 0) return false;
         if (ShellClasses.Contains(ClassOf(h))) return false;
-        if (DwmGetWindowAttribute(h, DWMWA_CLOAKED, out int reason, sizeof(int)) == 0) cloak = reason;
+        if (DwmGetWindowAttribute(h, DWMWA_CLOAKED, out int reason, sizeof(int)) != 0) return false;
+        cloak = reason;
         if (cloak != 0 && (!includeOtherDesktops || cloak != 2)) return false;
         // Current-desktop clients (notably the 750ms focus loop) keep the old cheap DWM-only path.
         // Workspace/all-desktop clients explicitly pay for desktop identity lookup.
@@ -134,7 +135,7 @@ public sealed class Win32WindowSystem(IVirtualDesktops? desktops = null) : IWind
 
         var proc = _processes.Resolve(pid);
         var (rect, show) = NormalRectAndShow(h);
-        int cloak = knownCloak ?? (DwmGetWindowAttribute(h, DWMWA_CLOAKED, out int reason, sizeof(int)) == 0 ? reason : 0);
+        int cloak = knownCloak ?? (DwmGetWindowAttribute(h, DWMWA_CLOAKED, out int reason, sizeof(int)) == 0 ? reason : -1);
         return new WindowInfo
         {
             Handle = h,
@@ -198,7 +199,7 @@ public sealed class Win32WindowSystem(IVirtualDesktops? desktops = null) : IWind
     public PlaceOutcome Place(long handle, PixelRect target, WindowShow show)
     {
         var desktop = WindowDesktopInfo.Read(_desktops, handle);
-        int cloak = DwmGetWindowAttribute((nint)handle, DWMWA_CLOAKED, out int reason, sizeof(int)) == 0 ? reason : 0;
+        int cloak = DwmGetWindowAttribute((nint)handle, DWMWA_CLOAKED, out int reason, sizeof(int)) == 0 ? reason : -1;
         bool canActivate = desktop.IsCurrent == true || (desktop.IsCurrent is null && cloak == 0);
         return WindowPlacer.Place(new NativePlacementApi((nint)handle, canActivate), target, show);
     }

@@ -23,6 +23,7 @@ public sealed record WindowInfo
     public int? DesktopIndex { get; init; }
     public Guid? DesktopId { get; init; }
     public bool? IsOnCurrentDesktop { get; init; }
+    /// <summary>DWM cloak flags; -1 means unavailable. Unknown is not proof of an uncloaked window.</summary>
     public int CloakReason { get; init; }
 
     public string AppKey => AppKeys.For(ExePath, Aumid);

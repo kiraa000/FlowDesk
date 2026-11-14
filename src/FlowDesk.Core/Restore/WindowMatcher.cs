@@ -62,6 +62,13 @@ public static class WindowMatcher
 {
     public const int Threshold = 60;
 
+    /// <summary>A small tie-breaker for same-title instances after restart; never overrides an exact-title advantage.</summary>
+    public static int DesktopPreference(WindowInfo window, SavedWindow? saved)
+    {
+        if (saved?.DesktopId is { } id && id != Guid.Empty && window.DesktopId == id) return 8;
+        return saved?.DesktopIndex is >= 0 && saved.DesktopIndex == window.DesktopIndex ? 4 : 0;
+    }
+
     public static int Score(WindowInfo w, MatchSpec s)
     {
         if (w.Unresolved) return 0;

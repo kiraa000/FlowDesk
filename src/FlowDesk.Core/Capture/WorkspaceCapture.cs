@@ -108,7 +108,8 @@ public sealed class WorkspaceCapture(IWindowSystem windows, SessionTracker track
         // Snapshot/save fallback must use the same ownership preference as restore, or a closed binding
         // can silently adopt another workspace's identical-title window and persist its placement.
         foreach (var (id, w) in WindowMatcher.Assign(missing.Select(i => (i.Id, MatchSpec.For(i))).ToList(), open, claimed,
-            bonus: (_, w) => tracker.IsBoundToOtherWorkspace(ws.Id, w) ? 0 : 1000))
+            bonus: (id, w) => (tracker.IsBoundToOtherWorkspace(ws.Id, w) ? 0 : 1000)
+                + WindowMatcher.DesktopPreference(w, missing.First(i => i.Id == id).Window)))
         {
             live[id] = w;
             if (bindNewMatches) tracker.Bind(ws.Id, id, w);

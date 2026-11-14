@@ -112,7 +112,8 @@ public sealed class WorkspaceRestorer(IWindowSystem windows, IAppLauncher launch
             // Prefer an unowned window even over a better title match owned by another workspace.
             // A positive bonus preserves the threshold for a shared single-instance window fallback.
             foreach (var (id, w) in WindowMatcher.Assign(candidates, open, claimed,
-                bonus: (_, w) => tracker.IsBoundToOtherWorkspace(ws.Id, w) ? 0 : 1000))
+                bonus: (id, w) => (tracker.IsBoundToOtherWorkspace(ws.Id, w) ? 0 : 1000)
+                    + WindowMatcher.DesktopPreference(w, Placement(ws.Items.First(i => i.Id == id)))))
             {
                 matched[id] = w;
                 claimed.Add(w.Handle);
