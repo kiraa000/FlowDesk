@@ -26,6 +26,7 @@ public sealed partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "FlowDesk.ico"));
         App.ViewModels = new(services, new UserInteraction(this, Root));
         notifications = new(a => DispatcherQueue.TryEnqueue(() => a()),
             message => App.ViewModels.ShowStatus(message, StatusKind.Warning), async window =>

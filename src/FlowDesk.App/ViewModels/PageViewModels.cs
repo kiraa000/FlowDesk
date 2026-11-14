@@ -1,6 +1,5 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
-using System.Reflection;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using FlowDesk.App.Services;
@@ -192,8 +191,7 @@ public partial class SettingsViewModel(AppViewModels owner) : ObservableObject
             .Select(binding => $"{binding.Shortcut}  ·  {binding.Label}")
             .ToArray();
     /// <summary>One line for the About card, read from the app assembly.</summary>
-    public string VersionText { get; } =
-        $"FlowDesk {Assembly.GetEntryAssembly()?.GetName().Version?.ToString(3) ?? "1.0.0"}";
+    public string VersionText { get; } = $"FlowDesk {AppVersion.Display}";
     private bool loading;
     internal void Load()
     {
@@ -388,6 +386,24 @@ public partial class SettingsViewModel(AppViewModels owner) : ObservableObject
         catch (Exception ex)
         {
             owner.ShowStatus("The data folder could not be opened. " + ex.Message, StatusKind.Error);
+        }
+    }
+    [RelayCommand]
+    private void OpenLogFolder()
+    {
+        try
+        {
+            Directory.CreateDirectory(CrashLog.DefaultDirectory);
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "explorer.exe",
+                Arguments = $"\"{CrashLog.DefaultDirectory}\"",
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            owner.ShowStatus("The log folder could not be opened. " + ex.Message, StatusKind.Error);
         }
     }
 }

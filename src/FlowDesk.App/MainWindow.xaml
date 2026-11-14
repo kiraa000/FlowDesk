@@ -10,8 +10,7 @@
         </Grid.RowDefinitions>
         <tray:TaskbarIcon x:Name="TrayIcon" ToolTipText="FlowDesk" NoLeftClickDelay="True">
             <tray:TaskbarIcon.IconSource>
-                <tray:GeneratedIconSource Text="&#xE916;" FontFamily="Segoe Fluent Icons"
-                    Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                <BitmapImage UriSource="ms-appx:///Assets/FlowDesk.png" />
             </tray:TaskbarIcon.IconSource>
             <tray:TaskbarIcon.ContextFlyout>
                 <MenuFlyout>
@@ -27,7 +26,7 @@
                 <ColumnDefinition Width="16" />
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
-            <FontIcon Glyph="&#xE8A1;" FontSize="16" />
+            <Image Width="16" Height="16" VerticalAlignment="Center" Source="ms-appx:///Assets/FlowDesk.png" />
             <TextBlock x:Name="TitleText" Grid.Column="1" Text="FlowDesk" VerticalAlignment="Center"
                 Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
         </Grid>

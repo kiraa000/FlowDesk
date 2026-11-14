@@ -7,6 +7,8 @@ with one click: it relaunches the apps, files, folders and websites, and moves e
 
 Built with C#, .NET 10 and WinUI 3 (Windows App SDK), unpackaged and self-contained.
 
+Current release: **FlowDesk 1.0.0**.
+
 ## Features
 
 - **Workspaces:** save what's open now, edit items (apps, files, folders, website links), open a workspace and
@@ -28,6 +30,8 @@ Built with C#, .NET 10 and WinUI 3 (Windows App SDK), unpackaged and self-contai
 - Visual Studio 2022 (workload ".NET desktop development" + Windows App SDK C# templates) **or** Build Tools 2022
   with the Windows 10/11 SDK (10.0.26100 or newer). NuGet restores everything else (Windows App SDK 2.6.5,
   CommunityToolkit, H.NotifyIcon).
+- Only to build the installer: [Inno Setup 6](https://jrsoftware.org/isinfo.php) (`ISCC.exe`). It is not needed to
+  build, publish or run FlowDesk, and the repo does not install or download it.
 
 ## Build, test, run
 
@@ -49,19 +53,64 @@ Or open `FlowDesk.slnx` in Visual Studio, set `FlowDesk.App` as the startup proj
 
 Data is stored in `%LOCALAPPDATA%\FlowDesk\` (`flowdesk.json` for workspaces and focus settings,
 `app-settings.json` for app settings). Settings has an "Open folder" button for it. Delete the folder to start
-fresh.
+fresh. Unhandled errors are logged to `%LOCALAPPDATA%\FlowDesk\logs\flowdesk-YYYYMMDD.log`, keeping the last 7
+daily files.
 
 ## Publish
 
 `tools\Publish.ps1` produces a folder that runs on a PC without .NET or the Windows App SDK installed:
 
 ```powershell
-.\tools\Publish.ps1
+.\tools\Publish.ps1 -Output builds\FlowDesk-1.0.0-task007-<timestamp>
 ```
 
-The output is `builds\FlowDesk-win-x64\` (about 235 MB, around 530 files, including the .NET runtime and Windows
-App SDK); run `FlowDesk.App.exe` from there. Pass `-Output <folder>` to choose another destination. The .NET 10
-SDK is still required on the build machine.
+Pass `-Output <folder>` to choose the destination. The folder must be new or empty: the script refuses to write
+into a folder that already contains files, so an existing build is never overwritten or deleted. It publishes
+self-contained win-x64 with trimming, single-file and ReadyToRun explicitly off, prints the measured file count,
+size and app version, and fails if `VirtualDesktopAccessor.dll` appears in the output. The .NET 10 SDK is required
+on the build machine.
+
+## Build the installer
+
+`tools\Build-Installer.ps1` publishes first, then compiles `installer\FlowDesk.iss` with Inno Setup 6's `ISCC.exe`:
+
+```powershell
+.\tools\Build-Installer.ps1 `
+    -IsccPath "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
+    -PublishOutput "builds\FlowDesk-1.0.0-task007-<timestamp>" `
+    -InstallerOutput "builds\installer-1.0.0-task007-<timestamp>"
+```
+
+`-IsccPath` is required and is checked, with a clear error, before anything is published. `-PublishOutput` and
+`-InstallerOutput` default to `builds\FlowDesk-publish` and `builds\installer`. Both folders must be new or empty;
+the script never overwrites or deletes a build. It reads the version from the published `FlowDesk.App.exe`
+metadata, passes `/DSourceDir` and `/DOutputDirectory` to ISCC, and expects
+`FlowDesk-<version>-win-x64-setup.exe` in the installer folder.
+
+## Install, upgrade, uninstall
+
+- **Install:** run `FlowDesk-<version>-win-x64-setup.exe` (for 1.0.0, `FlowDesk-1.0.0-win-x64-setup.exe`). It is a
+  per-user install with no administrator rights; program files go to `%LOCALAPPDATA%\Programs\FlowDesk`, with a
+  Start menu shortcut and an optional desktop shortcut.
+- **Unsigned build:** neither the app nor the installer is code-signed, so SmartScreen may show "Windows protected
+  your PC". Choose **More info > Run anyway**.
+- **Upgrade:** run the newer installer. Installs share one application identity, so it upgrades in place and keeps
+  your data. It uses Windows Restart Manager to ask a running FlowDesk to close before replacing files; if a Focus
+  session or a busy prompt prevents that, exit FlowDesk from the tray and run the installer again.
+- **Uninstall:** Settings > Apps > Installed apps > FlowDesk (or the Start menu uninstall entry). It removes the
+  program and shortcuts. It does **not** delete `%LOCALAPPDATA%\FlowDesk`, so workspaces, settings and logs are
+  kept; delete that folder yourself for a clean start.
+- **Start with Windows:** the Settings toggle writes one HKCU Run value pointing at the running exe
+  (`Environment.ProcessPath`). Enable it from the installed app so the entry points at
+  `%LOCALAPPDATA%\Programs\FlowDesk\FlowDesk.App.exe`; upgrades then keep the same path. Toggle it off and on again
+  if you move FlowDesk.
+- **Data and logs:** `%LOCALAPPDATA%\FlowDesk\` holds `flowdesk.json`, `app-settings.json` and
+  `logs\flowdesk-YYYYMMDD.log` (unhandled errors; the last 7 daily files are kept). A log line records the timestamp,
+  source, thread, exception types and method names only; it omits exception messages, stack-trace file paths,
+  activation arguments, window titles and the paths of your other apps. Settings > About has "Open log folder".
+  Logging is local only: FlowDesk sends no telemetry.
+- **VirtualDesktopAccessor.dll:** this third-party DLL is not shipped. If you use the virtual-desktop feature,
+  supply it yourself through Settings.
 
 ## Repository layout
 
@@ -72,7 +121,9 @@ SDK is still required on the build machine.
 | `tests/FlowDesk.Core.Tests` | xUnit tests for the core, run against a fake window system (no real windows touched). |
 | `tests/FlowDesk.App.Tests` | Headless xUnit tests for app logic with no WinUI dependency (the tour state machine). |
 | `tools/FlowDesk.Probe` | Console harness that runs the core on the real desktop (`list`, `capture`, `restore`, `layout`, `focus`). |
-| `tools/Publish.ps1` | Builds the self-contained win-x64 release folder. |
+| `tools/Publish.ps1` | Builds the self-contained win-x64 release folder; refuses to overwrite an existing build. |
+| `tools/Build-Installer.ps1` | Publishes, then compiles the installer with Inno Setup 6 (`ISCC.exe`). |
+| `installer/FlowDesk.iss` | Inno Setup 6 script: per-user install, no administrator rights. |
 | `tools/*.ps1` | Desktop smoke and screenshot scripts used during development. |
 | `docs/ARCHITECTURE.md` | Architecture, core API and screen-by-screen design spec. **Start here.** |
 | `docs/UI-CRAFT.md` | UI rules every screen follows (Fluent / Windows 11). |

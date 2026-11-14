@@ -68,7 +68,9 @@
                 Description="Workspaces, focus sessions and app settings.">
                 <Button Content="Open folder" Command="{Binding OpenDataFolderCommand}" MinHeight="32" />
             </settings:SettingsCard>
-            <settings:SettingsCard Header="About" Description="{Binding VersionText}" />
+            <settings:SettingsCard Header="About" Description="{Binding VersionText}">
+                <Button Content="Open log folder" Command="{Binding OpenLogFolderCommand}" MinHeight="32" />
+            </settings:SettingsCard>
         </StackPanel>
     </ScrollViewer>
 </Page>
