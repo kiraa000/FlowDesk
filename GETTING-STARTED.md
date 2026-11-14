@@ -17,7 +17,7 @@ close distracting apps.
 ### 1.2 Install
 
 1. Open the [Releases page](https://github.com/kiraa000/FlowDesk/releases) and download
-   `FlowDesk-1.0.0-win-x64-setup.exe` from the newest release.
+   `FlowDesk-1.1.0-win-x64-setup.exe` from the newest release.
 2. Run it. You do **not** need administrator rights.
 3. Windows may show **"Windows protected your PC"** (SmartScreen). This is normal: the app is not code-signed.
    Click **More info**, then **Run anyway**.
