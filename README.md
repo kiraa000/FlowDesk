@@ -7,12 +7,13 @@ with one click: it relaunches the apps, files, folders and websites, and moves e
 
 Built with C#, .NET 10 and WinUI 3 (Windows App SDK), unpackaged and self-contained.
 
-Current release: **FlowDesk 1.0.0**. New here? Read [GETTING-STARTED.md](GETTING-STARTED.md) (install, use, develop, release).
+Current version: **FlowDesk 1.0.1**. New here? Read [GETTING-STARTED.md](GETTING-STARTED.md) (install, use, develop, release).
 
 ## Features
 
-- **Workspaces:** save what's open now, edit items (apps, files, folders, website links), open a workspace and
-  watch each window come back into place. Switching A -> B -> A returns A exactly as you left it.
+- **Workspaces:** save what's open now, including windows on other virtual desktops and the desktop each one
+  is on, edit items (apps, files, folders, website links), open a workspace and watch each window come back
+  into place. Switching A -> B -> A returns A exactly as you left it.
 - **Layouts:** two columns, primary + sidebar, grid or cascade on any monitor, then save the result as the
   workspace's positions.
 - **Focus:** 25 / 50 / 90 minute sessions with blocked and allowed apps. Gentle (reminder), Normal (closes the
@@ -109,9 +110,11 @@ metadata, passes `/DSourceDir` and `/DOutputDirectory` to ISCC, and expects
   source, thread, exception types and method names only; it omits exception messages, stack-trace file paths,
   activation arguments, window titles and the paths of your other apps. Settings > About has "Open log folder".
   Logging is local only: FlowDesk sends no telemetry.
-- **VirtualDesktopAccessor.dll:** bundled (MIT, see `third_party/VirtualDesktopAccessor`) for the virtual-desktop
-  shortcuts. It needs Windows 11 24H2 or newer; on other versions choose a matching build in Settings > Window
-  shortcuts > Choose file... (your file takes precedence over the bundled one).
+- **VirtualDesktopAccessor.dll:** bundled (MIT, see `third_party/VirtualDesktopAccessor`) and used for
+  workspace desktop capture/restore even when the window shortcuts are off. It needs Windows 11 24H2 or newer;
+  on other versions choose a matching build in Settings > Window shortcuts > Choose file... (your file takes
+  precedence over the bundled one). Without a working DLL, Windows' public COM fallback can still list known
+  windows on other desktops but cannot move them, and the restore report says so per item.
 
 ## Repository layout
 
@@ -133,7 +136,9 @@ metadata, passes `/DSourceDir` and `/DOutputDirectory` to ISCC, and expects
 
 - Browser tabs can't be read. Website items reopen saved links in a new browser window.
 - Windows of apps running as administrator can't be moved unless FlowDesk also runs as administrator.
-- Windows on other virtual desktops aren't captured.
+- Workspaces capture windows on all virtual desktops and return each to its saved desktop when the desktop
+  backend can move windows; without it, the read-only Windows fallback can see known other desktops but cannot
+  move windows there. Layouts and focus stay on the current desktop.
 - FlowDesk never kills processes: focus closes windows politely (like clicking X).
 
 ## Contributing

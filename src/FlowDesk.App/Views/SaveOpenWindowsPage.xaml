@@ -11,8 +11,9 @@
             <TextBlock Text="Browser tabs cannot be read. Add links to reopen them in a new browser window."
                 TextWrapping="Wrap" Style="{StaticResource BodyTextBlockStyle}"
                 Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-            <TextBlock Text="Windows on other virtual desktops are not listed."
-                Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            <TextBlock Text="Windows from all desktops are listed. Each window's desktop is saved when Windows can identify it."
+                TextWrapping="Wrap" Style="{StaticResource CaptionTextBlockStyle}"
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
             <TextBox Header="Workspace name" MaxLength="120" Text="{Binding Name, Mode=TwoWay,
                 UpdateSourceTrigger=PropertyChanged}" />
             <StackPanel Orientation="Horizontal" Spacing="8">

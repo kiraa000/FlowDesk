@@ -109,7 +109,10 @@ public partial class SaveOpenWindowsViewModel(AppViewModels owner) : ObservableO
         try
         {
             var captured = await Task.Run(() => owner.Services.Capture.CaptureOpenWindows());
-            Candidates.Clear(); foreach (var candidate in captured) Candidates.Add(new(candidate));
+            Candidates.Clear();
+            // Current desktop first, then each desktop in order; stable inside a desktop.
+            foreach (var candidate in captured.OrderBy(c => DesktopLabels.SortKey(c.Window)))
+                Candidates.Add(new(candidate));
         }
         finally { IsLoading = false; }
     });
@@ -157,10 +160,11 @@ public partial class CandidateViewModel : ObservableObject
     /// <summary>
     /// The single secondary line of a compact row: why it cannot be picked, else the window title,
     /// else its position. A title that merely repeats the name is not shown (it would be noise).
+    /// The virtual desktop leads the line when the backend can tell, so it reads at a glance.
     /// </summary>
-    public string Secondary => HasProblem ? Problem
+    public string Secondary => HasProblem ? DesktopLabels.Prefix(Source.Window, Problem)
         : !string.IsNullOrWhiteSpace(Title) && !string.Equals(Title.Trim(), Name.Trim(), StringComparison.OrdinalIgnoreCase)
-            ? Title : Position;
+            ? DesktopLabels.Prefix(Source.Window, Title.Trim()) : Position;
     public bool IsBrowser => Source.IsBrowser;
     public string ExePath => Source.Window.ExePath;
     /// <summary>Stable id for the trusted real-app script: selects this exact window, not a same-name twin.</summary>

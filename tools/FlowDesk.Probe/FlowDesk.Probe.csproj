@@ -8,4 +8,12 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\FlowDesk.Core\FlowDesk.Core.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- Same bundled third-party (MIT) DLL as the app, so Probe desktop commands use the shipped build
+         unless a user-chosen copy takes precedence. Source and licence: third_party\VirtualDesktopAccessor. -->
+    <Content Include="..\..\third_party\VirtualDesktopAccessor\VirtualDesktopAccessor.dll" Link="VirtualDesktopAccessor.dll"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\third_party\VirtualDesktopAccessor\LICENSE.txt" Link="ThirdPartyLicenses\VirtualDesktopAccessor-LICENSE.txt"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

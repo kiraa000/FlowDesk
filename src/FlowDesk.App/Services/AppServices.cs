@@ -1,6 +1,7 @@
 using System.Text.Json;
 using CommunityToolkit.Mvvm.ComponentModel;
 using FlowDesk.Core.Capture;
+using FlowDesk.Core.Desktops;
 using FlowDesk.Core.Focus;
 using FlowDesk.Core.Layout;
 using FlowDesk.Core.Restore;
@@ -10,9 +11,12 @@ using FlowDesk.Core.Windows;
 namespace FlowDesk.App.Services;
 
 // UI owns mutable state. Save workers receive immutable snapshots; a single writer orders writes.
-public sealed class AppServices : ObservableObject
+public sealed class AppServices : ObservableObject, IDisposable
 {
-    public Win32WindowSystem Windows { get; } = new();
+    // One desktop backend for the whole app: capture/restore and the optional window shortcuts borrow it.
+    // Its DLL stays unloaded until LoadAsync reloads it, so startup never depends on the backend.
+    public VirtualDesktopService Desktops { get; } = new();
+    public Win32WindowSystem Windows { get; }
     public SessionTracker Tracker { get; } = new();
     public WorkspaceCapture Capture { get; }
     public WorkspaceRestorer Restorer { get; }
@@ -30,14 +34,27 @@ public sealed class AppServices : ObservableObject
     private Task<bool> pending = Task.FromResult(true);
     public bool LastSaveSucceeded { get; private set; } = true;
     private string SettingsPath => Path.Combine(Store.Folder, "app-settings.json");
+    private bool disposed;
 
     public AppServices()
     {
-        Hotkeys = new(Store.Folder);
+        Windows = new(Desktops);
+        Hotkeys = new(Store.Folder, Desktops);
         Capture = new(Windows, Tracker);
-        Restorer = new(Windows, new ShellLauncher(), Tracker);
+        Restorer = new(Windows, new ShellLauncher(), Tracker, desktops: Desktops);
         Switcher = new(Windows, Tracker, Capture, Restorer);
         Layouts = new(Windows); Focus = new(Windows);
+    }
+
+    /// <summary>Loads the desktop backend off the UI thread before anything captures or restores windows.</summary>
+    private Task ReloadDesktopsAsync() => Task.Run(() => Desktops.Reload(AppContext.BaseDirectory, Store.Folder));
+
+    /// <summary>The window (and the app) owns the desktop backend; the borrowed shortcuts service does not.</summary>
+    public void Dispose()
+    {
+        if (disposed) return;
+        disposed = true;
+        Desktops.Dispose();
     }
     public async Task LoadAsync()
     {
@@ -57,6 +74,9 @@ public sealed class AppServices : ObservableObject
             return (data, settings, warning);
         });
         Data = loaded.data; Settings = loaded.settings; RecoveryMessage = loaded.warning;
+        // Load the shared backend before the first capture/restore. A missing or older DLL is not an
+        // error: the service stays available for status text and capture falls back to the COM read.
+        await ReloadDesktopsAsync();
     }
     public void Changed(bool immediate = false)
     {

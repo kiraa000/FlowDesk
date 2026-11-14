@@ -75,7 +75,7 @@ public partial class AppViewModels : ObservableObject
         var outcome = await StartupResume.TryResumeAsync(
             Services.Settings.ActiveWorkspaceId,
             FindWorkspace,
-            () => Task.Run(() => (IReadOnlyList<long>)Services.Windows.GetAppWindows().Select(w => w.Handle).ToArray()),
+            () => Task.Run(() => (IReadOnlyList<long>)Services.Windows.GetAllAppWindows().Select(w => w.Handle).ToArray()),
             Services.Settings.IsAutosaveEnabled,
             Services.Settings.AlwaysAddsNewWindows,
             id => Services.Switcher.MarkActive(id),
@@ -177,7 +177,7 @@ public partial class AppViewModels : ObservableObject
     {
         try
         {
-            var baseline = await Task.Run(() => Services.Windows.GetAppWindows().Select(w => w.Handle).ToArray());
+            var baseline = await Task.Run(() => Services.Windows.GetAllAppWindows().Select(w => w.Handle).ToArray());
             if (activeWorkspace?.Model.Id != workspaceId) return;
             if (IsBusy) return; // resume applies it with preserved state; disabled watchers may be suspended
             if (AutoSave.Coordinator.Generation != generation) return; // a switch/reopen owns the epoch now
@@ -265,7 +265,7 @@ public partial class AppViewModels : ObservableObject
 
         try
         {
-            var baseline = await Task.Run(() => Services.Windows.GetAppWindows().Select(w => w.Handle).ToArray());
+            var baseline = await Task.Run(() => Services.Windows.GetAllAppWindows().Select(w => w.Handle).ToArray());
             activeWorkspace = workspace;
             lastAutoSaveError = null;
             ActivateAutoSave(workspace.Model.Id, baseline,
@@ -319,7 +319,7 @@ public partial class AppViewModels : ObservableObject
 
             // Baseline is taken after the restore finishes: restored windows (including browser extras) are
             // never offered as "new", while anything the user opens next is.
-            var baseline = await Task.Run(() => Services.Windows.GetAppWindows().Select(w => w.Handle).ToArray());
+            var baseline = await Task.Run(() => Services.Windows.GetAllAppWindows().Select(w => w.Handle).ToArray());
             activeWorkspace = workspace;
             lastAutoSaveError = null;
             ActivateAutoSave(workspace.Model.Id, baseline,

@@ -23,12 +23,14 @@ internal sealed class FakeWindowSystem : IWindowSystem
 
     private long _next = 100;
 
-    public WindowInfo Add(string exe, string title, string cls = "Win", WindowShow show = WindowShow.Normal, string? aumid = null, int pid = 0, string? args = null)
+    public WindowInfo Add(string exe, string title, string cls = "Win", WindowShow show = WindowShow.Normal, string? aumid = null, int pid = 0, string? args = null,
+        int? desktopIndex = null, Guid? desktopId = null, bool? isOnCurrentDesktop = null, int cloakReason = 0)
     {
         var w = new WindowInfo
         {
             Handle = _next++, ProcessId = pid == 0 ? (int)_next + 1000 : pid, ExePath = exe, Aumid = aumid, Arguments = args, Title = title,
             ClassName = cls, NormalRect = new(10, 10, 800, 600), Show = show, MonitorDevice = Monitors[0].Device,
+            DesktopIndex = desktopIndex, DesktopId = desktopId, IsOnCurrentDesktop = isOnCurrentDesktop, CloakReason = cloakReason,
         };
         Windows.Add(w);
         return w;
@@ -37,7 +39,11 @@ internal sealed class FakeWindowSystem : IWindowSystem
     /// <summary>Removes a window as if the app had closed it (keeps the handle counter moving).</summary>
     public void CloseWindow(long handle) => Windows.RemoveAll(w => w.Handle == handle);
 
-    public IReadOnlyList<WindowInfo> GetAppWindows() => Windows.ToList();
+    /// <summary>All app windows, including other virtual desktops (unknown desktop = current).</summary>
+    public IReadOnlyList<WindowInfo> GetAllAppWindows() => Windows.ToList();
+
+    /// <summary>Current virtual desktop only, like the real Alt-Tab list.</summary>
+    public IReadOnlyList<WindowInfo> GetAppWindows() => Windows.Where(w => w.IsOnCurrentDesktop != false).ToList();
     public WindowInfo? Get(long handle) => Windows.FirstOrDefault(w => w.Handle == handle);
     public bool IsAlive(long handle) => Windows.Any(w => w.Handle == handle);
     public IReadOnlyList<MonitorInfo> GetMonitors() => Monitors;

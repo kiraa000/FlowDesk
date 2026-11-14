@@ -20,6 +20,10 @@ public sealed record WindowInfo
     public string MonitorDevice { get; init; } = "";
     /// <summary>True for a UWP frame whose app could not be identified (app suspended).</summary>
     public bool Unresolved { get; init; }
+    public int? DesktopIndex { get; init; }
+    public Guid? DesktopId { get; init; }
+    public bool? IsOnCurrentDesktop { get; init; }
+    public int CloakReason { get; init; }
 
     public string AppKey => AppKeys.For(ExePath, Aumid);
     public string ExeName => AppKeys.ExeName(ExePath);
@@ -37,6 +41,8 @@ public interface IWindowSystem
 {
     /// <summary>Alt-Tab-style app windows on the current virtual desktop, front to back.</summary>
     IReadOnlyList<WindowInfo> GetAppWindows();
+    /// <summary>Capturable windows on all desktops; legacy fake/backends can retain current-only behavior.</summary>
+    IReadOnlyList<WindowInfo> GetAllAppWindows() => GetAppWindows();
     WindowInfo? Get(long handle);
     bool IsAlive(long handle);
     IReadOnlyList<MonitorInfo> GetMonitors();

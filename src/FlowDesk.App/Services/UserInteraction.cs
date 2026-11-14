@@ -75,7 +75,9 @@ public sealed class UserInteraction(Window window, FrameworkElement root) : IUse
             row.Children.Add(icon);
             var text = Ui.Stack();
             text.Children.Add(Ui.Text(candidate.Item.Name, "BodyStrongTextBlockStyle"));
-            text.Children.Add(Ui.Text(candidate.Window.ExeName + ".exe", secondary: true));
+            string exe = candidate.Window.ExeName + ".exe";
+            string desktop = DesktopLabels.For(candidate.Window);
+            text.Children.Add(Ui.Text(desktop.Length == 0 ? exe : $"{exe} · {desktop}", secondary: true));
             row.Children.Add(text); list.Items.Add(row);
         }
         var dialog = Dialog("Pick a running app", list, "Add app");

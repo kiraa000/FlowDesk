@@ -10,6 +10,8 @@ internal interface IWindowPlacementApi
     bool IsHung { get; }
     bool IsMinimized { get; }
     bool IsMaximized { get; }
+    /// <summary>False for a known background desktop; activating show commands must not be issued.</summary>
+    bool CanActivate => true;
     bool IsOnTargetMonitor(PixelRect target);
     uint Dpi { get; }
     bool SetRect(PixelRect target, bool asynchronous = false);
@@ -35,8 +37,16 @@ internal static class WindowPlacer
         // SW_SHOWNOACTIVATE normally restores to normal without stealing focus. Some hosted windows
         // can ignore the request; use the explicit restore only if the window remains iconic.
         if (min || max) api.Show(SW_SHOWNOACTIVATE);
-        if (api.IsMinimized) api.Show(SW_RESTORE);
-        if (api.IsMaximized) api.Show(SW_SHOWNORMAL);
+        if (api.IsMinimized)
+        {
+            if (!api.CanActivate) return PlaceAsynchronously(api, target, show);
+            api.Show(SW_RESTORE);
+        }
+        if (api.IsMaximized)
+        {
+            if (!api.CanActivate) return PlaceAsynchronously(api, target, show);
+            api.Show(SW_SHOWNORMAL);
+        }
         // Hosted/suspended frames may not apply a synchronous show request immediately. Do not
         // report success after merely changing the restore rect while the frame is still iconic.
         if (show != WindowShow.Minimized && api.IsMinimized)
@@ -51,7 +61,9 @@ internal static class WindowPlacer
         }
         switch (show)
         {
-            case WindowShow.Maximized: api.Show(SW_SHOWMAXIMIZED); break;
+            case WindowShow.Maximized:
+                if (!api.CanActivate) return PlaceOutcome.Failed;
+                api.Show(SW_SHOWMAXIMIZED); break;
             case WindowShow.Minimized: api.Show(SW_SHOWMINNOACTIVE); break;
         }
         return PlaceOutcome.Ok;
@@ -83,11 +95,14 @@ internal static class WindowPlacer
 
     // A queued rectangle update must not activate a window already in the requested state.
     // Explicit restoring/maximizing is reserved for a real state/monitor transition.
-    internal static int AsyncShowCommand(WindowShow requested, bool minimized, bool maximized, bool onTargetMonitor) => requested switch
+    internal static int AsyncShowCommand(WindowShow requested, bool minimized, bool maximized, bool onTargetMonitor,
+        bool canActivate = true) => requested switch
     {
         WindowShow.Minimized => SW_SHOWMINNOACTIVE,
+        WindowShow.Maximized when !canActivate => SW_SHOWNA,
         WindowShow.Maximized when !minimized && maximized && onTargetMonitor => SW_SHOWNA,
         WindowShow.Maximized => SW_SHOWMAXIMIZED,
+        _ when !canActivate => SW_SHOWNOACTIVATE,
         _ when !minimized && !maximized => SW_SHOWNOACTIVATE,
         _ => SW_RESTORE,
     };

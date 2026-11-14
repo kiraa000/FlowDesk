@@ -58,7 +58,7 @@ public sealed partial class MainWindow : Window
         TrayExit.Command = new CommunityToolkit.Mvvm.Input.AsyncRelayCommand(ExitFromTrayAsync);
         focusTimer.Tick += async (_, _) => await UpdateFocusAsync();
         autosaveTimer.Tick += (_, _) => App.ViewModels.RefreshAutoSaveAge();
-        Closed += (_, _) => { focusTimer.Stop(); autosaveTimer.Stop(); notifications.Dispose(); TrayIcon.Dispose(); services.Hotkeys.Dispose(); };
+        Closed += (_, _) => { focusTimer.Stop(); autosaveTimer.Stop(); notifications.Dispose(); TrayIcon.Dispose(); services.Hotkeys.Dispose(); services.Dispose(); };
         Root.DataContext = App.ViewModels;
         App.ViewModels.NavigationRequested += Navigate;
         App.ViewModels.ThemeChanged += ApplyTheme;

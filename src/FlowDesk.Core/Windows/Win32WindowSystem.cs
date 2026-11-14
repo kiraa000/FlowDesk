@@ -1,6 +1,8 @@
 using System.Runtime.InteropServices;
 using System.Text;
 using FlowDesk.Core.Model;
+using FlowDesk.Core.Desktops;
+using FlowDesk.Core.Capture;
 using static FlowDesk.Core.Interop.Native;
 
 namespace FlowDesk.Core.Windows;
@@ -10,8 +12,9 @@ namespace FlowDesk.Core.Windows;
 /// (WinUI 3 apps are by default; the probe tool calls <see cref="EnsurePerMonitorDpiAwareness"/>),
 /// otherwise every rectangle here is virtualised and restores land in the wrong place.
 /// </summary>
-public sealed class Win32WindowSystem : IWindowSystem
+public sealed class Win32WindowSystem(IVirtualDesktops? desktops = null) : IWindowSystem
 {
+    private readonly IVirtualDesktops _desktops = desktops ?? VirtualDesktopService.ReadOnly;
     private static readonly HashSet<string> ShellClasses = new(StringComparer.Ordinal)
     {
         "Progman", "WorkerW", "Shell_TrayWnd", "Shell_SecondaryTrayWnd",
@@ -23,28 +26,43 @@ public sealed class Win32WindowSystem : IWindowSystem
     // Frame handle -> app process last seen inside it (frames keep their handle while the app is suspended).
     private readonly System.Collections.Concurrent.ConcurrentDictionary<nint, int> _frameApps = new();
 
-    private int DetachedCoreWindowPid(nint frame, int framePid)
+    private int DetachedCoreWindowPid(nint frame, int framePid, WindowDesktopInfo? frameDesktop)
     {
         string title = TitleOf(frame);
         if (title.Length == 0) return 0;
         _frameApps.TryGetValue(frame, out int known);
-        int first = 0;
+        var candidates = new List<int>();
         for (nint c = FindWindowExW(0, 0, "Windows.UI.Core.CoreWindow", title); c != 0;
              c = FindWindowExW(0, c, "Windows.UI.Core.CoreWindow", title))
         {
             GetWindowThreadProcessId(c, out uint cp);
             if (cp == 0 || cp == framePid) continue;
             if (known != 0 && cp == known) return known; // same app as before: unambiguous
-            if (first == 0) first = (int)cp;
+            // A fresh all-desktop capture can see several same-title suspended apps. Do not infer
+            // their content PID from a positively different desktop; preserve the existing cache
+            // preference (also while shell metadata is settling after a move).
+            if (frameDesktop is { HasIdentity: true } desktop && desktop.ConflictsWith(WindowDesktopInfo.Read(_desktops, c))) continue;
+            candidates.Add((int)cp);
         }
-        return first;
+        return SelectDetachedProcess(known, candidates);
+    }
+
+    // Multiple same-title suspended apps are common once every desktop is enumerated. Unknown
+    // desktop metadata must not let the first z-order candidate masquerade as another frame's app.
+    internal static int SelectDetachedProcess(int known, IEnumerable<int> candidates)
+    {
+        var distinct = candidates.Where(pid => pid > 0).ToHashSet();
+        return known > 0 && distinct.Contains(known) ? known : distinct.Count == 1 ? distinct.First() : 0;
     }
 
     public int OwnProcessId { get; } = Environment.ProcessId;
 
     public static void EnsurePerMonitorDpiAwareness() => SetProcessDpiAwarenessContext(-4); // PER_MONITOR_AWARE_V2
 
-    public IReadOnlyList<WindowInfo> GetAppWindows()
+    public IReadOnlyList<WindowInfo> GetAppWindows() => EnumerateAppWindows(includeOtherDesktops: false);
+    public IReadOnlyList<WindowInfo> GetAllAppWindows() => EnumerateAppWindows(includeOtherDesktops: true);
+
+    private IReadOnlyList<WindowInfo> EnumerateAppWindows(bool includeOtherDesktops)
     {
         var handles = new List<nint>();
         EnumWindows((h, _) => { handles.Add(h); return true; }, 0); // z-order, front to back
@@ -52,8 +70,8 @@ public sealed class Win32WindowSystem : IWindowSystem
         var result = new List<WindowInfo>(handles.Count / 4);
         foreach (var h in handles)
         {
-            if (h == shell || !IsAppWindow(h)) continue;
-            var info = Describe(h);
+            if (h == shell || !IsAppWindow(h, includeOtherDesktops, out var desktop, out int cloak)) continue;
+            var info = Describe(h, desktop, cloak);
             if (info is not null) result.Add(info);
         }
         return result;
@@ -63,11 +81,14 @@ public sealed class Win32WindowSystem : IWindowSystem
 
     public bool IsAlive(long handle) => IsWindow((nint)handle);
 
-    /// <summary>Alt-Tab rules: visible, not cloaked, unowned (or app-window styled), not a tool window, has a title.</summary>
-    private static bool IsAppWindow(nint h)
+    /// <summary>Alt-Tab rules, with only positively identified other-desktop shell cloaks admitted.</summary>
+    private bool IsAppWindow(nint h, bool includeOtherDesktops, out WindowDesktopInfo desktop, out int cloak)
     {
+        desktop = default;
+        cloak = 0;
         if (!IsWindowVisible(h)) return false;
         long ex = GetWindowLongPtr(h, GWL_EXSTYLE);
+        if ((ex & WS_EX_TOOLWINDOW) != 0) return false;
         bool appWindow = (ex & WS_EX_APPWINDOW) != 0;
         if (!appWindow)
         {
@@ -75,18 +96,24 @@ public sealed class Win32WindowSystem : IWindowSystem
             nint owner = GetWindow(h, GW_OWNER);
             if (owner != 0 && IsWindowVisible(owner)) return false;
         }
-        if (DwmGetWindowAttribute(h, DWMWA_CLOAKED, out int cloaked, sizeof(int)) == 0 && cloaked != 0) return false;
         if (GetWindowTextLengthW(h) == 0) return false;
-        return !ShellClasses.Contains(ClassOf(h));
+        if (ShellClasses.Contains(ClassOf(h))) return false;
+        if (DwmGetWindowAttribute(h, DWMWA_CLOAKED, out int reason, sizeof(int)) == 0) cloak = reason;
+        if (cloak != 0 && (!includeOtherDesktops || cloak != 2)) return false;
+        // Current-desktop clients (notably the 750ms focus loop) keep the old cheap DWM-only path.
+        // Workspace/all-desktop clients explicitly pay for desktop identity lookup.
+        if (includeOtherDesktops) desktop = WindowDesktopInfo.Read(_desktops, h);
+        return DesktopCaptureFilter.AllowCloaked(cloak, desktop, includeOtherDesktops);
     }
 
-    private WindowInfo? Describe(nint h)
+    private WindowInfo? Describe(nint h, WindowDesktopInfo? knownDesktop = null, int? knownCloak = null)
     {
         GetWindowThreadProcessId(h, out uint rawPid);
         if (rawPid == 0) return null;
         int pid = (int)rawPid;
         string cls = ClassOf(h);
         bool unresolved = false;
+        var desktop = knownDesktop ?? WindowDesktopInfo.Read(_desktops, h);
 
         if (cls == "ApplicationFrameWindow")
         {
@@ -101,12 +128,13 @@ public sealed class Win32WindowSystem : IWindowSystem
             // A minimized (suspended) UWP app detaches its CoreWindow from the frame and makes it a top-level
             // window with the same title. Without this the frame looks like ApplicationFrameHost itself, can't be
             // matched, and switching back starts the app again while its old window stays minimized.
-            if (appPid == 0) appPid = DetachedCoreWindowPid(h, framePid);
+            if (appPid == 0) appPid = DetachedCoreWindowPid(h, framePid, desktop);
             if (appPid != 0) { pid = appPid; _frameApps[h] = appPid; } else unresolved = true;
         }
 
         var proc = _processes.Resolve(pid);
         var (rect, show) = NormalRectAndShow(h);
+        int cloak = knownCloak ?? (DwmGetWindowAttribute(h, DWMWA_CLOAKED, out int reason, sizeof(int)) == 0 ? reason : 0);
         return new WindowInfo
         {
             Handle = h,
@@ -120,6 +148,7 @@ public sealed class Win32WindowSystem : IWindowSystem
             Show = show,
             MonitorDevice = MonitorOf(h)?.szDevice ?? "",
             Unresolved = unresolved,
+            DesktopIndex = desktop.Index, DesktopId = desktop.Id, IsOnCurrentDesktop = desktop.IsCurrent, CloakReason = cloak,
         };
     }
 
@@ -167,15 +196,21 @@ public sealed class Win32WindowSystem : IWindowSystem
     }
 
     public PlaceOutcome Place(long handle, PixelRect target, WindowShow show)
-        => WindowPlacer.Place(new NativePlacementApi((nint)handle), target, show);
+    {
+        var desktop = WindowDesktopInfo.Read(_desktops, handle);
+        int cloak = DwmGetWindowAttribute((nint)handle, DWMWA_CLOAKED, out int reason, sizeof(int)) == 0 ? reason : 0;
+        bool canActivate = desktop.IsCurrent == true || (desktop.IsCurrent is null && cloak == 0);
+        return WindowPlacer.Place(new NativePlacementApi((nint)handle, canActivate), target, show);
+    }
 
-    private sealed class NativePlacementApi(nint h) : IWindowPlacementApi
+    private sealed class NativePlacementApi(nint h, bool canActivate) : IWindowPlacementApi
     {
         public bool IsWindow => NativeIsWindow(h);
         private static bool NativeIsWindow(nint handle) => Interop.Native.IsWindow(handle);
         public bool IsHung => IsHungAppWindow(h);
         public bool IsMinimized => IsIconic(h);
         public bool IsMaximized => IsZoomed(h);
+        public bool CanActivate => canActivate;
         public uint Dpi => GetDpiForWindow(h);
         public int LastError => Marshal.GetLastWin32Error();
         public bool IsOnTargetMonitor(PixelRect target)
@@ -188,6 +223,8 @@ public sealed class Win32WindowSystem : IWindowSystem
                 SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER | (asynchronous ? SWP_ASYNCWINDOWPOS : 0));
         public bool SetPlacementAsync(PixelRect target, WindowShow show)
         {
+            if (!canActivate && show == WindowShow.Maximized && (!IsZoomed(h) || !IsOnTargetMonitor(target)))
+            { Marshal.SetLastPInvokeError(0); return false; }
             var wp = new WINDOWPLACEMENT { length = Marshal.SizeOf<WINDOWPLACEMENT>() };
             if (!GetWindowPlacement(h, ref wp)) return false;
             var r = new RECT { Left = target.X, Top = target.Y, Right = target.Right, Bottom = target.Bottom };
@@ -199,7 +236,7 @@ public sealed class Win32WindowSystem : IWindowSystem
                 PixelRect.FromLtrb(mi.rcWork.Left, mi.rcWork.Top, mi.rcWork.Right, mi.rcWork.Bottom),
                 (GetWindowLongPtr(h, GWL_EXSTYLE) & WS_EX_TOOLWINDOW) != 0);
             wp.flags = 0x0004; // WPF_ASYNCWINDOWPLACEMENT; clear stale RESTORETOMAXIMIZED/min-position flags
-            wp.showCmd = WindowPlacer.AsyncShowCommand(show, IsIconic(h), IsZoomed(h), IsOnTargetMonitor(target));
+            wp.showCmd = WindowPlacer.AsyncShowCommand(show, IsIconic(h), IsZoomed(h), IsOnTargetMonitor(target), canActivate);
             wp.rcNormalPosition = new RECT { Left = normal.X, Top = normal.Y, Right = normal.Right, Bottom = normal.Bottom };
             return SetWindowPlacement(h, ref wp);
         }

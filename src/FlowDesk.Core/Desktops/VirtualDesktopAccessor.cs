@@ -5,7 +5,7 @@ namespace FlowDesk.Core.Desktops;
 
 /// <summary>
 /// <see cref="IVirtualDesktops"/> backed by VirtualDesktopAccessor.dll (MIT, github.com/Ciantic/VirtualDesktopAccessor,
-/// the Rust build for Windows 11 24H2+). FlowDesk does not ship the DLL; it is loaded from
+/// the Rust build for Windows 11 24H2+). The bundled DLL or a user-selected override is loaded from
 /// <see cref="CandidatePaths"/>. All calls run on one private STA thread (the DLL uses COM and the
 /// explorer-side objects are apartment bound) and each call waits at most <see cref="CallTimeout"/>,
 /// so a hung explorer cannot freeze the caller (the hotkey worker).
@@ -22,6 +22,7 @@ public sealed unsafe class VirtualDesktopAccessor : IVirtualDesktops
     private readonly delegate* unmanaged<nint, int, int> _moveWindow;
     private readonly delegate* unmanaged<nint, int> _isOnCurrent;
     private readonly delegate* unmanaged<int> _create; // optional: older DLL builds lack it
+    private readonly delegate* unmanaged<nint, int> _windowDesktop; // optional in older builds
 
     private readonly BlockingCollection<Action>? _queue;
     private readonly Thread? _thread;
@@ -75,6 +76,7 @@ public sealed unsafe class VirtualDesktopAccessor : IVirtualDesktops
         _moveWindow = (delegate* unmanaged<nint, int, int>)move;
         _isOnCurrent = (delegate* unmanaged<nint, int>)onCurrent;
         _create = (delegate* unmanaged<int>)Export("CreateDesktop");
+        _windowDesktop = (delegate* unmanaged<nint, int>)Export("GetWindowDesktopNumber");
 
         _queue = new BlockingCollection<Action>();
         _thread = new Thread(Pump) { IsBackground = true, Name = "FlowDesk virtual desktops" };
@@ -111,6 +113,9 @@ public sealed unsafe class VirtualDesktopAccessor : IVirtualDesktops
         if (handle == 0 || !Call(() => _isOnCurrent((nint)handle), out int r) || r == -1) return null;
         return r == 1;
     }
+
+    public int? GetWindowDesktopNumber(long handle) => _windowDesktop != null && handle != 0
+        && Call(() => _windowDesktop((nint)handle), out int n) && n >= 0 ? n : null;
 
     public int? Create()
     {

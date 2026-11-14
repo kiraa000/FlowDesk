@@ -8,13 +8,16 @@ namespace FlowDesk.App.Services;
 /// <see cref="HotkeyHost"/>. UI code calls Start/Stop/Reload; notification messages go through the
 /// app's normal toast path. One gate serializes every transition.
 /// </summary>
-public sealed class HotkeyService(string dataDirectory) : IDisposable
+public sealed class HotkeyService(string dataDirectory, VirtualDesktopService? shared = null) : IDisposable
 {
     // Deliberately never disposed: a transition queued behind the gate may still be waiting when
     // the app closes, and SemaphoreSlim would throw if it were disposed under a waiter. The
     // instance is released with the process, and every transition re-checks _disposed under the gate.
     private readonly SemaphoreSlim _gate = new(1, 1);
-    private IVirtualDesktops? _desktops;
+    private readonly VirtualDesktopService? _shared = shared;
+    // Borrowed when shared; otherwise loaded and owned by this service (standalone tests).
+    private IVirtualDesktops? _desktops = shared;
+    private bool _ownsDesktops;
     private HotkeyHost? _host;
     private bool _disposed;
     private int _disposeStarted;
@@ -60,9 +63,17 @@ public sealed class HotkeyService(string dataDirectory) : IDisposable
             if (_disposed) return;
             bool wasRunning = IsRunning;
             await StopCoreAsync().ConfigureAwait(false);
-            _desktops?.Dispose();
-            _desktops = null;
-            await Task.Run(EnsureBackend).ConfigureAwait(false);
+            if (_shared is not null)
+            {
+                // Reload the shared backend in place: other callers (capture/restore) keep the same instance.
+                await Task.Run(() => _shared.Reload(AppContext.BaseDirectory, dataDirectory)).ConfigureAwait(false);
+            }
+            else
+            {
+                _desktops?.Dispose();
+                _desktops = null; _ownsDesktops = false;
+                await Task.Run(EnsureBackend).ConfigureAwait(false);
+            }
             if (wasRunning) await StartCoreAsync().ConfigureAwait(false);
         }
         finally { _gate.Release(); }
@@ -97,9 +108,13 @@ public sealed class HotkeyService(string dataDirectory) : IDisposable
         }
     }
 
-    private void EnsureBackend() =>
-        _desktops ??= VirtualDesktopAccessor.Load(
+    private void EnsureBackend()
+    {
+        if (_desktops is not null) return;
+        _desktops = VirtualDesktopAccessor.Load(
             VirtualDesktopAccessor.CandidatePaths(AppContext.BaseDirectory, dataDirectory));
+        _ownsDesktops = true;
+    }
 
     /// <summary>
     /// Stops everything on first call; later calls are no-ops. The flag is set while holding the
@@ -114,8 +129,12 @@ public sealed class HotkeyService(string dataDirectory) : IDisposable
             if (_disposed) return;
             _disposed = true;
             try { StopCoreAsync().GetAwaiter().GetResult(); } catch (Exception) { }
-            try { _desktops?.Dispose(); } catch (Exception) { }
-            _desktops = null;
+            // Never dispose or clear the shared backend: the window owns it and capture/restore still use it.
+            if (_ownsDesktops)
+            {
+                try { _desktops?.Dispose(); } catch (Exception) { }
+                _desktops = null; _ownsDesktops = false;
+            }
         }
         finally { _gate.Release(); }
     }

@@ -21,9 +21,13 @@
 //                                  Get-Process CalculatorApp | Select-Object Id, ProcessName, StartTime
 //                                  .\FlowDesk.Probe.exe uwp-restore <Id> 3
 //   desktops [dllDir]            read-only virtual desktop check via VirtualDesktopAccessor.dll
+//   desktops-list [--public-only] read-only: every capturable window on every desktop, with its desktop
+//                                index (1-based), current marker and cloak reason; --public-only forces the
+//                                documented public COM fallback (no DLL). Nothing is switched or moved.
 //   focus <exeName> <seconds> [gentle|normal|strict] block an app for a while
 using System.Text.Json;
 using FlowDesk.Core.Capture;
+using FlowDesk.Core.Desktops;
 using FlowDesk.Core.Focus;
 using FlowDesk.Core.Layout;
 using FlowDesk.Core.Model;
@@ -32,21 +36,47 @@ using FlowDesk.Core.Storage;
 using FlowDesk.Core.Windows;
 using FlowDesk.Probe;
 
-var ws = new Win32WindowSystem();
+// Resolve the command and flags before loading any backend: the one provider is chosen once, never a
+// second native/COM pump. Only the explicit `desktops <dir>` diagnostic pins one candidate directory;
+// `desktops-list --public-only` forces the documented public COM fallback; every other command uses the
+// shared service (user-chosen DLL first, then the bundled app-base copy).
+string cmd = args.Length > 0 ? args[0] : "list";
+bool publicOnly = cmd == "desktops-list" && args.Contains("--public-only", StringComparer.Ordinal);
+string dataDirectory = Path.Combine(
+    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FlowDesk");
+using IVirtualDesktops desktops = publicOnly
+    ? new VirtualDesktopService() // unloaded native + public COM fallback; no DLL file is loaded
+    : cmd == "desktops" && args.Length > 1
+        ? VirtualDesktopAccessor.Load([Path.Combine(args[1], VirtualDesktopAccessor.DllName)])
+        : VirtualDesktopService.Load(AppContext.BaseDirectory, dataDirectory);
+var ws = new Win32WindowSystem(desktops);
 var tracker = new SessionTracker();
 var capture = new WorkspaceCapture(ws, tracker);
-string cmd = args.Length > 0 ? args[0] : "list";
 
 switch (cmd)
 {
-    case "desktops": // read-only: desktops <dir-with-dll>  count, current, foreground window on current?
+    case "desktops": // read-only: the provider already loaded above (explicit dir, else shared service)
     {
-        using var vd = FlowDesk.Core.Desktops.VirtualDesktopAccessor.Load(
-            [Path.Combine(args.Length > 1 ? args[1] : AppContext.BaseDirectory, FlowDesk.Core.Desktops.VirtualDesktopAccessor.DllName)]);
-        Console.WriteLine($"available={vd.IsAvailable} status=\"{vd.Status}\"");
-        Console.WriteLine($"count={vd.GetCount()} current={vd.GetCurrent()}");
+        Console.WriteLine($"available={desktops.IsAvailable} status=\"{desktops.Status}\"");
+        Console.WriteLine($"count={desktops.GetCount()} current={desktops.GetCurrent()}");
         long fg = ProbeForeground();
-        Console.WriteLine($"foreground={fg} onCurrent={vd.IsWindowOnCurrent(fg)}");
+        Console.WriteLine($"foreground={fg} onCurrent={desktops.IsWindowOnCurrent(fg)}");
+        break;
+    }
+    case "desktops-list": // read-only: every capturable window on every desktop; never switches or moves anything
+    {
+        Console.WriteLine("FlowDesk.Probe desktops-list - READ-ONLY: no desktop is switched, created or moved");
+        Console.WriteLine($"desktop service: available={desktops.IsAvailable} status=\"{desktops.Status}\" forcedReadOnly={publicOnly}");
+        int? current = desktops.GetCurrent(), count = desktops.GetCount();
+        Console.WriteLine($"current desktop={(current is { } c ? (c + 1).ToString() : "?")} count={count?.ToString() ?? "?"} (desktop indexes are 1-based; ? = unknown)");
+        Console.WriteLine(" desktop id                                    current cloak    hwnd       pid    class                          title");
+        foreach (var w in ws.GetAllAppWindows())
+        {
+            string desktop = w.DesktopIndex is { } index ? (index + 1).ToString() : "?";
+            string desktopId = w.DesktopId?.ToString() ?? "-";
+            string isCurrent = w.IsOnCurrentDesktop switch { true => "yes", false => "no", _ => "?" };
+            Console.WriteLine($" {desktop,7} {desktopId,-36} {isCurrent,-7} 0x{w.CloakReason:X} 0x{w.Handle:X9} {w.ProcessId,-6} {w.ClassName,-30} \"{Trim(w.Title)}\"");
+        }
         break;
     }
     case "list":
@@ -87,7 +117,7 @@ switch (cmd)
     case "restore":
     {
         var workspace = Load(args[1]);
-        var restorer = new WorkspaceRestorer(ws, new ShellLauncher(), tracker);
+        var restorer = new WorkspaceRestorer(ws, new ShellLauncher(), tracker, desktops: desktops);
         var progress = new Progress<ItemResult>(r => { if (r.Outcome != ItemOutcome.Pending) Console.WriteLine($"  .. {r.Name}: {r.Outcome}"); });
         var report = await restorer.RestoreAsync(workspace, progress: progress);
         Console.WriteLine($"restored {report.Placed}/{report.Items.Count} in {report.Elapsed.TotalSeconds:0.0}s");
@@ -98,7 +128,7 @@ switch (cmd)
     case "restore-watch":
     {
         if (args.Length < 3) { RestoreWatch.PrintUsage(); Environment.ExitCode = 2; break; }
-        Environment.ExitCode = await RestoreWatch.RunAsync(Load(args[1]), args[2]);
+        Environment.ExitCode = await RestoreWatch.RunAsync(Load(args[1]), args[2], desktops);
         break;
     }
 
@@ -129,7 +159,7 @@ switch (cmd)
             Environment.ExitCode = 2;
             break;
         }
-        Environment.ExitCode = await UwpRestore.RunAsync(appPid, seconds);
+        Environment.ExitCode = await UwpRestore.RunAsync(appPid, seconds, desktops);
         break;
     }
 
@@ -164,7 +194,7 @@ switch (cmd)
         var a = Pick("A", args[1]); var b = Pick("B", args[2]);
         Console.WriteLine($"A={a.Items.Count} items, B={b.Items.Count} items");
         if (args.Length > 3) { Console.WriteLine($"waiting {args[3]}s (close some A windows now)"); await Task.Delay(int.Parse(args[3]) * 1000); }
-        var switcher = new WorkspaceSwitcher(ws, tracker, capture, new WorkspaceRestorer(ws, new ShellLauncher(), tracker));
+        var switcher = new WorkspaceSwitcher(ws, tracker, capture, new WorkspaceRestorer(ws, new ShellLauncher(), tracker, desktops: desktops));
         void Dump(string step)
         {
             Console.WriteLine($"-- {step}");
@@ -186,7 +216,7 @@ switch (cmd)
     }
 
     default:
-        Console.WriteLine("usage: list | capture <f> | capture-match <f> <substring> | restore <f> | restore-watch <f> <1..60> | layout <preset> <f> | uwp-restore <CalculatorAppPid> [1..10] | focus <exe> <sec> [mode] | switch <a> <b>");
+        Console.WriteLine("usage: list | desktops-list [--public-only] | capture <f> | capture-match <f> <substring> | restore <f> | restore-watch <f> <1..60> | layout <preset> <f> | uwp-restore <CalculatorAppPid> [1..10] | focus <exe> <sec> [mode] | switch <a> <b>");
         break;
 }
 

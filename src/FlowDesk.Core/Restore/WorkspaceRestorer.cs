@@ -1,5 +1,7 @@
 using FlowDesk.Core.Model;
 using FlowDesk.Core.Windows;
+using FlowDesk.Core.Desktops;
+using System.Diagnostics;
 
 namespace FlowDesk.Core.Restore;
 
@@ -49,7 +51,8 @@ public sealed class RestoreOptions
 /// window back where it was saved. Safe to call from a background thread; never blocks on a hung app.
 /// </summary>
 public sealed class WorkspaceRestorer(IWindowSystem windows, IAppLauncher launcher, SessionTracker tracker,
-    Func<TimeSpan, CancellationToken, Task>? delay = null, Func<string?>? defaultBrowser = null)
+    Func<TimeSpan, CancellationToken, Task>? delay = null, Func<string?>? defaultBrowser = null,
+    IVirtualDesktops? desktops = null)
 {
     private readonly Func<TimeSpan, CancellationToken, Task> _delay = delay ?? Task.Delay;
     private readonly Func<string?> _defaultBrowser = defaultBrowser ?? ShellLauncher.DefaultBrowserExe;
@@ -83,6 +86,7 @@ public sealed class WorkspaceRestorer(IWindowSystem windows, IAppLauncher launch
 
         SavedWindow? Placement(WorkspaceItem item) =>
             opt.Overrides is not null && opt.Overrides.TryGetValue(item.Id, out var s) ? s : item.Window;
+        string? DesktopFailure(WindowInfo w, SavedWindow saved) => RestoreDesktop(w, saved, opt.LaunchTimeout, ct);
 
         bool IsBrowserItem(WorkspaceItem item) => item.Kind is ItemKind.App or ItemKind.Website
             && ShellLauncher.IsBrowser(item.App?.ExePath is { Length: > 0 } exe ? exe
@@ -100,7 +104,7 @@ public sealed class WorkspaceRestorer(IWindowSystem windows, IAppLauncher launch
                 matched[item.Id] = live;
 
         // 2. Other open windows that fit (not for websites: an existing browser window holds other tabs).
-        var open = windows.GetAppWindows().Where(w => w.ProcessId != windows.OwnProcessId).ToList();
+        var open = windows.GetAllAppWindows().Where(w => w.ProcessId != windows.OwnProcessId).ToList();
         if (opt.ReuseOpenWindows)
         {
             var candidates = ws.Items.Where(i => !matched.ContainsKey(i.Id) && i.Kind != ItemKind.Website)
@@ -161,7 +165,7 @@ public sealed class WorkspaceRestorer(IWindowSystem windows, IAppLauncher launch
         for (int poll = 1; pending.Count > 0 && poll <= maxPolls; poll++)
         {
             await _delay(opt.PollInterval, ct).ConfigureAwait(false);
-            var now = windows.GetAppWindows().Where(w => w.ProcessId != windows.OwnProcessId).ToList();
+            var now = windows.GetAllAppWindows().Where(w => w.ProcessId != windows.OwnProcessId).ToList();
             // First half of the wait: only brand-new windows count. Later, an existing unclaimed window may do
             // (single-instance apps that only bring their old window forward).
             bool lateFallback = poll > maxPolls / 2;
@@ -198,14 +202,14 @@ public sealed class WorkspaceRestorer(IWindowSystem windows, IAppLauncher launch
             pending.RemoveAll(i => matched.ContainsKey(i.Id));
             // Place as they arrive, so the user sees progress.
             foreach (var (id, w) in assigned)
-                PlaceOne(ws.Items.First(i => i.Id == id), w, Placement, Report, launched: true);
+                PlaceOne(ws.Items.First(i => i.Id == id), w, Placement, Report, launched: true, DesktopFailure);
         }
         foreach (var item in pending)
             Report(item, ItemOutcome.LaunchedNoWindow, "Opened, but its window was not found in time");
 
         // 4. Place reused windows.
         foreach (var item in ws.Items.Where(i => matched.ContainsKey(i.Id) && !launchedIds.Contains(i.Id)))
-            PlaceOne(item, matched[item.Id], Placement, Report, launched: false);
+            PlaceOne(item, matched[item.Id], Placement, Report, launched: false, DesktopFailure);
 
         // 5. Settle: apps that restore their own size after showing get put back once more.
         // Browsers can resize again after their initial content/profile initialization: give only
@@ -226,7 +230,16 @@ public sealed class WorkspaceRestorer(IWindowSystem windows, IAppLauncher launch
                         || cur.ProcessId != matched[id].ProcessId || cur.AppKey != matched[id].AppKey) continue;
                     var target = DisplayMapper.Map(saved, monitors);
                     if (cur.Show != saved.Show || (saved.Show == WindowShow.Normal && !Near(cur.NormalRect, target)))
-                        windows.Place(cur.Handle, target, saved.Show);
+                    {
+                        var settled = PlaceWithDesktop(cur, target, saved, DesktopFailure);
+                        if (settled.Outcome != PlaceOutcome.Ok || settled.DesktopFailure is not null)
+                        {
+                            // Do not publish a second completion event for an already-counted item.
+                            // Browser completions are deferred; the final report remains truthful for all.
+                            results[id] = new ItemResult(id, item.Name, ItemOutcome.PlaceDenied,
+                                settled.DesktopFailure ?? "The app did not accept the settled window placement");
+                        }
+                    }
                 }
             }
         }
@@ -260,8 +273,8 @@ public sealed class WorkspaceRestorer(IWindowSystem windows, IAppLauncher launch
         var stack = ws.Items.Where(i => matched.ContainsKey(i.Id) && results[i.Id].Outcome is ItemOutcome.Reused or ItemOutcome.Launched)
                             .OrderByDescending(i => Placement(i)?.ZOrder ?? int.MaxValue).ToList();
         foreach (var item in stack)
-            if (Placement(item)?.Show != WindowShow.Minimized) windows.BringToFront(matched[item.Id].Handle);
-        if (opt.Activate && stack.LastOrDefault(i => Placement(i)?.Show != WindowShow.Minimized) is { } top)
+            if (Placement(item)?.Show != WindowShow.Minimized && CanForeground(matched[item.Id])) windows.BringToFront(matched[item.Id].Handle);
+        if (opt.Activate && stack.LastOrDefault(i => Placement(i)?.Show != WindowShow.Minimized && CanForeground(matched[i.Id])) is { } top)
             windows.Activate(matched[top.Id].Handle);
 
         foreach (var (id, w) in matched) tracker.Bind(ws.Id, id, w);
@@ -271,12 +284,15 @@ public sealed class WorkspaceRestorer(IWindowSystem windows, IAppLauncher launch
     }
 
     private void PlaceOne(WorkspaceItem item, WindowInfo w, Func<WorkspaceItem, SavedWindow?> placement,
-        Action<WorkspaceItem, ItemOutcome, string?> report, bool launched)
+        Action<WorkspaceItem, ItemOutcome, string?> report, bool launched,
+        Func<WindowInfo, SavedWindow, string?> restoreDesktop)
     {
         var ok = launched ? ItemOutcome.Launched : ItemOutcome.Reused;
         if (placement(item) is not { } saved) { report(item, ok, "No saved position"); return; }
         var target = DisplayMapper.Map(saved, windows.GetMonitors());
-        switch (windows.Place(w.Handle, target, saved.Show))
+        var placed = PlaceWithDesktop(w, target, saved, restoreDesktop);
+        if (placed.DesktopFailure is { } problem) { report(item, ItemOutcome.PlaceDenied, problem); return; }
+        switch (placed.Outcome)
         {
             case PlaceOutcome.Ok: report(item, ok, null); break;
             case PlaceOutcome.AccessDenied: report(item, ItemOutcome.PlaceDenied, "Runs as administrator, so FlowDesk can't move it"); break;
@@ -284,6 +300,145 @@ public sealed class WorkspaceRestorer(IWindowSystem windows, IAppLauncher launch
             case PlaceOutcome.Failed: report(item, ItemOutcome.PlaceDenied, "The app did not accept the requested window placement"); break;
             default: report(item, ok, "Could not move the window"); break;
         }
+    }
+
+    private bool CanForeground(WindowInfo w)
+    {
+        if (desktops?.GetWindowDesktopNumber(w.Handle) is { } index && desktops.GetCurrent() is { } current)
+            return index == current;
+        var latest = windows.Get(w.Handle);
+        bool? local = desktops?.IsWindowOnCurrent(w.Handle) ?? latest?.IsOnCurrentDesktop ?? w.IsOnCurrentDesktop;
+        return local ?? ((latest?.CloakReason ?? w.CloakReason) == 0);
+    }
+
+    private sealed class DesktopPlacementResult(PlaceOutcome outcome, string? failure)
+    {
+        public PlaceOutcome Outcome { get; set; } = outcome;
+        public string? DesktopFailure { get; set; } = failure;
+    }
+
+    private DesktopPlacementResult PlaceWithDesktop(WindowInfo w, PixelRect target,
+        SavedWindow saved, Func<WindowInfo, SavedWindow, string?> restoreDesktop)
+    {
+        int? stagedFrom = null;
+        bool completed = false;
+        var desktopTarget = saved;
+        var result = new DesktopPlacementResult(PlaceOutcome.Failed, null);
+        Exception? interrupted = null;
+        DesktopPlacementResult Finish(PlaceOutcome outcome, string? failure)
+        { result.Outcome = outcome; result.DesktopFailure = failure; return result; }
+        try
+        {
+            var liveBeforePlace = windows.Get(w.Handle);
+            if (liveBeforePlace is null || liveBeforePlace.ProcessId != w.ProcessId || liveBeforePlace.AppKey != w.AppKey)
+                return Finish(PlaceOutcome.WindowGone, null);
+            w = liveBeforePlace; // state/desktop may have changed since matching; stage from the live state
+            // ShowWindow's restore/maximize commands can activate a foreign-desktop window. For a
+            // background state transition, temporarily move the WINDOW through the current desktop,
+            // apply its state there, then return it to the saved/original desktop. Never GoTo a desktop.
+            // A normal->normal resize uses SWP_NOACTIVATE and needs no staging.
+            if (!CanForeground(w) && NeedsBackgroundStaging(w, target, saved.Show))
+            {
+                const string blocked = "The background window could not be restored safely: ";
+                if (desktops?.IsAvailable != true
+                    || (desktops.GetWindowDesktopNumber(w.Handle) ?? w.DesktopIndex) is not { } from
+                    || desktops.GetCurrent() is not { } current)
+                    return Finish(PlaceOutcome.Failed, blocked + "desktop support cannot safely restore its show state without activating another desktop.");
+                if (from != current)
+                {
+                    var actual = windows.Get(w.Handle);
+                    if (actual is null || actual.ProcessId != w.ProcessId || actual.AppKey != w.AppKey)
+                        return Finish(PlaceOutcome.WindowGone, null);
+                    Guid? originalId = desktops.GetWindowDesktopId(w.Handle) ?? actual.DesktopId;
+                    if ((saved.DesktopIndex is null && (saved.DesktopId is null || saved.DesktopId == Guid.Empty))
+                        || (saved.DesktopId is { } id && id != Guid.Empty && originalId == id))
+                    {
+                        desktopTarget = saved.Clone();
+                        desktopTarget.DesktopIndex = from;
+                        desktopTarget.DesktopId = originalId;
+                    }
+                    stagedFrom = from;
+                    if (!desktops.MoveWindow(w.Handle, current) || desktops.GetWindowDesktopNumber(w.Handle) != current)
+                        return Finish(PlaceOutcome.Failed, blocked + "Windows could not prepare the window on the current desktop.");
+                    if (desktops.GetCurrent() != current)
+                        return Finish(PlaceOutcome.Failed, blocked + "the selected desktop changed while the window was being prepared.");
+                }
+            }
+            var outcome = windows.Place(w.Handle, target, saved.Show);
+            if (outcome != PlaceOutcome.Ok) return Finish(outcome, null);
+            string? failure = restoreDesktop(w, desktopTarget);
+            completed = failure is null;
+            return Finish(outcome, failure);
+        }
+        catch (Exception ex) { interrupted = ex; throw; }
+        finally
+        {
+            // Failed/cancelled restoration must not strand an originally background window here.
+            if (!completed && stagedFrom is { } original && windows.Get(w.Handle) is { } live
+                && live.ProcessId == w.ProcessId && live.AppKey == w.AppKey)
+            {
+                if (desktops?.MoveWindow(w.Handle, original) != true || desktops.GetWindowDesktopNumber(w.Handle) != original)
+                {
+                    const string warning = "Returning the staged window to its original desktop failed or could not be verified.";
+                    result.Outcome = PlaceOutcome.Failed;
+                    result.DesktopFailure = (result.DesktopFailure ?? "The window placement did not complete.") + " " + warning;
+                    if (interrupted is not null) throw new InvalidOperationException(warning, interrupted);
+                }
+            }
+        }
+    }
+
+    private bool NeedsBackgroundStaging(WindowInfo window, PixelRect target, WindowShow desired)
+    {
+        if (window.Show == WindowShow.Normal && desired is WindowShow.Normal or WindowShow.Minimized) return false;
+        if (window.Show == WindowShow.Minimized && desired == WindowShow.Minimized) return false;
+        if (window.Show == WindowShow.Maximized && desired == WindowShow.Maximized)
+        {
+            // The native placer already treats max-on-the-target-monitor as a no-op. Avoid bringing
+            // an already-correct background window here just to discover that nothing needs changing.
+            var monitor = windows.GetMonitors().FirstOrDefault(m => m.Device == window.MonitorDevice);
+            if (monitor is not null && target.X >= monitor.Bounds.X && target.Y >= monitor.Bounds.Y
+                && target.Right <= monitor.Bounds.Right && target.Bottom <= monitor.Bounds.Bottom) return false;
+        }
+        return true;
+    }
+
+    private string? RestoreDesktop(WindowInfo original, SavedWindow saved, TimeSpan createTimeout, CancellationToken ct)
+    {
+        if (saved.DesktopIndex is null && (saved.DesktopId is null || saved.DesktopId == Guid.Empty)) return null;
+        const string prefix = "The window was placed, but its saved desktop could not be restored: ";
+        var w = windows.Get(original.Handle);
+        if (w is null || w.ProcessId != original.ProcessId || w.AppKey != original.AppKey)
+            return prefix + "the window closed or its identity changed.";
+        int? actualIndex = desktops?.GetWindowDesktopNumber(w.Handle) ?? w.DesktopIndex;
+        Guid? actualId = desktops?.GetWindowDesktopId(w.Handle) ?? w.DesktopId;
+        if (saved.DesktopId is { } id && id != Guid.Empty && actualId == id) return null;
+        if (saved.DesktopIndex is not { } target)
+            return prefix + "only a desktop identity is known; this backend cannot select it by number.";
+        if (target < 0) return prefix + "the saved desktop number is invalid.";
+        if (actualIndex == target) return null;
+        if (desktops?.IsAvailable != true)
+            return prefix + "desktop moves are unavailable (the desktop DLL is missing or incompatible); the window stays on its current desktop.";
+        if (desktops.GetCount() is not { } count || count < 1) return prefix + "the desktop list is unavailable.";
+        // A corrupt/hand-edited JSON integer must not create hundreds of user desktops in a fast loop.
+        // Existing high-numbered desktops remain valid; only automatic creation has a safety budget.
+        if ((long)target + 1 - count > 32)
+            return prefix + "more than 32 desktops would need creating; create them manually first.";
+        var timer = Stopwatch.StartNew();
+        while (count <= target)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (timer.Elapsed >= createTimeout) return prefix + "creating the missing desktops timed out.";
+            int? next = desktops.Create();
+            if (next is null || next <= count) return prefix + "Windows could not create a missing desktop.";
+            count = next.Value;
+        }
+        ct.ThrowIfCancellationRequested();
+        if (!desktops.MoveWindow(w.Handle, target)) return prefix + "Windows refused the desktop move.";
+        if (desktops.GetWindowDesktopNumber(w.Handle) != target)
+            return prefix + "the requested desktop move could not be verified.";
+        // Never call GoTo: restore must not change the user's selected desktop.
+        return null;
     }
 
     private static bool Near(PixelRect a, PixelRect b, int tol = 8) =>

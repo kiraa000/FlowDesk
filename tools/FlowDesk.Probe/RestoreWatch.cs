@@ -2,6 +2,7 @@
 // diagnostic watch of the captured Chrome profile's windows. It never enforces a size, never rebinds.
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using FlowDesk.Core.Desktops;
 using FlowDesk.Core.Model;
 using FlowDesk.Core.Restore;
 using FlowDesk.Core.Windows;
@@ -26,7 +27,7 @@ internal static class RestoreWatch
         Console.WriteLine("  Never prints command lines, page URLs, titles, or unrelated personal windows.");
     }
 
-    public static async Task<int> RunAsync(Workspace workspace, string? secondsText)
+    public static async Task<int> RunAsync(Workspace workspace, string? secondsText, IVirtualDesktops desktops)
     {
         if (!RestoreWatchPlan.TryCreate(workspace, out var plan, out string? error))
         {
@@ -42,12 +43,13 @@ internal static class RestoreWatch
         }
 
         PrintHeader(plan, seconds);
-        var real = new Win32WindowSystem();
+        // Borrow the one provider owned by Program; no second native/COM backend is loaded here.
+        var real = new Win32WindowSystem(desktops);
         Win32WindowSystem.EnsurePerMonitorDpiAwareness();
         var minTrackProbe = new MinTrackProbe();
         var log = new LoggingWindowSystem(real, plan.IsWatched, Console.WriteLine, minTrackProbe);
         var tracker = new SessionTracker();
-        var restorer = new WorkspaceRestorer(log, new ShellLauncher(), tracker);
+        var restorer = new WorkspaceRestorer(log, new ShellLauncher(), tracker, desktops: desktops);
         var report = await restorer.RestoreAsync(workspace).ConfigureAwait(false);
 
         Console.WriteLine($"{Stamp()} RESTORE         restored {report.Placed}/{report.Items.Count} in {report.Elapsed.TotalSeconds:0.0}s");
@@ -209,6 +211,7 @@ internal static class RestoreWatch
 
         public int OwnProcessId => inner.OwnProcessId;
         public IReadOnlyList<WindowInfo> GetAppWindows() => inner.GetAppWindows();
+        public IReadOnlyList<WindowInfo> GetAllAppWindows() => inner.GetAllAppWindows();
         public WindowInfo? Get(long handle) => inner.Get(handle);
         public bool IsAlive(long handle) => inner.IsAlive(handle);
         public IReadOnlyList<MonitorInfo> GetMonitors() => inner.GetMonitors();

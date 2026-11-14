@@ -17,5 +17,7 @@
     <!-- Link the pure Probe plan validators so their desktop-free rules are testable. -->
     <Compile Include="..\..\tools\FlowDesk.Probe\RestoreWatchPlan.cs" Link="Probe\RestoreWatchPlan.cs" />
     <Compile Include="..\..\tools\FlowDesk.Probe\UwpRestorePlan.cs" Link="Probe\UwpRestorePlan.cs" />
+    <!-- Link the pure App-side desktop labels so their formatting rules are testable headlessly. -->
+    <Compile Include="..\..\src\FlowDesk.App\ViewModels\DesktopLabels.cs" Link="App\DesktopLabels.cs" />
   </ItemGroup>
 </Project>

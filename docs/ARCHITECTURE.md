@@ -20,10 +20,11 @@ Build/test: `dotnet build FlowDesk.slnx`, `dotnet test tests/FlowDesk.Core.Tests
 All in `FlowDesk.Core`. Create ONE of each at startup (DI or a small `AppServices` class):
 
 ```
-var windows  = new Win32WindowSystem();              // needs Per-Monitor-V2 DPI awareness (WinUI default)
+var desktops = VirtualDesktopService.Load(appDir, dataDir); // one shared desktop backend (see below)
+var windows  = new Win32WindowSystem(desktops);      // needs Per-Monitor-V2 DPI awareness (WinUI default)
 var tracker  = new SessionTracker();                 // runtime-only: item -> live window, session snapshots
 var capture  = new WorkspaceCapture(windows, tracker);
-var restorer = new WorkspaceRestorer(windows, new ShellLauncher(), tracker);
+var restorer = new WorkspaceRestorer(windows, new ShellLauncher(), tracker, desktops: desktops);
 var switcher = new WorkspaceSwitcher(windows, tracker, capture, restorer);
 var layouts  = new LayoutApplier(windows);
 var focus    = new FocusWatcher(windows);
@@ -41,13 +42,41 @@ var store    = new JsonStore();                      // %LOCALAPPDATA%\FlowDesk\
 | Persist | `store.Load(out recovered)`, `await store.SaveAsync(data)` | `recovered != null` -> show an InfoBar "Your data file was damaged; restored the last good copy". |
 
 Model types: `Workspace`, `WorkspaceItem` (`Kind` App/Website/File/Folder, `App`, `Path`, `Urls`, `Window`),
-`SavedWindow`, `FocusSettings`, `FocusAppRule`, `FlowDeskData` (root of the JSON file, incl. `TourCompleted`).
+`SavedWindow` (incl. nullable `DesktopIndex`/`DesktopId`), `FocusSettings`, `FocusAppRule`, `FlowDeskData`
+(root of the JSON file, incl. `TourCompleted`).
 
 Rules the app must keep:
 - Never call core methods that enumerate/launch on the UI thread (they block: COM, process queries, waits).
 - Core events and progress arrive off the UI thread -> `DispatcherQueue.TryEnqueue`.
 - Persist after every user change (debounced ~500 ms); never hold the only copy in memory.
 - FlowDesk never kills processes; focus closes windows politely. Keep it that way.
+
+## Virtual desktops (TASK-008)
+
+- **One shared service.** `VirtualDesktopService` (`AppServices.Desktops`) is created once and passed to
+  `Win32WindowSystem` and the optional window shortcuts. Workspace capture/restore work whether or not
+  window shortcuts are enabled (they are off by default); a missing backend never blocks startup.
+- **Capture.** `Win32WindowSystem.GetAllAppWindows` admits a DWM-cloaked window only for the shell cloak
+  reason (2) plus positive desktop identity and an explicit "not current" answer; shell UI, app/inherited
+  cloaks and frames without positive desktop identity stay out. `WindowInfo`/`SavedWindow` carry a nullable 0-based `DesktopIndex` and a `DesktopId`
+  GUID; old JSON without them still loads. The save picker labels "Desktop N (current)" and lists the
+  current desktop first, then each desktop in order.
+- **Restore.** Never calls `GoTo`, so the user's selected desktop does not change. A window already on the
+  saved GUID identity stays; otherwise the saved index is used (a GUID may change after logoff/deletion).
+  A GUID-only save with no known number cannot be selected on move: warn and save again after the backend
+  is available. Missing desktops are created up to the saved index (safety budget 32 missing per item,
+  bounded by `LaunchTimeout`; larger existing indices are allowed). Failures are reported per item as not
+  placed, naming the saved desktop as the unrecovered part, never as success.
+- **Backend.** FlowDesk 1.0.1 bundles `VirtualDesktopAccessor.dll` (Windows 11 24H2+); a user file at
+  `%LOCALAPPDATA%\FlowDesk\native\VirtualDesktopAccessor.dll` wins. It loads an immutable copy under
+  `%LOCALAPPDATA%\FlowDesk\native\cache\<sha256>`, so the chosen file can be replaced while the old module
+  stays loaded. It creates desktops only during restore and never deletes a user desktop. The read-only
+  `IVirtualDesktopManager` COM fallback can identify known other desktops but cannot move other apps.
+- **Show-state staging.** Restoring a non-normal state for a background window temporarily moves the
+  window through the current desktop, places it, then returns it; it may briefly flash. The selected
+  desktop is not changed. This runtime behaviour is unverified.
+- **Layouts/focus unchanged.** Layouts and focus remain current-desktop only
+  (`DesktopCaptureFilter.IsLocalForLayout`); workspaces are the all-desktop feature.
 
 ## App structure (`src/FlowDesk.App`)
 
@@ -142,5 +171,7 @@ C# class.
 ## Known limits (by design, tell the user in UI copy where relevant)
 - Browser tabs can't be read; websites are reopened from saved links in a new browser window.
 - Windows of apps running as administrator can't be moved unless FlowDesk runs as administrator.
-- Windows on other virtual desktops are not captured.
+- Workspaces capture windows on every virtual desktop and restore each to its saved desktop when the desktop
+  backend can move windows; the read-only Windows fallback can identify other desktops but cannot move
+  windows there. Layouts and focus remain current-desktop only.
 - Suspended Store apps can't be identified until they are opened once.

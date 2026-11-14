@@ -1,6 +1,7 @@
 using FlowDesk.Core.Model;
 using FlowDesk.Core.Restore;
 using FlowDesk.Core.Windows;
+using FlowDesk.Core.Capture;
 
 namespace FlowDesk.Core.Layout;
 
@@ -69,6 +70,9 @@ public sealed class LayoutApplier(IWindowSystem windows)
     /// </summary>
     public IReadOnlyList<(long Handle, PlaceOutcome Outcome)> Apply(LayoutPreset preset, IReadOnlyList<WindowInfo> ordered, string? monitorDevice = null)
     {
+        // Workspace capture can see every desktop. Layouts remain local, including if a window
+        // changed desktops after the UI refreshed its list. Unknown metadata preserves old behavior.
+        ordered = ordered.Where(w => DesktopCaptureFilter.IsLocalForLayout(windows.Get(w.Handle) ?? w)).ToList();
         var monitors = windows.GetMonitors();
         if (ordered.Count == 0 || monitors.Count == 0) return [];
         var mon = monitors.FirstOrDefault(m => m.Device == (monitorDevice ?? ordered[0].MonitorDevice))
@@ -79,6 +83,8 @@ public sealed class LayoutApplier(IWindowSystem windows)
         for (int i = 0; i < ordered.Count; i++)
         {
             var w = ordered[i];
+            if (!DesktopCaptureFilter.IsLocalForLayout(windows.Get(w.Handle) ?? w))
+            { results.Add((w.Handle, PlaceOutcome.Failed)); continue; }
             var visible = DisplayMapper.FromFraction(rects[i], mon.WorkArea);
             // Measure borders in the normal state; a maximized window reports none.
             if (w.Show != WindowShow.Normal) windows.Place(w.Handle, w.NormalRect, WindowShow.Normal);
@@ -86,7 +92,9 @@ public sealed class LayoutApplier(IWindowSystem windows)
             results.Add((w.Handle, windows.Place(w.Handle, outer, WindowShow.Normal)));
         }
         // Primary on top, then the rest in order.
-        for (int i = ordered.Count - 1; i >= 0; i--) windows.BringToFront(ordered[i].Handle);
+        for (int i = ordered.Count - 1; i >= 0; i--)
+            if (DesktopCaptureFilter.IsLocalForLayout(windows.Get(ordered[i].Handle) ?? ordered[i]))
+                windows.BringToFront(ordered[i].Handle);
         return results;
     }
 }

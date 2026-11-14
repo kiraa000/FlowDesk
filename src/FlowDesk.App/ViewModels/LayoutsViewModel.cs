@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using FlowDesk.Core.Capture;
 using FlowDesk.Core.Layout;
 using FlowDesk.Core.Windows;
 
@@ -63,8 +64,11 @@ public partial class LayoutsViewModel(AppViewModels owner) : ObservableObject
         if (monitors.Length > 0) (monitors.FirstOrDefault(m => m.Device == device) ?? monitors[0]).IsSelected = true;
         Monitors = monitors;
         Windows.Clear();
+        // Same rule as LayoutEngine: a window that lookup timed out on must not look current when it
+        // is cloaked, while old uncloaked metadata keeps working.
         if (model is not null) foreach (var item in model.Items)
-            if (result.live.TryGetValue(item.Id, out var w)) Windows.Add(new(item.Name, w));
+            if (result.live.TryGetValue(item.Id, out var w) && DesktopCaptureFilter.IsLocalForLayout(w))
+                Windows.Add(new(item.Name, w));
         SelectedPreset ??= Presets[0]; HasWindows = Windows.Count > 0; CanSave = false;
         OnPropertyChanged(nameof(MultipleMonitors));
     });

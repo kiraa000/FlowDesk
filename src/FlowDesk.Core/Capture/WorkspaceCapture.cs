@@ -23,7 +23,7 @@ public sealed class WorkspaceCapture(IWindowSystem windows, SessionTracker track
     public IReadOnlyList<CaptureCandidate> CaptureOpenWindows()
     {
         var monitors = windows.GetMonitors();
-        var all = windows.GetAppWindows().Where(w => w.ProcessId != windows.OwnProcessId).ToList();
+        var all = windows.GetAllAppWindows().Where(w => w.ProcessId != windows.OwnProcessId).ToList();
         IReadOnlyDictionary<long, string> folderPaths = all.Any(w => w.ClassName == "CabinetWClass")
             ? _folders.GetOpenFolders() : new Dictionary<long, string>();
 
@@ -76,7 +76,7 @@ public sealed class WorkspaceCapture(IWindowSystem windows, SessionTracker track
     {
         var monitors = windows.GetMonitors();
         var live = LiveWindowsFor(ws);
-        var z = windows.GetAppWindows().Select((w, i) => (w.Handle, i)).ToDictionary(p => p.Handle, p => p.i);
+        var z = windows.GetAllAppWindows().Select((w, i) => (w.Handle, i)).ToDictionary(p => p.Handle, p => p.i);
         var updated = new List<string>();
         foreach (var item in ws.Items)
         {
@@ -92,7 +92,7 @@ public sealed class WorkspaceCapture(IWindowSystem windows, SessionTracker track
     public Dictionary<string, SavedWindow> SnapshotSession(Workspace ws)
     {
         var monitors = windows.GetMonitors();
-        var z = windows.GetAppWindows().Select((w, i) => (w.Handle, i)).ToDictionary(p => p.Handle, p => p.i);
+        var z = windows.GetAllAppWindows().Select((w, i) => (w.Handle, i)).ToDictionary(p => p.Handle, p => p.i);
         return LiveWindowsFor(ws, bindNewMatches: false)
             .ToDictionary(kv => kv.Key, kv => ToSaved(kv.Value, z.GetValueOrDefault(kv.Value.Handle, 999), monitors));
     }
@@ -104,7 +104,7 @@ public sealed class WorkspaceCapture(IWindowSystem windows, SessionTracker track
         var missing = ws.Items.Where(i => !live.ContainsKey(i.Id) && i.Kind != ItemKind.Website).ToList();
         if (missing.Count == 0) return live;
         var claimed = live.Values.Select(w => w.Handle).ToHashSet();
-        var open = windows.GetAppWindows().Where(w => w.ProcessId != windows.OwnProcessId).ToList();
+        var open = windows.GetAllAppWindows().Where(w => w.ProcessId != windows.OwnProcessId).ToList();
         // Snapshot/save fallback must use the same ownership preference as restore, or a closed binding
         // can silently adopt another workspace's identical-title window and persist its placement.
         foreach (var (id, w) in WindowMatcher.Assign(missing.Select(i => (i.Id, MatchSpec.For(i))).ToList(), open, claimed,
@@ -124,6 +124,7 @@ public sealed class WorkspaceCapture(IWindowSystem windows, SessionTracker track
             Rect = w.NormalRect, Show = w.Show, MonitorDevice = m?.Device ?? w.MonitorDevice,
             MonitorBounds = m?.Bounds ?? default, MonitorWorkArea = m?.WorkArea ?? default,
             Title = w.Title, ClassName = w.ClassName, ZOrder = zOrder,
+            DesktopIndex = w.DesktopIndex, DesktopId = w.DesktopId,
         };
     }
 

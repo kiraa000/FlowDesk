@@ -191,6 +191,13 @@ internal static class ItemDisplay
         ItemKind.Website => "\uE774", ItemKind.Folder => "\uE8B7", ItemKind.File => "\uE8A5", _ => "\uE7C3"
     };
     public static string Position(WorkspaceItem item) => item.Window is { } w
-        ? $"{w.MonitorDevice.Replace(@"\\.\DISPLAY", "Monitor ")} · {w.Show} · {w.Rect.Width} × {w.Rect.Height}"
+        ? DesktopPrefix(w) + $"{w.MonitorDevice.Replace(@"\\.\DISPLAY", "Monitor ")} · {w.Show} · {w.Rect.Width} × {w.Rect.Height}"
         : "Position chosen by the app";
+
+    /// <summary>The saved desktop is shown with the position; old data without one keeps the old line.</summary>
+    private static string DesktopPrefix(SavedWindow w)
+    {
+        string desktop = DesktopLabels.For(w);
+        return desktop.Length == 0 ? "" : desktop + " · ";
+    }
 }

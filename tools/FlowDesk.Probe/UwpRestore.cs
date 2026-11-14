@@ -5,6 +5,7 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
+using FlowDesk.Core.Desktops;
 using FlowDesk.Core.Layout;
 using FlowDesk.Core.Model;
 using FlowDesk.Core.Windows;
@@ -34,7 +35,7 @@ internal static class UwpRestore
         Console.WriteLine("  Never selects by window title. Two phases (Restore, Layout), each minimizes first and polls raw state.");
     }
 
-    public static async Task<int> RunAsync(int appPid, int seconds)
+    public static async Task<int> RunAsync(int appPid, int seconds, IVirtualDesktops? desktops = null)
     {
         if (appPid <= 0)
         {
@@ -50,7 +51,7 @@ internal static class UwpRestore
         }
 
         Win32WindowSystem.EnsurePerMonitorDpiAwareness();
-        var real = new Win32WindowSystem();
+        var real = new Win32WindowSystem(desktops);
 
         if (!TryVerifyCalculator(appPid, out var startedAt, out string exeName, out string? processError))
         {

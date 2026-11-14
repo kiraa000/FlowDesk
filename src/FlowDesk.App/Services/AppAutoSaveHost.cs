@@ -50,7 +50,9 @@ public sealed class AppAutoSaveHost : IAutoSaveHost
             var boundHandles = bound.Values.Select(w => w.Handle).ToHashSet();
             var itemByHandle = bound.GroupBy(kv => kv.Value.Handle).ToDictionary(g => g.Key, g => g.First().Key);
 
-            var open = _services.Windows.GetAppWindows()
+            // Workspace watching spans all virtual desktops: a window moved to another desktop is the
+            // same workspace window, and a desktop-only move must reach the placement signature below.
+            var open = _services.Windows.GetAllAppWindows()
                 .Where(w => w.ProcessId != _services.Windows.OwnProcessId
                     && !w.Unresolved
                     && (!string.IsNullOrEmpty(w.ExePath) || !string.IsNullOrEmpty(w.Aumid)))
@@ -67,7 +69,8 @@ public sealed class AppAutoSaveHost : IAutoSaveHost
             var signature = string.Join('\n', open
                 .Where(w => boundHandles.Contains(w.Handle) || matches[w.Handle])
                 .Select(w => $"{w.Handle}:{(itemByHandle.TryGetValue(w.Handle, out var itemId) ? itemId : "replacement")}:" +
-                    $"{w.NormalRect.X},{w.NormalRect.Y},{w.NormalRect.Width},{w.NormalRect.Height}:{w.Show}:{w.MonitorDevice}")
+                    $"{w.NormalRect.X},{w.NormalRect.Y},{w.NormalRect.Width},{w.NormalRect.Height}:{w.Show}:{w.MonitorDevice}:" +
+                    $"{w.DesktopIndex}:{w.DesktopId}")
                 .OrderBy(s => s, StringComparer.Ordinal));
             return new WorkspaceObservation(workspaceId, signature, windows);
         }, ct).ConfigureAwait(false);

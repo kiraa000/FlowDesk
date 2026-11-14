@@ -77,6 +77,10 @@ public sealed class SavedWindow
     public string ClassName { get; set; } = "";
     /// <summary>0 = topmost of the workspace.</summary>
     public int ZOrder { get; set; }
+    /// <summary>0-based virtual desktop; null in old files or when Windows cannot give a number.</summary>
+    public int? DesktopIndex { get; set; }
+    /// <summary>Public Windows desktop identity when available (may change after desktop deletion/logoff).</summary>
+    public Guid? DesktopId { get; set; }
 
     public SavedWindow Clone() => (SavedWindow)MemberwiseClone();
 }

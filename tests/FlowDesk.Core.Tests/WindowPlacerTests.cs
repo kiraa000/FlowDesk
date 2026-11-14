@@ -347,6 +347,43 @@ public class WindowPlacerTests
     }
 
     [Fact]
+    public void Non_activatable_iconic_normal_placement_uses_bounded_async_never_show9_or_show1()
+    {
+        var api = new FakePlacementApi { CanActivate = false, Iconic = true, IgnoreNonActivatingShow = true };
+
+        var outcome = WindowPlacer.Place(api, Target, WindowShow.Normal);
+
+        Assert.Equal(PlaceOutcome.Ok, outcome);
+        Assert.False(api.Iconic);
+        Assert.Contains("Show4", api.Ops);
+        Assert.DoesNotContain("Show9", api.Ops);
+        Assert.DoesNotContain("Show1", api.Ops);
+    }
+
+    [Fact]
+    public void Non_activatable_normal_to_maximized_fails_without_show3()
+    {
+        var api = new FakePlacementApi { CanActivate = false, Iconic = false, Maximized = false };
+
+        var outcome = WindowPlacer.Place(api, Target, WindowShow.Maximized);
+
+        Assert.Equal(PlaceOutcome.Failed, outcome);
+        Assert.DoesNotContain("Show3", api.Ops);
+        Assert.DoesNotContain("Show9", api.Ops);
+    }
+
+    [Theory]
+    [InlineData(WindowShow.Normal, false, false, true, ShowNoActivate)]
+    [InlineData(WindowShow.Normal, true, false, true, ShowNoActivate)]
+    [InlineData(WindowShow.Maximized, false, false, true, ShowNA)]
+    [InlineData(WindowShow.Maximized, true, false, true, ShowNA)]
+    public void Async_show_command_without_activation_never_restores_or_maximizes(
+        WindowShow requested, bool minimized, bool maximized, bool onTargetMonitor, int expected)
+    {
+        Assert.Equal(expected, WindowPlacer.AsyncShowCommand(requested, minimized, maximized, onTargetMonitor, canActivate: false));
+    }
+
+    [Fact]
     public void Workspace_conversion_subtracts_left_and_top_work_area_offsets_on_a_negative_monitor()
     {
         var monitor = new PixelRect(-2560, 0, 2560, 1440);
@@ -390,6 +427,8 @@ public class WindowPlacerTests
         public bool Maximized { get; set; }
         public bool RestoreWasMaximized { get; set; }
         public bool IgnoreNonActivatingShow { get; set; }
+        /// <summary>False for a known background desktop; activating show commands must not be issued.</summary>
+        public bool CanActivate { get; set; } = true;
         /// <summary>Every synchronous ShowWindow command is ignored (hosted/frozen frame behaviour).</summary>
         public bool IgnoreSynchronousShow { get; set; }
         /// <summary>The async placement returns true but never applies its show state (held iconic).</summary>
