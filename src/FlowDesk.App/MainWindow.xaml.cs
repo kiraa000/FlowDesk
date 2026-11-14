@@ -224,8 +224,9 @@ public sealed partial class MainWindow : Window
             bool wasShown = services.Settings.TrayCloseNoticeShown;
             if (!UxDecisions.CanHideWithTrayNotice(services.Settings, () => notifications.ShowMessage(FocusNotifications.TrayNotice)))
             {
-                // Native inline fallback: never hide the only explanation when Windows cannot accept a toast.
-                App.ViewModels.ShowStatus("FlowDesk stays running in the tray. Windows notifications are unavailable, so this window stayed open. Use Minimize to keep it running, or Exit in the tray menu to close it.", StatusKind.Information);
+                // Native inline fallback, once: never hide the only explanation when Windows cannot accept a toast.
+                App.ViewModels.ShowStatus("FlowDesk keeps running in the tray when you close this window. Windows notifications are unavailable, so this window stayed open this time. Close it again to hide it, or use Exit in the tray menu to quit.", StatusKind.Information);
+                services.Changed(true);
                 return;
             }
             if (!wasShown) services.Changed(true);

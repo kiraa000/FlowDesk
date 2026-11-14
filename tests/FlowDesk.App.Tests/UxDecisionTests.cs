@@ -28,18 +28,17 @@ public sealed class UxDecisionTests
     }
 
     [Fact]
-    public void UnavailableNotificationsChooseVisibleFallbackAndRetryOnNextClose()
+    public void UnavailableNotificationsExplainOnceInlineThenHideOnNextClose()
     {
+        // User 2026-11-14: with notifications off, the first close keeps the window open with the inline
+        // explanation; that counts as shown, so the next close (also after a restart) hides to the tray.
         var settings = new AppSettings();
         int calls = 0;
         Assert.False(UxDecisions.CanHideWithTrayNotice(settings, () => { calls++; return false; }));
-        Assert.False(settings.TrayCloseNoticeShown);
+        Assert.True(settings.TrayCloseNoticeShown);
         var reloaded = JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(settings))!;
-        Assert.False(UxDecisions.CanHideWithTrayNotice(reloaded, () => { calls++; return false; }));
-        Assert.False(reloaded.TrayCloseNoticeShown);
-        Assert.True(UxDecisions.CanHideWithTrayNotice(reloaded, () => { calls++; return true; }));
-        Assert.True(reloaded.TrayCloseNoticeShown);
-        Assert.Equal(3, calls);
+        Assert.True(UxDecisions.CanHideWithTrayNotice(reloaded, () => { calls++; return false; }));
+        Assert.Equal(1, calls);
     }
 
     [Fact]

@@ -10,14 +10,16 @@ public static class UxDecisions
         explicitExit || endingSession || !loaded ? CloseAction.Exit
         : trayReady ? CloseAction.Hide : CloseAction.Exit;
 
-    // Delivery is synchronous, before hiding: failure must leave both the window and the notice pending.
-    // A successful platform handoff does not promise a banner (Windows can suppress it with Do not disturb).
+    // Delivery is synchronous, before hiding. A successful platform handoff does not promise a banner
+    // (Windows can suppress it with Do not disturb). On failure the caller keeps the window open and shows
+    // the explanation inline; that counts as shown (user 2026-11-14: "explain once, then hide"), so the next
+    // close hides to the tray instead of keeping the window open forever when notifications are off.
     public static bool CanHideWithTrayNotice(AppSettings settings, Func<bool> deliver)
     {
         if (settings.TrayCloseNoticeShown) return true;
-        if (!deliver()) return false;
+        bool delivered = deliver();
         settings.TrayCloseNoticeShown = true;
-        return true;
+        return delivered;
     }
 
     public static bool CanSaveWindows(IEnumerable<(bool Selected, bool CanSelect)> windows) =>
