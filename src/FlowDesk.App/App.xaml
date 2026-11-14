@@ -12,31 +12,6 @@
                 <!-- Shared app-wide styles go here as pages are added; see docs/UI-CRAFT.md (type ramp,
                      theme brushes, 4 px grid, one accent action per view). No literal colours or fonts. -->
             </ResourceDictionary.MergedDictionaries>
-            <ResourceDictionary.ThemeDictionaries>
-                <!-- The InfoBar template paints the Informational circle with the accent
-                     (SystemFillColorAttentionBrush), so a red accent makes information look like an
-                     error. These two keys are only read by the Informational state, so Error,
-                     Warning and Success bars keep their colours. Neutral grey follows the theme;
-                     High Contrast keeps its system highlight pair. -->
-                <ResourceDictionary x:Key="Default">
-                    <SolidColorBrush x:Key="InfoBarInformationalSeverityIconBackground"
-                                     Color="{ThemeResource SystemFillColorSolidNeutral}" />
-                    <SolidColorBrush x:Key="InfoBarInformationalSeverityIconForeground"
-                                     Color="{ThemeResource TextFillColorInverse}" />
-                </ResourceDictionary>
-                <ResourceDictionary x:Key="Light">
-                    <SolidColorBrush x:Key="InfoBarInformationalSeverityIconBackground"
-                                     Color="{ThemeResource SystemFillColorSolidNeutral}" />
-                    <SolidColorBrush x:Key="InfoBarInformationalSeverityIconForeground"
-                                     Color="{ThemeResource TextFillColorPrimary}" />
-                </ResourceDictionary>
-                <ResourceDictionary x:Key="HighContrast">
-                    <SolidColorBrush x:Key="InfoBarInformationalSeverityIconBackground"
-                                     Color="{ThemeResource SystemColorHighlightColor}" />
-                    <SolidColorBrush x:Key="InfoBarInformationalSeverityIconForeground"
-                                     Color="{ThemeResource SystemColorHighlightTextColor}" />
-                </ResourceDictionary>
-            </ResourceDictionary.ThemeDictionaries>
             <views:BooleanToVisibilityConverter x:Key="BoolVisibility" />
             <views:StatusKindConverter x:Key="StatusKind" />
             <views:TagColorConverter x:Key="TagColor" />

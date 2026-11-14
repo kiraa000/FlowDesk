@@ -1,9 +1,38 @@
-﻿<Window
+<Window
     x:Class="FlowDesk.App.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:tray="using:H.NotifyIcon">
     <Grid x:Name="Root">
+        <Grid.Resources>
+            <ResourceDictionary>
+                <ResourceDictionary.ThemeDictionaries>
+                    <!-- Element-level (app-level did not reach the InfoBar template, live test 2026-11-14). The InfoBar template paints the Informational circle with the accent
+                         (SystemFillColorAttentionBrush), so a red accent makes information look like an
+                         error. These two keys are only read by the Informational state, so Error,
+                         Warning and Success bars keep their colours. Neutral grey follows the theme;
+                         High Contrast keeps its system highlight pair. -->
+                    <ResourceDictionary x:Key="Default">
+                        <SolidColorBrush x:Key="InfoBarInformationalSeverityIconBackground"
+                                         Color="{ThemeResource SystemFillColorSolidNeutral}" />
+                        <SolidColorBrush x:Key="InfoBarInformationalSeverityIconForeground"
+                                         Color="{ThemeResource TextFillColorInverse}" />
+                    </ResourceDictionary>
+                    <ResourceDictionary x:Key="Light">
+                        <SolidColorBrush x:Key="InfoBarInformationalSeverityIconBackground"
+                                         Color="{ThemeResource SystemFillColorSolidNeutral}" />
+                        <SolidColorBrush x:Key="InfoBarInformationalSeverityIconForeground"
+                                         Color="{ThemeResource TextFillColorPrimary}" />
+                    </ResourceDictionary>
+                    <ResourceDictionary x:Key="HighContrast">
+                        <SolidColorBrush x:Key="InfoBarInformationalSeverityIconBackground"
+                                         Color="{ThemeResource SystemColorHighlightColor}" />
+                        <SolidColorBrush x:Key="InfoBarInformationalSeverityIconForeground"
+                                         Color="{ThemeResource SystemColorHighlightTextColor}" />
+                    </ResourceDictionary>
+                </ResourceDictionary.ThemeDictionaries>
+            </ResourceDictionary>
+        </Grid.Resources>
         <Grid.RowDefinitions>
             <RowDefinition Height="32" />
             <RowDefinition Height="*" />
