@@ -107,9 +107,8 @@ if (-not (Test-Path -LiteralPath $appExe -PathType Leaf)) {
     throw "Publish verification failed: $appExe is missing."
 }
 
-$prohibited = @(Get-ChildItem -LiteralPath $publishPath -Recurse -File -Filter "VirtualDesktopAccessor.dll")
-if ($prohibited.Count -gt 0) {
-    throw "Publish verification failed: VirtualDesktopAccessor.dll must not be shipped (found $($prohibited[0].FullName)). It is third-party and supplied by the user via Settings; no file was deleted."
+if (-not (Test-Path -LiteralPath (Join-Path $publishPath "VirtualDesktopAccessor.dll") -PathType Leaf)) {
+    throw "Publish verification failed: the bundled VirtualDesktopAccessor.dll is missing next to FlowDesk.App.exe (see third_party\VirtualDesktopAccessor)."
 }
 
 # The expected installer name comes from the published exe's ProductVersion, exactly as the .iss

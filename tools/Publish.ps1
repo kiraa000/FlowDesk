@@ -52,10 +52,11 @@ if (-not (Test-Path -LiteralPath $appExe -PathType Leaf)) {
     throw "Publish verification failed: $appExe is missing."
 }
 
-# VirtualDesktopAccessor.dll is third-party; the user supplies it via Settings. Never ship it.
-$prohibited = @(Get-ChildItem -LiteralPath $outputPath -Recurse -File -Filter "VirtualDesktopAccessor.dll")
-if ($prohibited.Count -gt 0) {
-    throw "Publish verification failed: VirtualDesktopAccessor.dll must not be shipped (found $($prohibited[0].FullName)). It was not deleted; remove it from the publish inputs."
+# VirtualDesktopAccessor.dll (third-party, MIT) is bundled next to the exe together with its licence.
+$vdaDll = Join-Path $outputPath "VirtualDesktopAccessor.dll"
+$vdaLicense = Join-Path $outputPath "ThirdPartyLicenses\VirtualDesktopAccessor-LICENSE.txt"
+if (-not (Test-Path -LiteralPath $vdaDll) -or -not (Test-Path -LiteralPath $vdaLicense)) {
+    throw "Publish verification failed: VirtualDesktopAccessor.dll and its licence must be next to FlowDesk.App.exe (see third_party\VirtualDesktopAccessor)."
 }
 
 $files = @(Get-ChildItem -LiteralPath $outputPath -Recurse -File)

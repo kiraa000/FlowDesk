@@ -67,7 +67,7 @@ daily files.
 Pass `-Output <folder>` to choose the destination. The folder must be new or empty: the script refuses to write
 into a folder that already contains files, so an existing build is never overwritten or deleted. It publishes
 self-contained win-x64 with trimming, single-file and ReadyToRun explicitly off, prints the measured file count,
-size and app version, and fails if `VirtualDesktopAccessor.dll` appears in the output. The .NET 10 SDK is required
+size and app version, and fails if the bundled `VirtualDesktopAccessor.dll` or its licence is missing. The .NET 10 SDK is required
 on the build machine.
 
 ## Build the installer
@@ -109,8 +109,9 @@ metadata, passes `/DSourceDir` and `/DOutputDirectory` to ISCC, and expects
   source, thread, exception types and method names only; it omits exception messages, stack-trace file paths,
   activation arguments, window titles and the paths of your other apps. Settings > About has "Open log folder".
   Logging is local only: FlowDesk sends no telemetry.
-- **VirtualDesktopAccessor.dll:** this third-party DLL is not shipped. If you use the virtual-desktop feature,
-  supply it yourself through Settings.
+- **VirtualDesktopAccessor.dll:** bundled (MIT, see `third_party/VirtualDesktopAccessor`) for the virtual-desktop
+  shortcuts. It needs Windows 11 24H2 or newer; on other versions choose a matching build in Settings > Window
+  shortcuts > Choose file... (your file takes precedence over the bundled one).
 
 ## Repository layout
 

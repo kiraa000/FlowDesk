@@ -75,9 +75,11 @@ Settings → **Window shortcuts**. Turn it on to use:
 | Alt+Shift+Wheel | Resize the active window |
 | Alt+Shift+0 | Pause or resume all window shortcuts |
 
-The virtual-desktop shortcuts need the third-party file `VirtualDesktopAccessor.dll` (not included, for licence
-reasons). Download the build that matches your Windows version from the VirtualDesktopAccessor project on GitHub,
-then use Settings → Window shortcuts → **Choose file…**. Everything else works without it.
+The virtual-desktop shortcuts (Alt+1…5, Alt+Shift+1…5) use the third-party file `VirtualDesktopAccessor.dll`,
+which is **included** and works on **Windows 11 24H2 or newer** (Settings → About in Windows shows your version).
+On an older Windows version, download the matching build from the VirtualDesktopAccessor project's releases on
+GitHub and use Settings → Window shortcuts → **Choose file…**; your file is then used instead of the included one.
+All other shortcuts work on any version.
 
 ### 1.7 Where your data is
 

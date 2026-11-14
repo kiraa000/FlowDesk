@@ -31,11 +31,14 @@ public sealed unsafe class VirtualDesktopAccessor : IVirtualDesktops
     public string Status { get; }
     public string? LoadedPath { get; }
 
-    /// <summary>Where the DLL is looked for, in order: next to FlowDesk, then the data folder's native\ folder.</summary>
+    /// <summary>
+    /// Where the DLL is looked for, in order: a file the user chose (data folder's native\ folder), then the copy
+    /// bundled next to FlowDesk. The user's file wins so another Windows version can use its matching build.
+    /// </summary>
     public static IReadOnlyList<string> CandidatePaths(string appDirectory, string dataDirectory) =>
     [
-        Path.Combine(appDirectory, DllName),
         Path.Combine(dataDirectory, "native", DllName),
+        Path.Combine(appDirectory, DllName),
     ];
 
     public static VirtualDesktopAccessor Load(IEnumerable<string> candidatePaths)
