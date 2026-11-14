@@ -16,9 +16,9 @@
                         Visibility="{Binding HasWindows, Converter={StaticResource BoolVisibility}}">
                 <Button Content="Apply layout" Command="{Binding ApplyCommand}"
                         Style="{StaticResource AccentButtonStyle}"
-                        AccessKey="A" IsEnabled="{Binding HasWindows}" />
+                        AccessKey="A" IsEnabled="{Binding CanApply}" ToolTipService.ToolTip="Select at least one window to arrange." />
                 <Button Content="Save as workspace positions" Command="{Binding SaveCommand}"
-                        IsEnabled="{Binding CanSave}"
+                        IsEnabled="{Binding CanSave}" Visibility="{Binding HasActiveWorkspace, Converter={StaticResource BoolVisibility}}"
                         ToolTipService.ToolTip="Apply a layout first to enable saving." />
             </StackPanel>
 
@@ -29,7 +29,7 @@
                           HorizontalAlignment="Left" />
                 <TextBlock Text="No windows to arrange" Style="{StaticResource SubtitleTextBlockStyle}"
                            Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
-                <TextBlock Text="Open a workspace so its windows are visible, then refresh."
+                <TextBlock Text="Open or restore an app window on this monitor, then refresh."
                            Style="{StaticResource BodyTextBlockStyle}"
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                            TextWrapping="Wrap" />
@@ -37,8 +37,7 @@
                         HorizontalAlignment="Left" />
             </StackPanel>
 
-            <StackPanel Spacing="16"
-                        Visibility="{Binding HasWindows, Converter={StaticResource BoolVisibility}}">
+            <StackPanel Spacing="16">
                 <StackPanel Spacing="8" Visibility="{Binding MultipleMonitors, Converter={StaticResource BoolVisibility}}">
                     <TextBlock Text="Monitor" Style="{StaticResource BodyStrongTextBlockStyle}"
                                Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
@@ -96,7 +95,7 @@
                 <StackPanel Spacing="8">
                     <TextBlock Text="Windows" Style="{StaticResource BodyStrongTextBlockStyle}"
                                Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
-                    <TextBlock Text="The first window becomes the primary. Drag rows or press Ctrl+Up/Down to reorder."
+                    <TextBlock Text="Choose windows to arrange. The first checked window becomes the primary. Drag rows or press Ctrl+Up/Down to reorder."
                                Style="{StaticResource CaptionTextBlockStyle}"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                TextWrapping="Wrap" />
@@ -113,16 +112,18 @@
                                 <Grid ColumnSpacing="12" Margin="0,4">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
-                                    <Grid Grid.Column="0" Width="32" Height="32">
+                                    <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}" AutomationProperties.Name="{Binding Name}" VerticalAlignment="Center" />
+                                    <Grid Grid.Column="1" Width="32" Height="32">
                                         <FontIcon Glyph="&#xE71D;" FontSize="16"
                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
                                         <Image services:IconSource.Path="{Binding ExePath}"
                                                Width="24" Height="24" />
                                     </Grid>
-                                    <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                                    <StackPanel Grid.Column="2" Spacing="2" VerticalAlignment="Center">
                                         <TextBlock Text="{Binding Name}"
                                                    Style="{StaticResource BodyStrongTextBlockStyle}"
                                                    Foreground="{ThemeResource TextFillColorPrimaryBrush}"
@@ -138,7 +139,7 @@
                     </ListView>
                 </StackPanel>
 
-                <TextBlock Text="Windows running as administrator may not move. Apply a layout before saving positions."
+                <TextBlock Text="Windows running as administrator may not move. With an active workspace, you can save its positions after applying a layout."
                            Style="{StaticResource CaptionTextBlockStyle}"
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                            TextWrapping="Wrap" />

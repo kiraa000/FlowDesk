@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.Input;
 using FlowDesk.Core.Capture;
 using FlowDesk.Core.Layout;
 using FlowDesk.Core.Windows;
+using FlowDesk.App.Services;
 
 namespace FlowDesk.App.ViewModels;
 
@@ -19,8 +20,11 @@ public partial class MonitorChoice(string name, string device, bool isPrimary) :
     [ObservableProperty] public partial bool IsSelected { get; set; }
     public override string ToString() => Name;
 }
-public sealed record LayoutWindow(string Name, WindowInfo Window)
+public partial class LayoutWindow(string name, WindowInfo window) : ObservableObject
 {
+    public string Name => name;
+    public WindowInfo Window => window;
+    [ObservableProperty] public partial bool IsSelected { get; set; } = true;
     public string Detail => Window.Title;
     public string ExePath => Window.ExePath;
     public override string ToString() => Name;
@@ -37,6 +41,8 @@ public partial class LayoutsViewModel(AppViewModels owner) : ObservableObject
     [ObservableProperty] public partial bool CanSave { get; set; }
     public bool IsEmpty => !HasWindows;
     public bool MultipleMonitors => Monitors.Length > 1;
+    public bool HasActiveWorkspace => workspace is not null && workspace.Model.Id == owner.Services.Switcher.ActiveWorkspaceId;
+    public bool CanApply => Windows.Any(w => w.IsSelected);
 
     /// <summary>"Display 2 · 2560 × 1440 · Main" instead of the raw device name \\.\DISPLAY2.</summary>
     public static string MonitorLabel(string device, bool isPrimary, int width, int height)
@@ -50,41 +56,65 @@ public partial class LayoutsViewModel(AppViewModels owner) : ObservableObject
     }
 
     private WorkspaceViewModel? workspace;
+    private IReadOnlyList<WindowInfo> liveWindows = [];
+    private readonly Dictionary<long, bool> selections = [];
+    private void UpdateWindows()
+    {
+        foreach (var row in Windows) { selections[row.Window.Handle] = row.IsSelected; row.PropertyChanged -= SelectionChanged; }
+        Windows.Clear();
+        var monitor = Monitors.FirstOrDefault(m => m.IsSelected)?.Device;
+        foreach (var window in liveWindows.Where(w => LayoutSelection.Includes(w, monitor, owner.Services.Windows.OwnProcessId)))
+        {
+            var row = new LayoutWindow(string.IsNullOrEmpty(window.ExeName) ? window.Title : window.ExeName, window)
+                { IsSelected = selections.GetValueOrDefault(window.Handle, true) };
+            row.PropertyChanged += SelectionChanged;
+            Windows.Add(row);
+        }
+        HasWindows = Windows.Count > 0; CanSave = false;
+        OnPropertyChanged(nameof(CanApply)); OnPropertyChanged(nameof(HasActiveWorkspace));
+    }
+    private void SelectionChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(LayoutWindow.IsSelected)) return;
+        OnPropertyChanged(nameof(CanApply)); CanSave = false;
+    }
+    private void MonitorChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(MonitorChoice.IsSelected) || sender is not MonitorChoice { IsSelected: true } selected) return;
+        foreach (var monitor in Monitors.Where(m => m != selected)) monitor.IsSelected = false;
+        UpdateWindows();
+    }
     partial void OnHasWindowsChanged(bool value) => OnPropertyChanged(nameof(IsEmpty));
     [RelayCommand] private void OpenWorkspace() => owner.Navigate(AppPage.Workspaces);
     [RelayCommand] private async Task RefreshAsync() => await owner.ExecuteAsync(async () =>
     {
         workspace = owner.WorkspacesCollection.FirstOrDefault(w => w.Model.Id == owner.Services.Switcher.ActiveWorkspaceId);
-        var model = workspace?.Model.Clone();
         var result = await Task.Run(() => (monitors: owner.Services.Windows.GetMonitors(),
-            live: model is null ? new Dictionary<string, WindowInfo>() : owner.Services.Capture.LiveWindowsFor(model)));
+            live: owner.Services.Windows.GetAppWindows()));
         var device = Monitors.FirstOrDefault(m => m.IsSelected)?.Device;
         var monitors = result.monitors.Select(m =>
             new MonitorChoice(MonitorLabel(m.Device, m.IsPrimary, m.Bounds.Width, m.Bounds.Height), m.Device, m.IsPrimary)).ToArray();
         if (monitors.Length > 0) (monitors.FirstOrDefault(m => m.Device == device) ?? monitors[0]).IsSelected = true;
-        Monitors = monitors;
-        Windows.Clear();
-        // Same rule as LayoutEngine: a window that lookup timed out on must not look current when it
-        // is cloaked, while old uncloaked metadata keeps working.
-        if (model is not null) foreach (var item in model.Items)
-            if (result.live.TryGetValue(item.Id, out var w) && DesktopCaptureFilter.IsLocalForLayout(w))
-                Windows.Add(new(item.Name, w));
-        SelectedPreset ??= Presets[0]; HasWindows = Windows.Count > 0; CanSave = false;
+        foreach (var old in Monitors) old.PropertyChanged -= MonitorChanged;
+        Monitors = monitors; liveWindows = result.live;
+        foreach (var m in Monitors) m.PropertyChanged += MonitorChanged;
+        UpdateWindows();
+        SelectedPreset ??= Presets[0];
         OnPropertyChanged(nameof(MultipleMonitors));
     });
     [RelayCommand] private async Task ApplyAsync() => await owner.ExecuteAsync(async () =>
     {
-        if (!HasWindows || SelectedPreset is null) return;
-        var ordered = Windows.Select(w => w.Window).ToArray();
+        if (!CanApply || SelectedPreset is null) return;
+        var ordered = Windows.Where(w => w.IsSelected).Select(w => w.Window).ToArray();
         var preset = SelectedPreset.Preset; var monitor = Monitors.FirstOrDefault(m => m.IsSelected)?.Device;
         var results = await Task.Run(() => owner.Services.Layouts.Apply(preset, ordered, monitor));
-        CanSave = results.Any(r => r.Outcome == PlaceOutcome.Ok);
+        CanSave = HasActiveWorkspace && results.Any(r => r.Outcome == PlaceOutcome.Ok);
         int placed = results.Count(r => r.Outcome == PlaceOutcome.Ok);
         owner.ShowStatus($"Placed {placed} of {results.Count} windows. Windows running as administrator may need elevated access.",
             placed == results.Count ? StatusKind.Success : StatusKind.Warning);
     });
     [RelayCommand] private async Task SaveAsync()
     {
-        if (workspace is not null && CanSave) await owner.SavePositionsAsync(workspace);
+        if (HasActiveWorkspace && workspace is not null && CanSave) await owner.SavePositionsAsync(workspace);
     }
 }

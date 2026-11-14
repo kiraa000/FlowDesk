@@ -30,6 +30,7 @@ public sealed class AppSettings
     public List<string> BrowserRestoreNoticesSeen { get; set; } = [];
     /// <summary>Optional global Alt window shortcuts. Off by default, also for files written before this existed.</summary>
     public bool WindowShortcutsEnabled { get; set; }
+    public bool TrayCloseNoticeShown { get; set; }
 
     public static int ClampLaunchTimeout(int seconds) => LaunchTimeoutValue.Clamp(seconds);
 

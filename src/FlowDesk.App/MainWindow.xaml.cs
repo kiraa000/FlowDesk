@@ -13,12 +13,14 @@ namespace FlowDesk.App;
 public sealed partial class MainWindow : Window
 {
     private readonly AppServices services = new();
-    private bool loaded, closing, allowClose, navigating;
+    private bool loaded, closing, allowClose, navigating, initializing = true;
     private readonly FocusNotifications notifications;
     private readonly DispatcherTimer focusTimer = new() { Interval = TimeSpan.FromSeconds(1) };
     private readonly DispatcherTimer autosaveTimer = new() { Interval = TimeSpan.FromSeconds(30) };
     private bool sampling;
     private bool trayReady;
+    private bool exitRequested, endingSession;
+    private readonly SessionEndHook sessionEnd;
 #if DEBUG
     private Task002Diagnostics? diagnostics;
 #endif
@@ -26,6 +28,7 @@ public sealed partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        sessionEnd = new(WinRT.Interop.WindowNative.GetWindowHandle(this), OnSessionEnd);
         string iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "FlowDesk.ico");
         AppWindow.SetIcon(iconPath);
         // The tray must get a real Icon: a BitmapImage IconSource (ms-appx) crashes startup in this unpackaged
@@ -54,11 +57,18 @@ public sealed partial class MainWindow : Window
         });
         App.ViewModels.Focus.SessionChanged += notifications.ClearSession;
         TrayOpen.Command = new CommunityToolkit.Mvvm.Input.RelayCommand(BringForward);
+        TrayIcon.LeftClickCommand = TrayOpen.Command;
         TrayPause.Command = App.ViewModels.Focus.PauseCommand;
         TrayExit.Command = new CommunityToolkit.Mvvm.Input.AsyncRelayCommand(ExitFromTrayAsync);
         focusTimer.Tick += async (_, _) => await UpdateFocusAsync();
         autosaveTimer.Tick += (_, _) => App.ViewModels.RefreshAutoSaveAge();
-        Closed += (_, _) => { focusTimer.Stop(); autosaveTimer.Stop(); notifications.Dispose(); TrayIcon.Dispose(); services.Hotkeys.Dispose(); services.Dispose(); };
+        Closed += (_, _) =>
+        {
+            sessionEnd.Dispose(); focusTimer.Stop(); autosaveTimer.Stop(); notifications.Dispose(); TrayIcon.Dispose();
+            if (endingSession)
+                _ = Task.Run(() => { services.Focus.Dispose(); services.Hotkeys.Dispose(); services.Dispose(); });
+            else { services.Focus.Dispose(); services.Hotkeys.Dispose(); services.Dispose(); }
+        };
         Root.DataContext = App.ViewModels;
         App.ViewModels.NavigationRequested += Navigate;
         App.ViewModels.ThemeChanged += ApplyTheme;
@@ -131,6 +141,7 @@ public sealed partial class MainWindow : Window
             App.ViewModels.ShowStatus("Could not load workspaces. Check the data folder and restart. " + ex.Message,
                 StatusKind.Error);
         }
+        finally { initializing = false; }
     }
     private bool browserHelpOpen;
     private async void BrowserHelp_Click(object sender, RoutedEventArgs e)
@@ -166,6 +177,7 @@ public sealed partial class MainWindow : Window
     }
     private void Navigate(AppPage page)
     {
+        App.ViewModels.SetCurrentPage(page);
         App.ViewModels.Details.Workspace?.CommitName();
         navigating = true;
         try
@@ -204,37 +216,65 @@ public sealed partial class MainWindow : Window
         if (allowClose) return;
         args.Cancel = true;
         if (closing) return;
-        // Fresh worker-side state, not the last timer sample, determines whether closing hides.
-        if (loaded)
+        if (initializing) { App.ViewModels.ShowStatus("Wait for FlowDesk to finish starting before closing."); return; }
+        var action = UxDecisions.Close(exitRequested, endingSession, loaded, trayReady);
+        if (action == CloseAction.Hide)
         {
-            closing = true;
-            bool focusing = await Task.Run(() => services.Focus.State is not null);
-            closing = false;
-            if (focusing)
+            RememberWindow();
+            AppWindow.Hide();
+            if (UxDecisions.TakeTrayNotice(services.Settings))
             {
-                if (trayReady) AppWindow.Hide();
-                else App.ViewModels.ShowStatus("Keep this window open until the focus session ends: the tray is unavailable.", StatusKind.Warning);
-                return;
+                notifications.ShowMessage("FlowDesk is still running in the tray. Use Exit in the tray menu to close it.");
+                services.Changed(true);
             }
+            return;
         }
         if (App.ViewModels.IsBusy) { App.ViewModels.ShowStatus("Wait for the current operation to finish before closing."); return; }
         if (!loaded) { allowClose = true; Close(); return; }
         closing = true;
+        PageFrame.IsEnabled = false; Navigation.IsEnabled = false;
+        try
+        {
+            if (!exitRequested && !await App.ViewModels.Focus.EndSessionAsync(confirmAnyRunning: true))
+            { closing = false; PageFrame.IsEnabled = true; Navigation.IsEnabled = true; return; }
+        }
+        catch (Exception)
+        {
+            closing = false; PageFrame.IsEnabled = true; Navigation.IsEnabled = true;
+            App.ViewModels.ShowStatus("Close the open dialog before exiting FlowDesk.", StatusKind.Warning); return;
+        }
         // Do not let a new focus session or autosave tick start while the final persistence await is in flight.
         PageFrame.IsEnabled = false; Navigation.IsEnabled = false; focusTimer.Stop(); autosaveTimer.Stop();
         await App.ViewModels.AutoSave.StopAsync();
-        var s = services.Settings;
-        s.Width = AppWindow.Size.Width; s.Height = AppWindow.Size.Height;
-        s.X = AppWindow.Position.X; s.Y = AppWindow.Position.Y;
+        RememberWindow();
         await services.FlushAsync();
         if (!services.LastSaveSucceeded)
         {
-            closing = false; PageFrame.IsEnabled = true; Navigation.IsEnabled = true;
+            closing = false; exitRequested = false; PageFrame.IsEnabled = true; Navigation.IsEnabled = true;
             focusTimer.Start(); autosaveTimer.Start(); App.ViewModels.AutoSave.Start(); return;
         }
         await Task.Run(() => services.Focus.Dispose());
         await services.Hotkeys.StopAsync();
         allowClose = true; Close();
+    }
+    private void RememberWindow()
+    {
+        if (AppWindow.Presenter is OverlappedPresenter { State: OverlappedPresenterState.Minimized }) return;
+        var s = services.Settings;
+        s.Width = AppWindow.Size.Width; s.Height = AppWindow.Size.Height;
+        s.X = AppWindow.Position.X; s.Y = AppWindow.Position.Y;
+    }
+    private void OnSessionEnd()
+    {
+        endingSession = true; allowClose = true;
+        focusTimer.Stop(); autosaveTimer.Stop();
+        // StopAsync invalidates the generation synchronously before its first await.
+        _ = App.ViewModels.AutoSave.StopAsync();
+        RememberWindow();
+        if (loaded) services.FlushForSessionEnd();
+        // No focus confirmation during shutdown, including strict sessions.
+        _ = Task.Run(() => services.Focus.Stop(force: true));
+        DispatcherQueue.TryEnqueue(Close);
     }
     private async Task UpdateFocusAsync()
     {
@@ -256,7 +296,19 @@ public sealed partial class MainWindow : Window
     {
         BringForward();
         if (App.ViewModels.IsBusy) { App.ViewModels.ShowStatus("Wait for the current operation to finish before exiting."); return; }
-        if (!await App.ViewModels.Focus.EndSessionAsync()) return;
+        if (closing || endingSession) return;
+        // Gate new focus starts/navigation while the confirmation is open, not only during flush.
+        closing = true; App.ViewModels.IsBusy = true;
+        try
+        {
+            if (!await App.ViewModels.Focus.EndSessionAsync(confirmAnyRunning: true)) return;
+            exitRequested = true;
+        }
+        catch (Exception)
+        {
+            App.ViewModels.ShowStatus("Close the open dialog before exiting FlowDesk.", StatusKind.Warning); return;
+        }
+        finally { closing = false; App.ViewModels.IsBusy = false; }
         Close();
     }
 }

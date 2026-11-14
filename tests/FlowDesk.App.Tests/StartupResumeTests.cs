@@ -35,7 +35,7 @@ public sealed class StartupResumeTests
         Assert.True(activation.Enabled);
         Assert.False(activation.Always);
         Assert.Equal(SavedAt, activation.SavedAt);
-        Assert.Equal(["find:ws", "baseline", "mark:ws", "active:ws", "enabled:ws", "always:ws"], recorder.Calls);
+        Assert.Equal(["find:ws", "mark:ws", "active:ws", "baseline", "enabled:ws", "always:ws"], recorder.Calls);
         Assert.False(recorder.Cleared);
         Assert.Empty(recorder.Errors);
         // The helper exposes no restore, launch, place or minimize hook at all; only activation ran.
@@ -56,7 +56,7 @@ public sealed class StartupResumeTests
     }
 
     [Fact]
-    public async Task BaselineFailureIsReportedWithoutActivatingOrClearingTheStoredId()
+    public async Task BaselineFailureKeepsIdentityActiveWithoutWatchingOrClearingStoredId()
     {
         var workspace = new Workspace { Id = "ws", Name = "Work" };
         var recorder = new Recorder { ThrowFromBaseline = true };
@@ -68,6 +68,7 @@ public sealed class StartupResumeTests
         Assert.Contains("baseline failed", recorder.Errors[0]);
         Assert.Empty(recorder.Activations);
         Assert.False(recorder.Cleared);
+        Assert.Equal(["find:ws", "mark:ws", "active:ws", "baseline"], recorder.Calls);
     }
 
     private sealed class Recorder

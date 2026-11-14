@@ -27,6 +27,8 @@
     <Compile Include="..\..\src\FlowDesk.App\Services\BrowserNoticeSelection.cs" Link="BrowserNoticeSelection.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\SaveOpenWindowsBinding.cs" Link="SaveOpenWindowsBinding.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\StartupResume.cs" Link="StartupResume.cs" />
+    <Compile Include="..\..\src\FlowDesk.App\Services\UxDecisions.cs" Link="UxDecisions.cs" />
+    <Compile Include="..\..\src\FlowDesk.App\Services\LayoutSelection.cs" Link="LayoutSelection.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\StartupRegistration.cs" Link="StartupRegistration.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\CrashLog.cs" Link="CrashLog.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\ActivationRouter.cs" Link="ActivationRouter.cs" />

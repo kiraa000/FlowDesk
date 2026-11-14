@@ -38,6 +38,7 @@ public partial class AppViewModels : ObservableObject
     private RestoreReport? report;
     private WorkspaceViewModel? activeWorkspace;
     private string? lastAutoSaveError;
+    private AppPage currentPage = AppPage.Workspaces;
 
     public AppViewModels(AppServices services, IUserInteraction ui)
     {
@@ -84,9 +85,8 @@ public partial class AppViewModels : ObservableObject
             ClearStoredActiveWorkspace,
             message => ShowStatus(message, StatusKind.Warning));
 
-        if (outcome != StartupResumeOutcome.Resumed) return;
         foreach (var workspace in WorkspacesCollection) workspace.RefreshSummary();
-        if (activeWorkspace is not null) BrowserNotice.ShowFor(activeWorkspace);
+        RefreshBrowserNotice();
     }
 
     /// <summary>One activation shape for a successful Open and a startup resume.</summary>
@@ -103,8 +103,10 @@ public partial class AppViewModels : ObservableObject
     public void Navigate(AppPage page)
     {
         Details.Workspace?.CommitName();
+        SetCurrentPage(page);
         NavigationRequested?.Invoke(page);
     }
+    internal void SetCurrentPage(AppPage page) { currentPage = page; RefreshBrowserNotice(); }
 
     internal string? ActiveWorkspaceId => activeWorkspace?.Model.Id;
 
@@ -137,7 +139,7 @@ public partial class AppViewModels : ObservableObject
     internal void RefreshActiveItems()
     {
         activeWorkspace?.ReloadItems();
-        if (activeWorkspace is not null) BrowserNotice.ShowFor(activeWorkspace);
+        RefreshBrowserNotice();
     }
     internal void RefreshAutoSaveAge()
     {
@@ -145,7 +147,12 @@ public partial class AppViewModels : ObservableObject
     }
 
     internal void RefreshBrowserNotice(WorkspaceViewModel? workspace = null) =>
-        BrowserNotice.ShowFor(workspace ?? activeWorkspace ?? Details.Workspace);
+        BrowserNotice.ShowFor(currentPage switch
+        {
+            AppPage.Details => Details.Workspace?.Model,
+            AppPage.Capture => new Workspace { Items = Capture.Candidates.Select(c => c.Source.Item).ToList() },
+            _ => null
+        });
 
     internal void SetAutosaveEnabled(WorkspaceViewModel workspace, bool enabled)
     {
@@ -200,7 +207,7 @@ public partial class AppViewModels : ObservableObject
     internal void Edit(WorkspaceViewModel workspace)
     {
         Details.Workspace = workspace; Navigate(AppPage.Details);
-        BrowserNotice.ShowFor(workspace);
+        RefreshBrowserNotice();
     }
     internal void ShowStatus(string message, StatusKind kind = StatusKind.Information)
     {
@@ -326,7 +333,7 @@ public partial class AppViewModels : ObservableObject
                 Services.Settings.IsAutosaveEnabled(workspace.Model.Id),
                 Services.Settings.AlwaysAddsNewWindows(workspace.Model.Id),
                 workspace.Model.LayoutSavedAt);
-            BrowserNotice.ShowFor(workspace);
+            RefreshBrowserNotice();
 
             var (message, hasFailures) = RestoreReportText.Summary(workspace.Name, restoreReport);
             ShowStatus(message, hasFailures ? StatusKind.Warning : StatusKind.Success);

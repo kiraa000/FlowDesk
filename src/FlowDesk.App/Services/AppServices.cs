@@ -132,4 +132,15 @@ public sealed class AppServices : ObservableObject, IDisposable
         }
     }
     public async Task FlushAsync() { Changed(true); await pending; }
+
+    // Snapshot on the UI thread; the shutdown writer must not need that dispatcher to finish.
+    // Windows may terminate us after WM_ENDSESSION, so give atomic persistence a bounded opportunity.
+    public void FlushForSessionEnd()
+    {
+        debounce?.Cancel();
+        var data = SnapshotData();
+        var settings = JsonSerializer.Serialize(Settings, JsonStore.Options);
+        try { Task.Run(() => PersistAsync(data, settings, true, CancellationToken.None)).Wait(TimeSpan.FromSeconds(1)); }
+        catch (Exception) { /* Never veto Windows shutdown for a storage failure. */ }
+    }
 }

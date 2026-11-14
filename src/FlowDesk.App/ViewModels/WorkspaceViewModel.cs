@@ -23,6 +23,7 @@ public partial class WorkspaceViewModel : ObservableObject
     [ObservableProperty] public partial bool AutosaveEnabled { get; set; }
     [ObservableProperty] public partial bool AlwaysAddNewWindows { get; set; }
     public ObservableCollection<ItemViewModel> Items { get; } = [];
+    public bool IsActive => owner.Services.Switcher.ActiveWorkspaceId == Model.Id;
     public string Summary
     {
         get
@@ -32,8 +33,8 @@ public partial class WorkspaceViewModel : ObservableObject
                 : age.Value.TotalHours < 1 ? $"Last used {(int)age.Value.TotalMinutes} min ago"
                 : age.Value.TotalDays < 1 ? $"Last used {(int)age.Value.TotalHours} hours ago"
                 : $"Last used {(int)age.Value.TotalDays} days ago";
-            string active = owner.Services.Switcher.ActiveWorkspaceId == Model.Id ? " · Active" : "";
-            return $"{Items.Count} items · {used} · {ColorLabel}{active}";
+            string active = IsActive ? "Active · " : "";
+            return $"{active}{Items.Count} items · {used} · {ColorLabel}";
         }
     }
     public string ColorLabel => string.IsNullOrEmpty(Color) ? ""
@@ -102,7 +103,7 @@ public partial class WorkspaceViewModel : ObservableObject
         AlwaysAddNewWindows = value;
         syncingSettings = false;
     }
-    internal void RefreshSummary() => OnPropertyChanged(nameof(Summary));
+    internal void RefreshSummary() { OnPropertyChanged(nameof(Summary)); OnPropertyChanged(nameof(IsActive)); }
     internal void ReloadItems()
     {
         Items.Clear();
@@ -160,7 +161,7 @@ public partial class ItemViewModel : ObservableObject
 
     public string Name => model.Name;
     public string Detail => model.Kind == ItemKind.Website ? string.Join("\n", model.Urls)
-        : model.Path ?? model.App?.ExePath ?? model.App?.Aumid ?? "Program unavailable";
+        : model.Kind is ItemKind.File or ItemKind.Folder ? model.Path ?? "Path unavailable" : model.Name;
     public string ExePath => model.App?.ExePath ?? (model.Kind == ItemKind.File ? model.Path : null) ?? "";
     public string Glyph => ItemDisplay.Glyph(model.Kind);
     public string Position => ItemDisplay.Position(model);
@@ -191,7 +192,8 @@ internal static class ItemDisplay
         ItemKind.Website => "\uE774", ItemKind.Folder => "\uE8B7", ItemKind.File => "\uE8A5", _ => "\uE7C3"
     };
     public static string Position(WorkspaceItem item) => item.Window is { } w
-        ? DesktopPrefix(w) + $"{w.MonitorDevice.Replace(@"\\.\DISPLAY", "Monitor ")} · {w.Show} · {w.Rect.Width} × {w.Rect.Height}"
+        ? DesktopPrefix(w) + $"{w.MonitorDevice.Replace(@"\\.\DISPLAY", "Monitor ")} · {w.Show}"
+            + (w.Show == WindowShow.Normal ? $" · {w.Rect.Width} × {w.Rect.Height}" : "")
         : "Position chosen by the app";
 
     /// <summary>The saved desktop is shown with the position; old data without one keeps the old line.</summary>

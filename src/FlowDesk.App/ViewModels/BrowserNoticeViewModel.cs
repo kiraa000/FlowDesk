@@ -19,11 +19,11 @@ public partial class BrowserNoticeViewModel : ObservableObject
 
     internal BrowserNoticeViewModel(AppViewModels owner) => _owner = owner;
 
-    internal void ShowFor(WorkspaceViewModel? workspace)
+    internal void ShowFor(FlowDesk.Core.Model.Workspace? workspace)
     {
         IReadOnlyList<BrowserRestoreNotice> notices = workspace is null
             ? []
-            : BrowserNoticeSelection.Unseen(workspace.Model, _owner.Services.Settings.HasSeenBrowserNotice);
+            : BrowserNoticeSelection.Unseen(workspace, _owner.Services.Settings.HasSeenBrowserNotice, includeAllBrowsers: true);
         if (notices.Count == 0)
         {
             Hide();

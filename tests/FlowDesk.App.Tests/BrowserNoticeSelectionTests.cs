@@ -39,4 +39,13 @@ public sealed class BrowserNoticeSelectionTests
     {
         Kind = ItemKind.App, Name = name, App = new AppRef { ExePath = exe }, ReopenLastTabs = toggle,
     };
+
+    [Fact]
+    public void ContextualHintIncludesBrowsersWithToggleOffButStillHonorsGotIt()
+    {
+        var workspace = new Workspace { Items = [Browser(@"C:\Chrome\chrome.exe", "Chrome", toggle: false)] };
+        Assert.Single(BrowserNoticeSelection.Unseen(workspace, _ => false, includeAllBrowsers: true));
+        Assert.Empty(BrowserNoticeSelection.Unseen(workspace, _ => true, includeAllBrowsers: true));
+        Assert.Empty(BrowserNoticeSelection.Unseen(new Workspace(), _ => false, includeAllBrowsers: true));
+    }
 }

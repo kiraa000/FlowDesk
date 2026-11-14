@@ -34,10 +34,10 @@ public static class StartupResume
 
         try
         {
-            // Read handles off the UI thread before anything becomes active, exactly like Open does after a restore.
-            var baseline = await enumerateBaseline();
+            // A valid persisted identity remains active even when watching cannot start.
             markActive(workspace.Id);
             setActiveWorkspace(workspace.Id);
+            var baseline = await enumerateBaseline();
             activate(workspace.Id, baseline,
                 isAutosaveEnabled(workspace.Id), alwaysAddsNewWindows(workspace.Id), workspace.LayoutSavedAt);
             return StartupResumeOutcome.Resumed;

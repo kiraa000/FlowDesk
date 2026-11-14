@@ -100,8 +100,16 @@ public partial class SaveOpenWindowsViewModel(AppViewModels owner) : ObservableO
     public bool HasError => !string.IsNullOrEmpty(Error);
     public bool IsEmpty => !IsLoading && Candidates.Count == 0;
     public ObservableCollection<CandidateViewModel> Candidates { get; } = [];
+    public bool CanSave => !IsLoading && UxDecisions.CanSaveWindows(Candidates.Select(c => (c.Selected, c.CanSelect)));
+    public string SaveDisabledReason => CanSave ? "" : IsLoading ? "Wait for windows to finish loading." : "Select at least one window to save.";
+    private void UpdateSelection()
+    {
+        OnPropertyChanged(nameof(CanSave)); OnPropertyChanged(nameof(SaveDisabledReason));
+        SaveCommand.NotifyCanExecuteChanged();
+    }
+    partial void OnNameChanged(string value) => UpdateSelection();
     partial void OnErrorChanged(string value) => OnPropertyChanged(nameof(HasError));
-    partial void OnIsLoadingChanged(bool value) => OnPropertyChanged(nameof(IsEmpty));
+    partial void OnIsLoadingChanged(bool value) { OnPropertyChanged(nameof(IsEmpty)); UpdateSelection(); }
     [RelayCommand]
     private async Task RefreshAsync() => await owner.ExecuteAsync(async () =>
     {
@@ -109,14 +117,31 @@ public partial class SaveOpenWindowsViewModel(AppViewModels owner) : ObservableO
         try
         {
             var captured = await Task.Run(() => owner.Services.Capture.CaptureOpenWindows());
+            foreach (var old in Candidates) old.PropertyChanged -= CandidateChanged;
             Candidates.Clear();
             // Current desktop first, then each desktop in order; stable inside a desktop.
             foreach (var candidate in captured.OrderBy(c => DesktopLabels.SortKey(c.Window)))
-                Candidates.Add(new(candidate));
+            {
+                var row = new CandidateViewModel(candidate);
+                row.PropertyChanged += CandidateChanged;
+                Candidates.Add(row);
+            }
+            owner.RefreshBrowserNotice();
         }
         finally { IsLoading = false; }
     });
-    [RelayCommand]
+    private void CandidateChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(CandidateViewModel.Selected)) UpdateSelection();
+    }
+    [RelayCommand] private void SelectAll() => Select(true);
+    [RelayCommand] private void SelectNone() => Select(false);
+    private void Select(bool all)
+    {
+        foreach (var row in Candidates) row.Selected = UxDecisions.SelectWindow(all, row.CanSelect);
+        UpdateSelection();
+    }
+    [RelayCommand(CanExecute = nameof(CanSave))]
     private void Save()
     {
         Error = "";
@@ -155,22 +180,19 @@ public partial class CandidateViewModel : ObservableObject
     public bool HasNoProblem => Source.Problem is null;
     public string Name => Source.Item.Name;
     public string Title => Source.Window.Title;
-    public string Position => ItemDisplay.Position(Source.Item);
+    public string Position => DesktopLabels.Prefix(Source.Window,
+        $"{Source.Window.MonitorDevice.Replace(@"\\.\DISPLAY", "Monitor ")} · {Source.Window.Show} · {Source.Window.NormalRect.Width} × {Source.Window.NormalRect.Height}");
     public string Problem => Source.Problem ?? "";
     /// <summary>
-    /// The single secondary line of a compact row: why it cannot be picked, else the window title,
-    /// else its position. A title that merely repeats the name is not shown (it would be noise).
-    /// The virtual desktop leads the line when the backend can tell, so it reads at a glance.
+    /// Consistent title line; position and unavailable-window reason have their own lines.
     /// </summary>
-    public string Secondary => HasProblem ? DesktopLabels.Prefix(Source.Window, Problem)
-        : !string.IsNullOrWhiteSpace(Title) && !string.Equals(Title.Trim(), Name.Trim(), StringComparison.OrdinalIgnoreCase)
-            ? DesktopLabels.Prefix(Source.Window, Title.Trim()) : Position;
+    public string Secondary => Title.Trim();
     public bool IsBrowser => Source.IsBrowser;
     public string ExePath => Source.Window.ExePath;
     /// <summary>Stable id for the trusted real-app script: selects this exact window, not a same-name twin.</summary>
     public string AutomationId => "window-" + Source.Window.Handle.ToString(System.Globalization.CultureInfo.InvariantCulture);
     public string Glyph => ItemDisplay.Glyph(Source.Item.Kind);
-    public CandidateViewModel(CaptureCandidate candidate) { Source = candidate; Selected = CanSelect; }
+    public CandidateViewModel(CaptureCandidate candidate) { Source = candidate; Selected = UxDecisions.InitialWindowSelection; }
 }
 
 public partial class SettingsViewModel(AppViewModels owner) : ObservableObject

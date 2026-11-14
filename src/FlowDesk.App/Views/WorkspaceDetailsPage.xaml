@@ -109,6 +109,7 @@
                                         Foreground="{ThemeResource TextFillColorPrimaryBrush}"
                                         TextWrapping="Wrap" />
                                     <TextBlock Text="{Binding Detail}"
+                                        ToolTipService.ToolTip="{Binding ExePath}"
                                         Style="{StaticResource BodyTextBlockStyle}"
                                         Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                         TextWrapping="Wrap" />
@@ -116,16 +117,11 @@
                                         Style="{StaticResource CaptionTextBlockStyle}"
                                         Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                         TextWrapping="Wrap" />
-                                    <StackPanel Spacing="2"
-                                        Visibility="{Binding IsBrowser, Converter={StaticResource BoolVisibility}}">
-                                        <ToggleSwitch Header="Reopen my last tabs"
-                                                      IsOn="{Binding ReopenLastTabs, Mode=TwoWay}"
-                                                      AutomationProperties.Name="Reopen my last browser tabs" />
-                                        <TextBlock Text="Starts the browser with its profile so it restores its own last session."
-                                            Style="{StaticResource CaptionTextBlockStyle}"
-                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                            TextWrapping="Wrap" />
-                                    </StackPanel>
+                                    <ToggleSwitch OnContent="Reopen my last tabs" OffContent="Reopen my last tabs"
+                                                  Visibility="{Binding IsBrowser, Converter={StaticResource BoolVisibility}}"
+                                                  IsOn="{Binding ReopenLastTabs, Mode=TwoWay}"
+                                                  ToolTipService.ToolTip="Starts the browser with its profile so it restores its own last session."
+                                                  AutomationProperties.Name="Reopen my last browser tabs" />
                                 </StackPanel>
                                 <Button Grid.Column="2" Content="Remove"
                                         Command="{Binding RemoveCommand}" />

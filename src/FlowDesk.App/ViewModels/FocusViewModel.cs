@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.Input;
 using FlowDesk.Core.Focus;
 using FlowDesk.Core.Model;
 using FlowDesk.Core.Storage;
+using FlowDesk.App.Services;
 
 namespace FlowDesk.App.ViewModels;
 
@@ -37,8 +38,14 @@ public partial class FocusViewModel : ObservableObject
     [ObservableProperty] public partial double Progress { get; set; }
     [ObservableProperty] public partial string SessionDescription { get; set; } = "";
     public bool IsIdle => !IsRunning;
+    public bool CanStart => UxDecisions.CanStartFocus(IsRunning, BlockAll, Blocked.Count);
+    public string StartDisabledReason => IsRunning ? "" : CanStart ? "" : "Add a blocked app or turn on Block every app.";
     public event Action? SessionChanged;
-    public FocusViewModel(AppViewModels owner) { this.owner = owner; }
+    public FocusViewModel(AppViewModels owner)
+    {
+        this.owner = owner;
+        Blocked.CollectionChanged += (_, _) => UpdateStart();
+    }
     internal void Load()
     {
         loading = true; var s = owner.Services.Data.Focus;
@@ -50,8 +57,13 @@ public partial class FocusViewModel : ObservableObject
     }
     partial void OnDurationChanged(int value) => Persist();
     partial void OnStrictnessIndexChanged(int value) => Persist();
-    partial void OnBlockAllChanged(bool value) => Persist();
-    partial void OnIsRunningChanged(bool value) => OnPropertyChanged(nameof(IsIdle));
+    partial void OnBlockAllChanged(bool value) { Persist(); UpdateStart(); }
+    partial void OnIsRunningChanged(bool value) { OnPropertyChanged(nameof(IsIdle)); UpdateStart(); }
+    private void UpdateStart()
+    {
+        OnPropertyChanged(nameof(CanStart)); OnPropertyChanged(nameof(StartDisabledReason));
+        StartCommand.NotifyCanExecuteChanged();
+    }
     private void Persist()
     {
         if (loading) return;
@@ -108,11 +120,12 @@ public partial class FocusViewModel : ObservableObject
     }
     [RelayCommand] private void RemoveBlocked(FocusRuleRow row) { if (!IsRunning) { Blocked.Remove(row); UpdateEmpty(); Persist(); } }
     [RelayCommand] private void RemoveAllowed(FocusRuleRow row) { if (!IsRunning) { Allowed.Remove(row); UpdateEmpty(); Persist(); } }
-    [RelayCommand] private async Task StartAsync() => await owner.ExecuteAsync(async () =>
+    [RelayCommand(CanExecute = nameof(CanStart))] private async Task StartAsync() => await owner.ExecuteAsync(async () =>
     {
         await operations.WaitAsync();
         try
         {
+            if (!CanStart) return;
             Persist();
             var snapshot = JsonSerializer.Deserialize<FocusSettings>(JsonSerializer.Serialize(owner.Services.Data.Focus, JsonStore.Options), JsonStore.Options)!;
             totalSeconds = snapshot.DurationMinutes * 60;
@@ -133,14 +146,16 @@ public partial class FocusViewModel : ObservableObject
         finally { operations.Release(); }
     }
     [RelayCommand] private Task EndAsync() => EndSessionAsync();
-    public async Task<bool> EndSessionAsync()
+    public async Task<bool> EndSessionAsync(bool confirmAnyRunning = false)
     {
         await operations.WaitAsync();
         try
         {
             var state = await Task.Run(() => owner.Services.Focus.State);
-            if (state?.Strictness == FocusStrictness.Strict && !await owner.Ui.ConfirmAsync("End strict focus?",
-                "This ends your strict session early. Blocked apps will be available again.", "End session")) return false;
+            if (UxDecisions.ConfirmFocusEnd(state is not null, state?.Strictness == FocusStrictness.Strict, confirmAnyRunning)
+                && !await owner.Ui.ConfirmAsync(confirmAnyRunning ? "Exit FlowDesk and end focus?" : "End strict focus?",
+                    "This ends your session early. Blocked apps will be available again.",
+                    confirmAnyRunning ? "Exit" : "End session")) return false;
             await Task.Run(() => owner.Services.Focus.Stop(force: true));
             await RefreshAsync(); SessionChanged?.Invoke(); return true;
         }

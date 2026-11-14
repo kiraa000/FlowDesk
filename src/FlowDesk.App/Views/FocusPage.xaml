@@ -238,16 +238,28 @@
                     </ItemsControl>
                 </StackPanel>
 
-                <StackPanel Orientation="Horizontal" Spacing="12">
-                    <Button Content="Start focus" Command="{Binding StartCommand}"
+                <Grid ColumnSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Button Grid.Column="0" Content="Start focus" Command="{Binding StartCommand}"
+                            IsEnabled="{Binding CanStart}"
                             Style="{StaticResource AccentButtonStyle}"
                             AccessKey="S" MinWidth="120" />
-                    <TextBlock Text="Blocked apps are closed or warned according to the strictness above."
+                    <TextBlock Grid.Column="1"
+                               Text="Blocked apps are closed or warned according to the strictness above."
+                               Visibility="{Binding CanStart, Converter={StaticResource BoolVisibility}}"
                                VerticalAlignment="Center"
                                Style="{StaticResource CaptionTextBlockStyle}"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                TextWrapping="Wrap" />
-                </StackPanel>
+                    <TextBlock Grid.Column="1" Text="{Binding StartDisabledReason}"
+                               VerticalAlignment="Center"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               TextWrapping="Wrap" />
+                </Grid>
             </StackPanel>
         </StackPanel>
     </ScrollViewer>
