@@ -26,7 +26,12 @@ public sealed partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "FlowDesk.ico"));
+        string iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "FlowDesk.ico");
+        AppWindow.SetIcon(iconPath);
+        // The tray must get a real Icon: a BitmapImage IconSource (ms-appx) crashes startup in this unpackaged
+        // app (stowed exception in CoreMessagingXP). The XAML GeneratedIconSource stays as the fallback.
+        try { if (File.Exists(iconPath)) TrayIcon.UpdateIcon(new System.Drawing.Icon(iconPath, 32, 32)); }
+        catch (Exception) { }
         App.ViewModels = new(services, new UserInteraction(this, Root));
         notifications = new(a => DispatcherQueue.TryEnqueue(() => a()),
             message => App.ViewModels.ShowStatus(message, StatusKind.Warning), async window =>
