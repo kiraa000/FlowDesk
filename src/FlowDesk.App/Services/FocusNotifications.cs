@@ -15,6 +15,14 @@ public sealed class FocusNotifications : IDisposable
     private readonly Action activate;
     private readonly Dictionary<string, WindowInfo> allowances = [];
     private bool registered;
+    private bool subscribed;
+    internal const string TrayNotice = "FlowDesk is still running in the tray. Use Exit in the tray menu to close it.";
+    internal bool Supported { get; private set; }
+    internal bool Registered => registered;
+    internal string? RegistrationFailure { get; private set; }
+    internal string? LastFailure { get; private set; }
+    internal uint LastNotificationId { get; private set; }
+    internal string? LastSetting { get; private set; }
 #if DEBUG
     internal Action<string, uint>? DiagnosticNotification { get; set; }
 #endif
@@ -22,8 +30,20 @@ public sealed class FocusNotifications : IDisposable
     { this.enqueue = enqueue; this.error = error; this.allow = allow; this.activate = activate; }
     public void Initialize()
     {
-        try { manager.NotificationInvoked += Invoked; manager.Register(); registered = true; }
-        catch (Exception) { error("Windows notifications are unavailable. Focus reminders still appear in FlowDesk."); }
+        if (registered) return;
+        try
+        {
+            Supported = AppNotificationManager.IsSupported();
+            if (!Supported) { RegistrationFailure = "Unsupported"; error("Windows notifications are unavailable. Focus reminders still appear in FlowDesk."); return; }
+            if (!subscribed) { manager.NotificationInvoked += Invoked; subscribed = true; }
+            manager.Register(); registered = true; RegistrationFailure = null;
+        }
+        catch (Exception ex)
+        {
+            // Keep only type/HRESULT, never machine paths or exception messages in diagnostic evidence.
+            RegistrationFailure = Failure(ex);
+            error("Windows notifications are unavailable. Focus reminders still appear in FlowDesk.");
+        }
     }
     public void ClearSession() => allowances.Clear();
     public void Blocked(AppBlockedEvent e)
@@ -42,21 +62,35 @@ public sealed class FocusNotifications : IDisposable
     public void Complete() { ClearSession(); Show("Focus session complete"); }
 
     /// <summary>Short app notification for non-focus state changes (window shortcuts pause toggle).</summary>
-    public void ShowMessage(string message) => Show(message);
-    private void Show(string message, string actions = "")
+    public bool ShowMessage(string message) => Show(message);
+    private bool Show(string message, string actions = "")
     {
-        if (!registered) return;
+        LastNotificationId = 0; LastFailure = null; LastSetting = null;
+        if (!registered) { LastFailure = RegistrationFailure ?? "NotRegistered"; return false; }
         try
         {
+            var setting = manager.Setting;
+            LastSetting = setting.ToString();
+            if (setting != AppNotificationSetting.Enabled) { LastFailure = "NotificationsNotEnabled"; return false; }
             var xml = $"<toast duration=\"long\"><visual><binding template=\"ToastGeneric\"><text>FlowDesk</text><text>{SecurityElement.Escape(message)}</text></binding></visual>{actions}</toast>";
             var notification = new AppNotification(xml);
             manager.Show(notification);
+            LastNotificationId = notification.Id;
 #if DEBUG
             DiagnosticNotification?.Invoke(xml, notification.Id);
 #endif
+            // Register/Show can silently no-op in unsupported contexts (notably elevation).
+            if (notification.Id == 0) { LastFailure = "NoPlatformId"; return false; }
+            return true;
         }
-        catch (Exception) { error("Windows could not show the notification. Open FlowDesk for focus status."); }
+        catch (Exception ex)
+        {
+            LastFailure = Failure(ex);
+            error("Windows could not show the notification. Open FlowDesk for focus status.");
+            return false;
+        }
     }
+    private static string Failure(Exception ex) => $"{ex.GetType().Name} (0x{ex.HResult:X8})";
     private void Invoked(AppNotificationManager sender, AppNotificationActivatedEventArgs args)
     {
         var argument = args.Argument;
@@ -71,8 +105,11 @@ public sealed class FocusNotifications : IDisposable
     }
     public void Dispose()
     {
-        manager.NotificationInvoked -= Invoked;
-        if (registered) manager.Unregister();
+        if (subscribed) manager.NotificationInvoked -= Invoked;
+        subscribed = false;
+        try { if (registered) manager.Unregister(); }
+        catch (Exception) { /* Notification cleanup must not prevent the rest of application teardown. */ }
+        registered = false;
         allowances.Clear();
     }
 }

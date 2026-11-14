@@ -10,9 +10,12 @@ public static class UxDecisions
         explicitExit || endingSession || !loaded ? CloseAction.Exit
         : trayReady ? CloseAction.Hide : CloseAction.Exit;
 
-    public static bool TakeTrayNotice(AppSettings settings)
+    // Delivery is synchronous, before hiding: failure must leave both the window and the notice pending.
+    // A successful platform handoff does not promise a banner (Windows can suppress it with Do not disturb).
+    public static bool CanHideWithTrayNotice(AppSettings settings, Func<bool> deliver)
     {
-        if (settings.TrayCloseNoticeShown) return false;
+        if (settings.TrayCloseNoticeShown) return true;
+        if (!deliver()) return false;
         settings.TrayCloseNoticeShown = true;
         return true;
     }

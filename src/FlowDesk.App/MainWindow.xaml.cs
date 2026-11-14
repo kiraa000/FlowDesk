@@ -221,12 +221,15 @@ public sealed partial class MainWindow : Window
         if (action == CloseAction.Hide)
         {
             RememberWindow();
-            AppWindow.Hide();
-            if (UxDecisions.TakeTrayNotice(services.Settings))
+            bool wasShown = services.Settings.TrayCloseNoticeShown;
+            if (!UxDecisions.CanHideWithTrayNotice(services.Settings, () => notifications.ShowMessage(FocusNotifications.TrayNotice)))
             {
-                notifications.ShowMessage("FlowDesk is still running in the tray. Use Exit in the tray menu to close it.");
-                services.Changed(true);
+                // Native inline fallback: never hide the only explanation when Windows cannot accept a toast.
+                App.ViewModels.ShowStatus("FlowDesk stays running in the tray. Windows notifications are unavailable, so this window stayed open. Use Minimize to keep it running, or Exit in the tray menu to close it.", StatusKind.Information);
+                return;
             }
+            if (!wasShown) services.Changed(true);
+            AppWindow.Hide();
             return;
         }
         if (App.ViewModels.IsBusy) { App.ViewModels.ShowStatus("Wait for the current operation to finish before closing."); return; }

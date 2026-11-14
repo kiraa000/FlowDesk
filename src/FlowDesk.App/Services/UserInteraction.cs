@@ -68,6 +68,7 @@ public sealed class UserInteraction(Window window, FrameworkElement root) : IUse
     public async Task<CaptureCandidate?> PickRunningAsync(IReadOnlyList<CaptureCandidate> candidates)
     {
         var list = new ListView { SelectionMode = ListViewSelectionMode.Single, MaxHeight = 320 };
+        int? currentDesktop = DesktopLabels.CurrentDesktopIndex(candidates.Select(c => c.Window));
         foreach (var candidate in candidates)
         {
             var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
@@ -76,7 +77,7 @@ public sealed class UserInteraction(Window window, FrameworkElement root) : IUse
             var text = Ui.Stack();
             text.Children.Add(Ui.Text(candidate.Item.Name, "BodyStrongTextBlockStyle"));
             string exe = candidate.Window.ExeName + ".exe";
-            string desktop = DesktopLabels.For(candidate.Window);
+            string desktop = DesktopLabels.For(candidate.Window, currentDesktop);
             text.Children.Add(Ui.Text(desktop.Length == 0 ? exe : $"{exe} · {desktop}", secondary: true));
             row.Children.Add(text); list.Items.Add(row);
         }

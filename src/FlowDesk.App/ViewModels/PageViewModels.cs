@@ -117,12 +117,15 @@ public partial class SaveOpenWindowsViewModel(AppViewModels owner) : ObservableO
         try
         {
             var captured = await Task.Run(() => owner.Services.Capture.CaptureOpenWindows());
+            // Windows on the current desktop may lack their own number; use the one any of them knows
+            // so every current-desktop row reads "Desktop N (current)".
+            int? currentDesktop = DesktopLabels.CurrentDesktopIndex(captured.Select(c => c.Window));
             foreach (var old in Candidates) old.PropertyChanged -= CandidateChanged;
             Candidates.Clear();
             // Current desktop first, then each desktop in order; stable inside a desktop.
             foreach (var candidate in captured.OrderBy(c => DesktopLabels.SortKey(c.Window)))
             {
-                var row = new CandidateViewModel(candidate);
+                var row = new CandidateViewModel(candidate, currentDesktop);
                 row.PropertyChanged += CandidateChanged;
                 Candidates.Add(row);
             }
@@ -173,6 +176,7 @@ public partial class SaveOpenWindowsViewModel(AppViewModels owner) : ObservableO
 public partial class CandidateViewModel : ObservableObject
 {
     internal CaptureCandidate Source { get; }
+    private readonly int? currentDesktopIndex;
     [ObservableProperty] public partial bool Selected { get; set; }
     [ObservableProperty] public partial string Links { get; set; } = "";
     public bool CanSelect => Source.Problem is null;
@@ -181,7 +185,8 @@ public partial class CandidateViewModel : ObservableObject
     public string Name => Source.Item.Name;
     public string Title => Source.Window.Title;
     public string Position => DesktopLabels.Prefix(Source.Window,
-        $"{Source.Window.MonitorDevice.Replace(@"\\.\DISPLAY", "Monitor ")} · {Source.Window.Show} · {Source.Window.NormalRect.Width} × {Source.Window.NormalRect.Height}");
+        $"{Source.Window.MonitorDevice.Replace(@"\\.\DISPLAY", "Monitor ")} · {Source.Window.Show} · {Source.Window.NormalRect.Width} × {Source.Window.NormalRect.Height}",
+        currentDesktopIndex);
     public string Problem => Source.Problem ?? "";
     /// <summary>
     /// Consistent title line; position and unavailable-window reason have their own lines.
@@ -192,7 +197,12 @@ public partial class CandidateViewModel : ObservableObject
     /// <summary>Stable id for the trusted real-app script: selects this exact window, not a same-name twin.</summary>
     public string AutomationId => "window-" + Source.Window.Handle.ToString(System.Globalization.CultureInfo.InvariantCulture);
     public string Glyph => ItemDisplay.Glyph(Source.Item.Kind);
-    public CandidateViewModel(CaptureCandidate candidate) { Source = candidate; Selected = UxDecisions.InitialWindowSelection; }
+    public CandidateViewModel(CaptureCandidate candidate, int? currentDesktopIndex = null)
+    {
+        Source = candidate;
+        this.currentDesktopIndex = currentDesktopIndex;
+        Selected = UxDecisions.InitialWindowSelection;
+    }
 }
 
 public partial class SettingsViewModel(AppViewModels owner) : ObservableObject

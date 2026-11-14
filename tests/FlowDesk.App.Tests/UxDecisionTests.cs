@@ -17,13 +17,38 @@ public sealed class UxDecisionTests
         Assert.Equal(expected, UxDecisions.Close(exit, ending, loaded, tray));
 
     [Fact]
-    public void FirstHideNoticeIsTakenOnceAndSurvivesSettingsRoundTrip()
+    public void FirstHideNoticeIsConsumedOnlyAfterSuccessfulDeliveryAndSurvivesSettingsRoundTrip()
     {
         var settings = new AppSettings();
-        Assert.True(UxDecisions.TakeTrayNotice(settings));
-        Assert.False(UxDecisions.TakeTrayNotice(settings));
+        Assert.True(UxDecisions.CanHideWithTrayNotice(settings, () => true));
+        Assert.True(settings.TrayCloseNoticeShown);
+        Assert.True(UxDecisions.CanHideWithTrayNotice(settings, () => throw new Exception("Must not send twice")));
         var reloaded = JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(settings))!;
-        Assert.False(UxDecisions.TakeTrayNotice(reloaded));
+        Assert.True(UxDecisions.CanHideWithTrayNotice(reloaded, () => throw new Exception("Must not send after restart")));
+    }
+
+    [Fact]
+    public void UnavailableNotificationsChooseVisibleFallbackAndRetryOnNextClose()
+    {
+        var settings = new AppSettings();
+        int calls = 0;
+        Assert.False(UxDecisions.CanHideWithTrayNotice(settings, () => { calls++; return false; }));
+        Assert.False(settings.TrayCloseNoticeShown);
+        var reloaded = JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(settings))!;
+        Assert.False(UxDecisions.CanHideWithTrayNotice(reloaded, () => { calls++; return false; }));
+        Assert.False(reloaded.TrayCloseNoticeShown);
+        Assert.True(UxDecisions.CanHideWithTrayNotice(reloaded, () => { calls++; return true; }));
+        Assert.True(reloaded.TrayCloseNoticeShown);
+        Assert.Equal(3, calls);
+    }
+
+    [Fact]
+    public void DeliveryFailureDoesNotConsumePendingNotice()
+    {
+        var settings = new AppSettings();
+        Assert.Throws<InvalidOperationException>(() => UxDecisions.CanHideWithTrayNotice(settings,
+            () => throw new InvalidOperationException()));
+        Assert.False(settings.TrayCloseNoticeShown);
     }
 
     [Theory]

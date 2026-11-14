@@ -45,6 +45,41 @@ public class DesktopLabelsTests
     }
 
     [Fact]
+    public void Unknown_index_on_current_desktop_uses_number_from_other_current_windows()
+    {
+        WindowInfo[] windows = [W(4, false), W(null, true), W(2, true), W(null, null)];
+        int? current = DesktopLabels.CurrentDesktopIndex(windows);
+        Assert.Equal(2, current);
+        Assert.Equal("Desktop 3 (current)", DesktopLabels.For(windows[1], current));
+        Assert.Equal(DesktopLabels.For(windows[2], current), DesktopLabels.For(windows[1], current));
+        Assert.Equal("Desktop 3 (current) · title", DesktopLabels.Prefix(windows[1], "title", current));
+        Assert.Equal("Desktop 5", DesktopLabels.For(windows[0], current));
+        Assert.Equal("", DesktopLabels.For(windows[3], current));
+    }
+
+    [Fact]
+    public void Unknown_current_number_is_not_inferred_from_another_desktop()
+    {
+        WindowInfo[] windows = [W(4, false), W(null, true), W(2, null)];
+        Assert.Null(DesktopLabels.CurrentDesktopIndex(windows));
+        Assert.Null(DesktopLabels.CurrentDesktopIndex([]));
+        Assert.Equal("Current desktop", DesktopLabels.For(windows[1], DesktopLabels.CurrentDesktopIndex(windows)));
+        Assert.Equal("Other desktop", DesktopLabels.For(W(null, false), 2));
+    }
+
+    [Fact]
+    public void Shared_current_label_does_not_change_sort_order_or_stability()
+    {
+        WindowInfo[] windows = [W(4, false) with { Handle = 1 }, W(null, true) with { Handle = 2 },
+            W(2, true) with { Handle = 3 }, W(null, true) with { Handle = 4 }];
+        var before = windows.OrderBy(DesktopLabels.SortKey).Select(w => w.Handle).ToArray();
+        int? current = DesktopLabels.CurrentDesktopIndex(windows);
+        foreach (var window in windows) _ = DesktopLabels.For(window, current);
+        Assert.Equal(new long[] { 3, 2, 4, 1 }, before);
+        Assert.Equal(before, windows.OrderBy(DesktopLabels.SortKey).Select(w => w.Handle));
+    }
+
+    [Fact]
     public void Sort_key_puts_current_first_then_desktop_number_and_unknown_last()
     {
         Assert.Equal((0, 5), DesktopLabels.SortKey(W(5, true)));

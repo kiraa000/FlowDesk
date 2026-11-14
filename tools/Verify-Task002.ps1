@@ -1,5 +1,5 @@
 param([ValidateSet('PickNotepad','Normal','Strict','AssertClosed','AssertAllowed','Allow','AssertStrict','HideReopen','EndSession','Layout',
- 'StartDiagnostics','StartShortNormal','StartShortStrict','AllowLogged','AssertLoggedStrict','AssertCompletion','ClearNotifications','Snapshot','OpenNotepad','DismissStatus','PauseResume','AssertMonitor')][string]$Action)
+ 'StartDiagnostics','StartShortNormal','StartShortStrict','AllowLogged','AssertLoggedStrict','AssertCompletion','ClearNotifications','Snapshot','ProbeTrayNotice','OpenNotepad','DismissStatus','PauseResume','AssertMonitor')][string]$Action)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
 $root = [System.Windows.Automation.AutomationElement]::RootElement
@@ -15,7 +15,7 @@ if ($Action -eq 'StartDiagnostics') {
 }
 $process = Get-Process FlowDesk.App -ErrorAction Stop
 $window = [System.Windows.Automation.AutomationElement]::FromHandle($process.MainWindowHandle)
-function Diagnostic([string]$command, [string]$argument = '') {
+function Diagnostic([string]$command, [string]$argument = '', [switch]$AllowError) {
     $folder = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'FlowDesk/task002-debug'
     if (-not (Test-Path -LiteralPath (Split-Path $folder))) { throw 'FlowDesk data folder is missing.' }
     [void][System.IO.Directory]::CreateDirectory($folder)
@@ -33,7 +33,7 @@ function Diagnostic([string]$command, [string]$argument = '') {
         $evidence = Join-Path $folder 'evidence'
         [void][System.IO.Directory]::CreateDirectory($evidence)
         [System.IO.File]::WriteAllText((Join-Path $evidence "$id.json"), ($response | ConvertTo-Json -Depth 12))
-        if ($response.Error) { throw $response.Error }
+        if ($response.Error -and -not $AllowError) { throw $response.Error }
         return $response
     }
     throw 'No diagnostic response. Start FlowDesk with StartDiagnostics first.'
@@ -44,8 +44,33 @@ if ($Action -in @('StartShortNormal','StartShortStrict')) {
     "PASS: started one-minute $($result.Strictness) fixture session; only notepad is blocked."; exit
 }
 if ($Action -eq 'Snapshot') {
-    $result = Diagnostic 'Snapshot'
-    "PASS: diagnostic snapshot Running=$($result.Running), Strictness=$($result.Strictness), notification count=$($result.Notifications.Count)."; exit
+    $result = Diagnostic 'Snapshot' -AllowError
+    "PASS: diagnostic snapshot Running=$($result.Running), Strictness=$($result.Strictness), notification count=$($result.Notifications.Count)."
+    [pscustomobject]@{
+        Error = $result.Error
+        NotificationStatus = $result.NotificationStatus
+        PlatformNotificationIds = @($result.PlatformNotificationIds)
+    } | ConvertTo-Json -Depth 6
+    exit
+}
+if ($Action -eq 'ProbeTrayNotice') {
+    # Diagnostic delivery bypasses the close handler: no settings are marked and the window is never hidden.
+    $result = Diagnostic 'ProbeTrayNotice' -AllowError
+    $status = $result.NotificationStatus
+    [pscustomobject]@{
+        Error = $result.Error
+        Supported = $status.Supported
+        Registered = $status.Registered
+        RegistrationFailure = $status.RegistrationFailure
+        Setting = $status.LastSetting
+        Accepted = $status.ProbeAccepted
+        Id = $status.LastNotificationId
+        Failure = $status.LastFailure
+        InHistory = $status.LastNotificationInHistory
+        PlatformNotificationIds = @($result.PlatformNotificationIds)
+        TrayCloseNoticeShown = $status.TrayCloseNoticeShown
+    } | ConvertTo-Json -Depth 5
+    exit
 }
 if ($Action -eq 'ClearNotifications') {
     [void](Diagnostic 'ClearNotifications'); 'PASS: cleared only FlowDesk notification history and diagnostic evidence.'; exit

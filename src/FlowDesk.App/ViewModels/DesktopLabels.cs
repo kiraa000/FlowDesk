@@ -10,8 +10,13 @@ namespace FlowDesk.App.ViewModels;
 /// </summary>
 internal static class DesktopLabels
 {
-    /// <summary>"Desktop 2 (current)", "Other desktop", or "" when no backend could tell.</summary>
-    public static string For(WindowInfo window)
+    /// <summary>
+    /// "Desktop 2 (current)", "Other desktop", or "" when no backend could tell. A window on the
+    /// current desktop whose own number is unknown still gets the number when the caller knows the
+    /// current desktop (see <see cref="CurrentDesktopIndex"/>); "Current desktop" is only the last
+    /// resort when no number is known at all.
+    /// </summary>
+    public static string For(WindowInfo window, int? currentDesktopIndex = null)
     {
         if (window.DesktopIndex is int index)
         {
@@ -20,10 +25,21 @@ internal static class DesktopLabels
         }
         return window.IsOnCurrentDesktop switch
         {
-            true => "Current desktop",
+            true => currentDesktopIndex is int current ? $"Desktop {current + 1} (current)" : "Current desktop",
             false => "Other desktop",
             _ => "",
         };
+    }
+
+    /// <summary>
+    /// The current desktop number as told by any window on it. Windows on the current desktop can
+    /// still lack their own index (pinned/frames), so the picker passes this number down as context.
+    /// </summary>
+    public static int? CurrentDesktopIndex(IEnumerable<WindowInfo> windows)
+    {
+        foreach (var window in windows)
+            if (window.IsOnCurrentDesktop == true && window.DesktopIndex is int index) return index;
+        return null;
     }
 
     /// <summary>Label for a saved window; it keeps no "current" flag, only the desktop it was on.</summary>
@@ -32,9 +48,9 @@ internal static class DesktopLabels
         : window?.DesktopId is not null ? "Desktop (number unavailable)" : "";
 
     /// <summary>Prefixes a secondary line with the desktop, unless the backend could not tell.</summary>
-    public static string Prefix(WindowInfo window, string text)
+    public static string Prefix(WindowInfo window, string text, int? currentDesktopIndex = null)
     {
-        string desktop = For(window);
+        string desktop = For(window, currentDesktopIndex);
         return desktop.Length == 0 ? text : $"{desktop} · {text}";
     }
 

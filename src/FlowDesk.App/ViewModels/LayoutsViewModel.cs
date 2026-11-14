@@ -65,7 +65,8 @@ public partial class LayoutsViewModel(AppViewModels owner) : ObservableObject
         var monitor = Monitors.FirstOrDefault(m => m.IsSelected)?.Device;
         foreach (var window in liveWindows.Where(w => LayoutSelection.Includes(w, monitor, owner.Services.Windows.OwnProcessId)))
         {
-            var row = new LayoutWindow(string.IsNullOrEmpty(window.ExeName) ? window.Title : window.ExeName, window)
+            // Same friendly name as the Save open windows page (CaptureCandidate.Item.Name).
+            var row = new LayoutWindow(WorkspaceCapture.DisplayName(window), window)
                 { IsSelected = selections.GetValueOrDefault(window.Handle, true) };
             row.PropertyChanged += SelectionChanged;
             Windows.Add(row);

@@ -48,6 +48,7 @@ internal sealed class Task002Diagnostics
             if (request is null || request.Id == lastRequest) return;
             lastRequest = request.Id;
             string? error = null;
+            bool? probeAccepted = null;
             try
             {
                 switch (request.Action)
@@ -67,6 +68,11 @@ internal sealed class Task002Diagnostics
                         await notifications.HandleActivationAsync(argument);
                         break;
                     case "Snapshot": break;
+                    case "ProbeTrayNotice":
+                        // Same delivery as X, without hiding or consuming the user's first-close setting.
+                        probeAccepted = notifications.ShowMessage(FocusNotifications.TrayNotice);
+                        await Task.Delay(500);
+                        break;
                     case "ClearNotifications": await AppNotificationManager.Default.RemoveAllAsync(); evidence.Clear(); break;
                     default: throw new InvalidOperationException("Unknown diagnostic command.");
                 }
@@ -76,11 +82,16 @@ internal sealed class Task002Diagnostics
             var state = await Task.Run(() => services.Focus.State);
             var remaining = await Task.Run(() => services.Focus.Remaining.TotalSeconds);
             uint[] platformIds = [];
-            try { platformIds = (await AppNotificationManager.Default.GetAllAsync()).Select(n => n.Id).ToArray(); }
+            try { platformIds = (await AppNotificationManager.Default.GetAllAsync())?.Select(n => n.Id).ToArray() ?? []; }
             catch (Exception ex) { error ??= "Notification platform query failed: " + ex.Message; }
             var response = JsonSerializer.Serialize(new { request.Id, Error = error, Running = state is not null,
                 Strictness = state?.Strictness.ToString(), Paused = state?.Paused, Remaining = remaining,
-                Notifications = evidence.ToArray(), PlatformNotificationIds = platformIds });
+                Notifications = evidence.ToArray(), PlatformNotificationIds = platformIds,
+                NotificationStatus = new { notifications.Supported, notifications.Registered,
+                    notifications.RegistrationFailure, notifications.LastSetting, notifications.LastFailure,
+                    notifications.LastNotificationId, ProbeAccepted = probeAccepted,
+                    LastNotificationInHistory = notifications.LastNotificationId != 0 && platformIds.Contains(notifications.LastNotificationId),
+                    services.Settings.TrayCloseNoticeShown } });
             await Task.Run(async () =>
             {
                 Directory.CreateDirectory(folder);
