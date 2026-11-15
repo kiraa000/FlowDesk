@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Diagnostics;
 using FlowDesk.Core.Desktops;
 using FlowDesk.Core.Hotkeys;
+using FlowDesk.Core.QuickLook;
 
 namespace FlowDesk.App.Services;
 
@@ -47,6 +48,9 @@ public sealed class HotkeyHost : IDisposable
     private readonly HookProc _keyboardProc;
     private readonly WheelGestures _wheel = new();
     private readonly ShortcutKeyboardState _keyboard = new();
+    private readonly QuickLookTrigger _quickLookTrigger = new();
+    private IQuickLookInput? _quickLook;
+    private readonly bool _windowShortcuts;
 #if DEBUG
     private readonly string? _inputDiagnosticLog = Environment.GetEnvironmentVariable("FLOWDESK_HOTKEY_DIAGNOSTICS_LOG");
     private readonly string _inputDiagnosticHost = Guid.NewGuid().ToString("N")[..8];
@@ -65,7 +69,7 @@ public sealed class HotkeyHost : IDisposable
     private int _stopping;
 
     public HotkeyHost(IWindowOps windows, IVirtualDesktops? desktops, Action<string>? notify,
-        Action? openTerminal = null, Action? reload = null)
+        Action? openTerminal = null, Action? reload = null, bool windowShortcuts = true, IQuickLookInput? quickLook = null)
     {
         _desktops = desktops;
         _notify = notify;
@@ -74,6 +78,8 @@ public sealed class HotkeyHost : IDisposable
         _keyboardProc = KeyboardHookProc;
         _openTerminal = openTerminal;
         _reload = reload;
+        _windowShortcuts = windowShortcuts;
+        _quickLook = quickLook;
     }
 
     public bool IsRunning { get; private set; }
@@ -86,6 +92,8 @@ public sealed class HotkeyHost : IDisposable
 
     public bool WheelHookAvailable { get; private set; }
     public bool WinWheelHookAvailable { get; private set; }
+    public bool KeyboardHookAvailable => _keyboardHook != 0;
+    public void SetQuickLook(IQuickLookInput? input) => Volatile.Write(ref _quickLook, input);
 
     public async Task StartAsync(CancellationToken cancellationToken = default)
     {
@@ -159,12 +167,13 @@ public sealed class HotkeyHost : IDisposable
             // In that case PostThreadMessage may fail, so cancellation is also checked here.
             if (Volatile.Read(ref _stopping) != 0) return;
 
-            RegisterBindings();
+            if (_windowShortcuts) RegisterBindings();
             _sessionNotificationsRegistered = HotkeyNativeMethods.WTSRegisterSessionNotification(_hwnd, 0); // this session
             TraceWinInput($"session-notifications registered={_sessionNotificationsRegistered} error={(_sessionNotificationsRegistered ? 0 : Marshal.GetLastWin32Error())}");
             _keyboard.Seed(IsDown);
-            _hook = HotkeyNativeMethods.SetWindowsHookExW(WH_MOUSE_LL, _hookProc, HotkeyNativeMethods.GetModuleHandleW(null), 0);
+            if (_windowShortcuts) _hook = HotkeyNativeMethods.SetWindowsHookExW(WH_MOUSE_LL, _hookProc, HotkeyNativeMethods.GetModuleHandleW(null), 0);
             _keyboardHook = HotkeyNativeMethods.SetWindowsHookExW(WH_KEYBOARD_LL, _keyboardProc, HotkeyNativeMethods.GetModuleHandleW(null), 0);
+            if (_quickLook is not null && _keyboardHook == 0) throw new InvalidOperationException("Quick Look keyboard hook could not be installed.");
             WheelHookAvailable = _hook != 0;
             WinWheelHookAvailable = _hook != 0 && _keyboardHook != 0;
             _ready.TrySetResult(true);
@@ -346,6 +355,22 @@ public sealed class HotkeyHost : IDisposable
                 var info = Marshal.PtrToStructure<KBDLLHOOKSTRUCT>(lParam);
                 bool down = wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN;
                 var observed = _keyboard.Observe((int)info.VirtualKey, down, info.ExtraInfo, info.ScanCode, (info.Flags & 1) != 0);
+                if (QuickLookTrigger.IsCandidate((int)info.VirtualKey))
+                {
+                    var quickLook = Volatile.Read(ref _quickLook);
+                    if (down && quickLook?.Enabled == true) _keyboard.ReconcileStale(IsDown);
+                    // Key-up pairing is evaluated even after disabling/focus loss. Only candidate downs
+                    // need native context, so ordinary typing has no extra native calls.
+                    var context = down && quickLook?.Enabled == true
+                        ? QuickLookNative.Context(quickLook, _keyboard.Modifiers) : default;
+                    var decision = _quickLookTrigger.Observe((int)info.VirtualKey, down,
+                        observed.OwnInput || (info.Flags & 0x10) != 0, context);
+                    swallow = decision.Swallow;
+                    if (down && quickLook?.Enabled == true && (info.Flags & 0x10) == 0)
+                        TraceWinInput($"quicklook key=0x{info.VirtualKey:X2} command={decision.Command} swallowed={decision.Swallow} " +
+                            $"foreground={context.ForegroundClass} focus={context.FocusClass} shellView={context.UnderShellView} ime={context.ImeComposing} modifiers={context.Modifiers}");
+                    if (decision.Command != QuickLookCommand.None) quickLook?.Post(decision.Command, context.Foreground);
+                }
                 if (!observed.OwnInput)
                 {
                     _wheel.ObserveWin(_keyboard.Modifiers.Win);

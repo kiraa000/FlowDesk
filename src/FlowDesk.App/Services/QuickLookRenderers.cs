@@ -1,0 +1,235 @@
+using FlowDesk.Core.QuickLook;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
+using Windows.Data.Pdf;
+using Windows.Graphics.Imaging;
+using Windows.Media.Core;
+using Windows.Media.Playback;
+using Windows.Storage;
+using Windows.Storage.Streams;
+
+namespace FlowDesk.App.Services;
+
+internal interface IQuickLookRenderer : IDisposable
+{
+    string Note { get; }
+    string Details { get; }
+    Task<FrameworkElement> LoadAsync(QuickLookItem item, CancellationToken token);
+}
+internal abstract class QuickLookRenderer : IQuickLookRenderer
+{
+    public string Note { get; protected set; } = "";
+    public string Details { get; protected set; } = "";
+    public abstract Task<FrameworkElement> LoadAsync(QuickLookItem item, CancellationToken token);
+    public virtual void Dispose() { }
+    protected static TextBlock Label(string text) => new() { Text = text, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true };
+}
+internal static class QuickLookRenderers
+{
+    public static async Task<IQuickLookRenderer> CreateAsync(QuickLookItem item, QuickLookShell shell, CancellationToken token)
+    {
+        byte[] prefix = [];
+        if (item.Path is not null && !item.IsFolder)
+        {
+            prefix = await Task.Run(async () =>
+            {
+                await using var file = new FileStream(item.Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 4096, true);
+                byte[] bytes = new byte[512];
+                int length = await file.ReadAsync(bytes, token);
+                return bytes[..length];
+            }, token);
+        }
+        token.ThrowIfCancellationRequested();
+        if (item.Path is null) return new FallbackQuickLookRenderer(shell, "This is a virtual Shell item. Open it in Explorer to view its contents.");
+        return PreviewContent.Choose(item.Path, item.IsFolder, prefix) switch
+        {
+            PreviewKind.Image => new ImageQuickLookRenderer(),
+            PreviewKind.Pdf => new PdfQuickLookRenderer(),
+            PreviewKind.Media => new MediaQuickLookRenderer(shell),
+            PreviewKind.Text => new TextQuickLookRenderer(),
+            PreviewKind.Folder => new FolderQuickLookRenderer(),
+            _ => new FallbackQuickLookRenderer(shell, "No built-in preview for this file type. Choose Open to use its default app.")
+        };
+    }
+}
+internal sealed class ImageQuickLookRenderer : QuickLookRenderer
+{
+    public override async Task<FrameworkElement> LoadAsync(QuickLookItem item, CancellationToken token)
+    {
+        var file = await StorageFile.GetFileFromPathAsync(item.Path!).AsTask(token);
+        using var stream = await file.OpenReadAsync().AsTask(token);
+        var decoder = await BitmapDecoder.CreateAsync(stream).AsTask(token);
+        var size = PreviewContent.Fit(decoder.PixelWidth, decoder.PixelHeight, 2048);
+        stream.Seek(0);
+        var bitmap = new BitmapImage { DecodePixelWidth = (int)size.Width, DecodePixelHeight = (int)size.Height,
+            DecodePixelType = DecodePixelType.Physical };
+        await bitmap.SetSourceAsync(stream).AsTask(token);
+        token.ThrowIfCancellationRequested();
+        Details = $" · {decoder.PixelWidth} × {decoder.PixelHeight} px";
+        return new Image { Source = bitmap, Stretch = Stretch.Uniform };
+    }
+}
+internal sealed class TextQuickLookRenderer : QuickLookRenderer
+{
+    public override async Task<FrameworkElement> LoadAsync(QuickLookItem item, CancellationToken token)
+    {
+        var result = await Task.Run(async () =>
+        {
+            await using var stream = new FileStream(item.Path!, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 4096, true);
+            return await PreviewContent.ReadTextAsync(stream, token);
+        }, token);
+        token.ThrowIfCancellationRequested();
+        Note = result.Truncated ? "Showing first 1 MB" : "";
+        var text = Label(result.Text); text.FontFamily = new FontFamily("Cascadia Mono, Consolas");
+        text.TextWrapping = TextWrapping.NoWrap;
+        return new ScrollViewer { Content = text, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+    }
+}
+internal sealed class MediaQuickLookRenderer(QuickLookShell shell) : QuickLookRenderer
+{
+    private MediaPlayer? player;
+    private MediaPlayerElement? element;
+    public override async Task<FrameworkElement> LoadAsync(QuickLookItem item, CancellationToken token)
+    {
+        var file = await StorageFile.GetFileFromPathAsync(item.Path!).AsTask(token);
+        token.ThrowIfCancellationRequested();
+        var source = MediaSource.CreateFromStorageFile(file);
+        player = new MediaPlayer { AutoPlay = true, Source = source };
+        element = new MediaPlayerElement { AreTransportControlsEnabled = true, Stretch = Stretch.Uniform };
+        element.SetMediaPlayer(player);
+        var grid = new Grid(); grid.Children.Add(element);
+        var failure = Label("This media could not be played. The file may be damaged or need a Windows codec. Choose Open to try its default app.");
+        failure.Visibility = Visibility.Collapsed; grid.Children.Add(failure);
+        player.MediaFailed += (_, _) => element.DispatcherQueue.TryEnqueue(async () =>
+        {
+            if (token.IsCancellationRequested) return;
+            try
+            {
+                player?.Pause(); element.Visibility = Visibility.Collapsed; failure.Visibility = Visibility.Visible;
+                using var fallback = new FallbackQuickLookRenderer(shell, failure.Text);
+                var content = await fallback.LoadAsync(item, token);
+                token.ThrowIfCancellationRequested();
+                grid.Children.Clear(); grid.Children.Add(content);
+            }
+            catch (Exception) { /* the reason and header Open button remain available */ }
+        });
+        return grid;
+    }
+    public override void Dispose()
+    {
+        element?.SetMediaPlayer(null);
+        if (player is not null)
+        {
+            player.Pause(); var source = player.Source as MediaSource; player.Source = null; player.Dispose(); source?.Dispose();
+        }
+        player = null;
+    }
+}
+internal sealed class PdfQuickLookRenderer : QuickLookRenderer
+{
+    private CancellationTokenSource? lifetime;
+    private readonly Dictionary<Microsoft.UI.Xaml.Controls.Primitives.SelectorItem, CancellationTokenSource> pages = [];
+    public override async Task<FrameworkElement> LoadAsync(QuickLookItem item, CancellationToken token)
+    {
+        lifetime = CancellationTokenSource.CreateLinkedTokenSource(token);
+        token = lifetime.Token;
+        var file = await StorageFile.GetFileFromPathAsync(item.Path!).AsTask(token);
+        var document = await PdfDocument.LoadFromFileAsync(file).AsTask(token);
+        token.ThrowIfCancellationRequested();
+        Details = $" · {document.PageCount} pages";
+        // ListView's recycling panel realizes visible pages only. A recycled container gets a new Image;
+        // completion updates the old detached Image, never another page's recycled container.
+        var list = new ListView { SelectionMode = ListViewSelectionMode.None, IsItemClickEnabled = false,
+            ItemsSource = Enumerable.Range(0, checked((int)document.PageCount)).ToArray(), HorizontalContentAlignment = HorizontalAlignment.Stretch };
+        list.ContainerContentChanging += async (_, args) =>
+        {
+            var container = args.ItemContainer;
+            if (pages.Remove(container, out var previous)) previous.Cancel();
+            if (args.InRecycleQueue) { container.Content = null; return; }
+            using var rendering = CancellationTokenSource.CreateLinkedTokenSource(token);
+            pages[container] = rendering;
+            var pageToken = rendering.Token;
+            var image = new Image { Stretch = Stretch.Uniform, MaxWidth = 1600, Margin = new Thickness(0, 0, 0, 12) };
+            container.HorizontalContentAlignment = HorizontalAlignment.Stretch;
+            container.Content = image; args.Handled = true;
+            try
+            {
+                using var page = document.GetPage((uint)(int)args.Item);
+                image.Height = Math.Min(1200, page.Size.Height);
+                var size = PreviewContent.Fit(page.Size.Width * 2, page.Size.Height * 2, 1800);
+                using var stream = new InMemoryRandomAccessStream();
+                await page.RenderToStreamAsync(stream, new PdfPageRenderOptions { DestinationWidth = size.Width, DestinationHeight = size.Height }).AsTask(pageToken);
+                pageToken.ThrowIfCancellationRequested();
+                var bitmap = new BitmapImage(); await bitmap.SetSourceAsync(stream).AsTask(pageToken);
+                pageToken.ThrowIfCancellationRequested(); image.Source = bitmap; image.Height = double.NaN;
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception)
+            {
+                if (!pageToken.IsCancellationRequested)
+                {
+                    Note = "A PDF page could not be rendered. Choose Open to try its default app.";
+                    container.Content = Label(Note);
+                }
+            }
+            finally { if (pages.TryGetValue(container, out var active) && ReferenceEquals(active, rendering)) pages.Remove(container); }
+        };
+        return list;
+    }
+    public override void Dispose() { lifetime?.Cancel(); lifetime?.Dispose(); lifetime = null; }
+}
+internal sealed class FolderQuickLookRenderer : QuickLookRenderer
+{
+    public override async Task<FrameworkElement> LoadAsync(QuickLookItem item, CancellationToken token)
+    {
+        string text = await Task.Run(() =>
+        {
+            int count = 0;
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            foreach (string _ in Directory.EnumerateFileSystemEntries(item.Path!))
+            {
+                token.ThrowIfCancellationRequested(); count++;
+                if (watch.ElapsedMilliseconds > 500 || count >= 10000) return $"{count:N0}+ items\nModified {Directory.GetLastWriteTime(item.Path!):g}\nItem count limited; subfolders are not scanned.";
+            }
+            return $"{count:N0} items\nModified {Directory.GetLastWriteTime(item.Path!):g}\nSubfolders are not scanned.";
+        }, token);
+        token.ThrowIfCancellationRequested();
+        return Label(item.Name + "\n\n" + text);
+    }
+}
+internal sealed class FallbackQuickLookRenderer(QuickLookShell shell, string reason) : QuickLookRenderer
+{
+    public override async Task<FrameworkElement> LoadAsync(QuickLookItem item, CancellationToken token)
+    {
+        Note = reason;
+        var panel = new StackPanel { Spacing = 16, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        panel.Children.Add(Label(item.Name));
+        panel.Children.Add(Label(item.Type));
+        if (item.Path is not null)
+        {
+            try
+            {
+                var metadata = await Task.Run(() =>
+                {
+                    var info = new FileInfo(item.Path);
+                    return $"{info.Length:N0} bytes\nModified {info.LastWriteTime:g}\nCreated {info.CreationTime:g}";
+                }, token);
+                token.ThrowIfCancellationRequested(); panel.Children.Add(Label(metadata));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+            var bytes = await shell.ThumbnailAsync(item.Path, token);
+            token.ThrowIfCancellationRequested();
+            if (bytes is not null)
+            {
+                using var stream = new InMemoryRandomAccessStream();
+                using (var writer = new DataWriter(stream.GetOutputStreamAt(0))) { writer.WriteBytes(bytes); await writer.StoreAsync(); }
+                var bitmap = new BitmapImage(); await bitmap.SetSourceAsync(stream).AsTask(token);
+                panel.Children.Insert(0, new Image { Source = bitmap, MaxWidth = 512, MaxHeight = 320, Stretch = Stretch.Uniform });
+            }
+        }
+        panel.Children.Add(Label(reason));
+        return new ScrollViewer { Content = panel };
+    }
+}

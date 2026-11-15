@@ -25,6 +25,9 @@ Current version: **FlowDesk 1.1.0**. New here? Read [GETTING-STARTED.md](GETTING
 - **Window shortcuts (optional, off by default):** snap and cycle window sizes, move focus, switch and move between
   virtual desktops, open a terminal, reload or pause the shortcut engine, and use Win+wheel for desktop switching,
   desktop moves and window search.
+- **Quick Look (optional, off by default):** select a file in File Explorer or on the desktop and press **Space** to
+  preview it; **Space** or **Esc** closes the preview, **Enter** opens the file, and arrow keys keep moving the
+  selection while the preview follows.
 - Mica, light/dark theme, keyboard support, Windows notifications.
 
 ## Window shortcuts (optional)
@@ -54,6 +57,22 @@ arguments); **Use default** clears a custom program.
 
 The Alt desktop shortcuts need `VirtualDesktopAccessor.dll`; see [GETTING-STARTED.md](GETTING-STARTED.md) for the
 supported Windows versions.
+
+## Quick Look (optional)
+
+Turn it on in Settings > **Quick Look**. Select a file in File Explorer or on the desktop and press **Space**. **Space**
+or **Esc** closes the preview, **Enter** opens the file in its default app, and arrow keys still move the Explorer
+selection while the preview follows.
+
+It previews images (jpg/jpeg/png/gif/bmp/webp/ico/tif/tiff; HEIC and AVIF when Windows has the codec), PDF, video and
+audio, text and code files (first 1 MB), and folders. Other files show a thumbnail with name, type, size and dates
+plus an **Open** button. Office documents are not previewed in this version. If QuickLook or PowerToys Peek is
+running, the Settings card shows a short note (QuickLook uses Space; Peek uses Ctrl+Space by default).
+
+Playback uses whichever codecs Windows has installed. On IME layouts FlowDesk conservatively leaves Space alone,
+so composing text is never interrupted by a preview.
+
+Turn it off in the same Settings card; while it is off FlowDesk does not take the Space key.
 
 ## Requirements
 

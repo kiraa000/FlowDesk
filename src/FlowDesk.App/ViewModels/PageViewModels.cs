@@ -213,6 +213,10 @@ public partial class SettingsViewModel(AppViewModels owner) : ObservableObject
     [ObservableProperty] public partial double LaunchTimeout { get; set; } = AppSettings.DefaultLaunchTimeoutSeconds;
     [ObservableProperty] public partial bool StartWithWindows { get; set; }
     [ObservableProperty] public partial bool WindowShortcuts { get; set; }
+    [ObservableProperty] public partial bool QuickLook { get; set; }
+    [ObservableProperty] public partial string QuickLookConflict { get; set; } = "";
+    public bool HasQuickLookConflict => QuickLookConflict.Length > 0;
+    private long quickLookChange;
     [ObservableProperty] public partial string TerminalProgram { get; set; } = "";
     [ObservableProperty] public partial string WindowShortcutsStatus { get; set; } = "";
     [ObservableProperty] public partial bool WindowShortcutsDesktopUnavailable { get; set; }
@@ -238,6 +242,7 @@ public partial class SettingsViewModel(AppViewModels owner) : ObservableObject
         LaunchTimeout = AppSettings.ClampLaunchTimeout(owner.Services.Settings.LaunchTimeoutSeconds);
         StartWithWindows = StartupRegistration.IsEnabled();
         WindowShortcuts = owner.Services.Settings.WindowShortcutsEnabled;
+        QuickLook = owner.Services.Settings.QuickLookEnabled;
         TerminalProgram = owner.Services.Settings.TerminalProgram ?? "";
         RefreshWindowShortcutsState();
         loading = false; owner.ApplyTheme();
@@ -245,6 +250,30 @@ public partial class SettingsViewModel(AppViewModels owner) : ObservableObject
     }
 
     partial void OnShortcutConflictsChanged(string value) => OnPropertyChanged(nameof(HasShortcutConflicts));
+    partial void OnQuickLookConflictChanged(string value) => OnPropertyChanged(nameof(HasQuickLookConflict));
+    partial void OnQuickLookChanged(bool value)
+    {
+        if (loading) return;
+        owner.Services.Settings.QuickLookEnabled = value; owner.Services.Changed();
+        _ = ApplyQuickLookAsync(value);
+    }
+    internal async Task ApplyQuickLookAsync(bool value)
+    {
+        long change = ++quickLookChange;
+        try
+        {
+            if (owner.Services.QuickLook is { } service) await service.SetEnabledAsync(value);
+            string conflict = value ? await Task.Run(QuickLookService.DetectConflicts) : "";
+            if (change == quickLookChange) QuickLookConflict = conflict;
+        }
+        catch (Exception)
+        {
+            if (change != quickLookChange) return;
+            loading = true; QuickLook = false; loading = false;
+            owner.Services.Settings.QuickLookEnabled = false; owner.Services.Changed();
+            owner.ShowStatus("Quick Look could not start. Turn it on again in Settings to retry.", StatusKind.Warning);
+        }
+    }
 
     partial void OnTerminalProgramChanged(string value)
     {

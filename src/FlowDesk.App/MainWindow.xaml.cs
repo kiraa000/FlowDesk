@@ -28,6 +28,7 @@ public sealed partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        services.QuickLook = new(DispatcherQueue, services);
         sessionEnd = new(WinRT.Interop.WindowNative.GetWindowHandle(this), OnSessionEnd);
         string iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "FlowDesk.ico");
         AppWindow.SetIcon(iconPath);
@@ -64,6 +65,7 @@ public sealed partial class MainWindow : Window
         autosaveTimer.Tick += (_, _) => App.ViewModels.RefreshAutoSaveAge();
         Closed += (_, _) =>
         {
+            services.QuickLook?.Dispose();
             sessionEnd.Dispose(); focusTimer.Stop(); autosaveTimer.Stop(); notifications.Dispose(); TrayIcon.Dispose();
             if (endingSession)
                 _ = Task.Run(() => { services.Focus.Dispose(); services.Hotkeys.Dispose(); services.Dispose(); });
@@ -102,6 +104,8 @@ public sealed partial class MainWindow : Window
         {
             await App.ViewModels.LoadAsync(); loaded = true;
             notifications.Initialize();
+            if (services.Settings.QuickLookEnabled)
+                await App.ViewModels.Settings.ApplyQuickLookAsync(true);
             if (services.Settings.WindowShortcutsEnabled)
             {
                 // Keep the Settings toggle disabled while the startup start is still pending.

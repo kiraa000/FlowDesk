@@ -1,5 +1,6 @@
 using FlowDesk.Core.Desktops;
 using FlowDesk.Core.Hotkeys;
+using FlowDesk.Core.QuickLook;
 
 namespace FlowDesk.App.Services;
 
@@ -22,12 +23,14 @@ public sealed class HotkeyService(string dataDirectory, VirtualDesktopService? s
     private bool _disposed;
     private int _disposeStarted;
     private readonly ShortcutTerminal _terminal = new();
+    private bool _shortcutsRequested;
+    private IQuickLookInput? _quickLook;
     public Func<string?>? TerminalProgram { get; set; }
 
     /// <summary>Toast callback; set by the window once notifications are initialized.</summary>
     public Action<string>? Notify { get; set; }
 
-    public bool IsRunning => _host?.IsRunning == true;
+    public bool IsRunning => _shortcutsRequested && _host?.IsRunning == true;
     public IReadOnlyList<string> Conflicts => _host?.Conflicts ?? [];
     public bool DesktopsAvailable => _desktops?.IsAvailable == true;
     public bool WheelAvailable => _host?.WheelHookAvailable == true;
@@ -41,6 +44,9 @@ public sealed class HotkeyService(string dataDirectory, VirtualDesktopService? s
         try
         {
             if (_disposed) return;
+            if (_shortcutsRequested && _host?.IsRunning == true) return;
+            _shortcutsRequested = true;
+            await StopCoreAsync().ConfigureAwait(false);
             await StartCoreAsync().ConfigureAwait(false);
         }
         finally { _gate.Release(); }
@@ -52,7 +58,41 @@ public sealed class HotkeyService(string dataDirectory, VirtualDesktopService? s
         try
         {
             if (_disposed) return;
+            _shortcutsRequested = false;
             await StopCoreAsync().ConfigureAwait(false);
+            if (_quickLook is not null) await StartCoreAsync().ConfigureAwait(false);
+        }
+        finally { _gate.Release(); }
+    }
+
+    public async Task SetQuickLookAsync(IQuickLookInput? input)
+    {
+        await _gate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (_disposed) return;
+            if (_shortcutsRequested && _host?.IsRunning == true)
+            {
+                if (input is not null && !_host.KeyboardHookAvailable)
+                    throw new InvalidOperationException("Quick Look keyboard hook is unavailable.");
+                _quickLook = input;
+                _host.SetQuickLook(input);
+                return; // do not disturb shortcut pause state or in-flight actions
+            }
+            var previous = _quickLook;
+            _quickLook = input;
+            await StopCoreAsync().ConfigureAwait(false);
+            try
+            {
+                if (_shortcutsRequested || _quickLook is not null) await StartCoreAsync().ConfigureAwait(false);
+            }
+            catch
+            {
+                // A failed module must not silently disable the unrelated window shortcuts.
+                _quickLook = previous;
+                if (_shortcutsRequested || _quickLook is not null) await StartCoreAsync().ConfigureAwait(false);
+                throw;
+            }
         }
         finally { _gate.Release(); }
     }
@@ -70,7 +110,7 @@ public sealed class HotkeyService(string dataDirectory, VirtualDesktopService? s
             // A queued hotkey reload must not resurrect a host after Settings turned it off,
             // nor replace a newer generation. No worker waits for its own Stop/Join.
             if (source is not null && !ReferenceEquals(_host, source)) return;
-            bool wasRunning = IsRunning;
+            bool wasRunning = _host?.IsRunning == true;
             await StopCoreAsync().ConfigureAwait(false);
             if (_shared is not null)
             {
@@ -97,7 +137,7 @@ public sealed class HotkeyService(string dataDirectory, VirtualDesktopService? s
         HotkeyHost? host = null;
         host = new HotkeyHost(new Win32WindowOps(), _desktops, Notify,
             () => _terminal.Open(TerminalProgram?.Invoke(), Notify),
-            () => RequestReload(host!));
+            () => RequestReload(host!), _shortcutsRequested, _quickLook);
         try
         {
             await host.StartAsync().ConfigureAwait(false);

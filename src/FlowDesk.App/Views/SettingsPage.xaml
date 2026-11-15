@@ -79,6 +79,16 @@
                     </ItemsControl>
                 </Expander>
             </StackPanel>
+            <StackPanel Spacing="4">
+                <settings:SettingsCard Header="Quick Look"
+                    Description="Preview the file selected in File Explorer or on the desktop with Space.">
+                    <ToggleSwitch IsOn="{Binding QuickLook, Mode=TwoWay}"
+                                  AutomationProperties.Name="Quick Look file preview" />
+                </settings:SettingsCard>
+                <InfoBar Severity="Warning" IsOpen="{Binding HasQuickLookConflict, Mode=OneWay}" IsClosable="False"
+                         Title="Another preview tool is running"
+                         Message="{Binding QuickLookConflict}" />
+            </StackPanel>
             <settings:SettingsCard Header="Start with Windows"
                 Description="Open FlowDesk when you sign in.">
                 <ToggleSwitch IsOn="{Binding StartWithWindows, Mode=TwoWay}"

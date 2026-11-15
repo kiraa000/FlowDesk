@@ -91,21 +91,40 @@ On an older Windows version, download the matching build from the VirtualDesktop
 GitHub and use Settings → Window shortcuts → **Choose file…**; your file is then used instead of the included one.
 All other shortcuts work on any version.
 
-### 1.7 Where your data is
+### 1.7 Quick Look (optional, off by default)
+
+Settings → **Quick Look**. Select a file in File Explorer or on the desktop and press **Space**:
+- **Space** or **Esc** closes the preview.
+- **Enter** opens the file in its default app and closes the preview.
+- **Arrow keys** still move the Explorer selection; the preview follows.
+- It previews images (jpg/jpeg/png/gif/bmp/webp/ico/tif/tiff; HEIC and AVIF when Windows has the codec), PDF, video
+  and audio, text and code files (first 1 MB), and folders. Other files show a thumbnail, name, type, size and dates,
+  plus an **Open** button.
+- **Office documents** are not previewed in this version.
+
+If QuickLook or PowerToys Peek is running, the Settings card shows a short note. QuickLook uses Space; PowerToys
+Peek uses Ctrl+Space by default. FlowDesk takes plain Space only in Explorer and on the desktop. Turn the module off in Settings →
+**Quick Look**; FlowDesk then leaves Space to Explorer.
+
+Two limits: playback uses the codecs Windows already has, so a format that does not play in Windows Media Player
+may not preview here either. On an IME layout (Chinese, Japanese, Korean, …) FlowDesk conservatively leaves Space
+alone, so composing text never loses a space to a preview.
+
+### 1.8 Where your data is
 
 - Workspaces and settings: `%LOCALAPPDATA%\FlowDesk\` (Settings → Data → **Open folder**).
 - Crash logs: `%LOCALAPPDATA%\FlowDesk\logs\` (Settings → About → **Open log folder**). Logs contain only error
   types and code locations, never window titles or your file paths. Nothing is sent anywhere.
 - To start fresh: quit FlowDesk (tray icon → Exit) and delete `%LOCALAPPDATA%\FlowDesk`.
 
-### 1.8 Update and uninstall
+### 1.9 Update and uninstall
 
 - **Update:** run the newer setup. It replaces the program and keeps your workspaces. If FlowDesk is running,
   the setup closes it first; if that fails, exit FlowDesk from the tray and run the setup again.
 - **Uninstall:** Windows Settings → Apps → Installed apps → FlowDesk → Uninstall. Your data folder is kept on
   purpose; delete it yourself if you want everything gone.
 
-### 1.9 Known limits
+### 1.10 Known limits
 
 - Apps running **as administrator** cannot be moved unless FlowDesk also runs as administrator.
 - Windows on **other virtual desktops** are not captured.
@@ -113,7 +132,7 @@ All other shortcuts work on any version.
   instead of pretending it worked.
 - FlowDesk cannot restore what is inside an app (open tabs, unsaved documents) — only the windows.
 
-### 1.10 Report a problem
+### 1.11 Report a problem
 
 Open an issue on GitHub with:
 1. What you did, what you expected, what happened (a screenshot helps).
