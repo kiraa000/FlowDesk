@@ -107,8 +107,8 @@ Peek uses Ctrl+Space by default. FlowDesk takes plain Space only in Explorer and
 **Quick Look**; FlowDesk then leaves Space to Explorer.
 
 Two limits: playback uses the codecs Windows already has, so a format that does not play in Windows Media Player
-may not preview here either. On an IME layout (Chinese, Japanese, Korean, …) FlowDesk conservatively leaves Space
-alone, so composing text never loses a space to a preview.
+may not preview here either. Quick Look does not take Space with a Chinese, Japanese or Korean keyboard layout
+active (v1 limit).
 
 ### 1.8 Where your data is
 

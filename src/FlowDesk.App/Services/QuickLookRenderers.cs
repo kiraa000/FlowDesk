@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
+using Microsoft.UI.Xaml.Markup;
 using Windows.Data.Pdf;
 using Windows.Graphics.Imaging;
 using Windows.Media.Core;
@@ -138,44 +139,77 @@ internal sealed class PdfQuickLookRenderer : QuickLookRenderer
         var file = await StorageFile.GetFileFromPathAsync(item.Path!).AsTask(token);
         var document = await PdfDocument.LoadFromFileAsync(file).AsTask(token);
         token.ThrowIfCancellationRequested();
-        Details = $" · {document.PageCount} pages";
-        // ListView's recycling panel realizes visible pages only. A recycled container gets a new Image;
-        // completion updates the old detached Image, never another page's recycled container.
+        Details = $" · {document.PageCount} {(document.PageCount == 1 ? "page" : "pages")}";
+        // Do not replace ItemContainer.Content while ListView is preparing/binding that container.
+        // Use its actual template visual, after phase 0, and let the recycling panel own layout.
         var list = new ListView { SelectionMode = ListViewSelectionMode.None, IsItemClickEnabled = false,
-            ItemsSource = Enumerable.Range(0, checked((int)document.PageCount)).ToArray(), HorizontalContentAlignment = HorizontalAlignment.Stretch };
-        list.ContainerContentChanging += async (_, args) =>
+            HorizontalContentAlignment = HorizontalAlignment.Stretch };
+        list.ItemTemplate = (DataTemplate)XamlReader.Load("""
+            <DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                          xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+                <Grid MinHeight="160" Margin="0,0,0,12">
+                    <Image x:Name="PageImage" Stretch="Uniform" MaxWidth="1600" HorizontalAlignment="Stretch" />
+                    <TextBlock x:Name="PageError" Visibility="Collapsed" TextWrapping="Wrap"
+                        Text="This PDF page could not be rendered. Choose Open to try its default app." />
+                </Grid>
+            </DataTemplate>
+            """);
+        list.ContainerContentChanging += (_, args) =>
+        {
+            if (args.Phase != 0) return;
+            var container = args.ItemContainer;
+            QuickLookDiagnostics.Write($"pdf prepare item={args.Item} phase={args.Phase} recycle={args.InRecycleQueue} template={container.ContentTemplateRoot?.GetType().Name ?? "null"}");
+            if (pages.Remove(container, out var previous)) previous.Cancel();
+            if (container.ContentTemplateRoot is Grid oldRoot && oldRoot.FindName("PageImage") is Image oldImage) oldImage.Source = null;
+            if (!args.InRecycleQueue) args.RegisterUpdateCallback(1, RenderPage);
+        };
+        async void RenderPage(ListViewBase sender, ContainerContentChangingEventArgs args)
         {
             var container = args.ItemContainer;
-            if (pages.Remove(container, out var previous)) previous.Cancel();
-            if (args.InRecycleQueue) { container.Content = null; return; }
+            if (token.IsCancellationRequested || args.InRecycleQueue) return;
+            if (container.ContentTemplateRoot is not Grid root)
+            {
+                QuickLookDiagnostics.Write($"pdf template-not-ready phase={args.Phase}");
+                if (args.Phase < 2) args.RegisterUpdateCallback(2, RenderPage);
+                return;
+            }
+            if (root.FindName("PageImage") is not Image image || root.FindName("PageError") is not TextBlock error || args.Item is not int index)
+            { QuickLookDiagnostics.Write("pdf invalid-template-or-item"); return; }
+            image.Source = null; image.Visibility = Visibility.Visible; error.Visibility = Visibility.Collapsed;
+            container.HorizontalContentAlignment = HorizontalAlignment.Stretch;
+            QuickLookDiagnostics.Write($"pdf render page={index} phase={args.Phase} width={root.ActualWidth} height={root.ActualHeight}");
+            if (pages.Remove(container, out var old)) old.Cancel();
             using var rendering = CancellationTokenSource.CreateLinkedTokenSource(token);
             pages[container] = rendering;
             var pageToken = rendering.Token;
-            var image = new Image { Stretch = Stretch.Uniform, MaxWidth = 1600, Margin = new Thickness(0, 0, 0, 12) };
-            container.HorizontalContentAlignment = HorizontalAlignment.Stretch;
-            container.Content = image; args.Handled = true;
             try
             {
-                using var page = document.GetPage((uint)(int)args.Item);
-                image.Height = Math.Min(1200, page.Size.Height);
+                using var page = document.GetPage((uint)index);
+                root.Height = Math.Min(1200, page.Size.Height); // nonzero placeholder before the PNG arrives
                 var size = PreviewContent.Fit(page.Size.Width * 2, page.Size.Height * 2, 1800);
-                using var stream = new InMemoryRandomAccessStream();
-                await page.RenderToStreamAsync(stream, new PdfPageRenderOptions { DestinationWidth = size.Width, DestinationHeight = size.Height }).AsTask(pageToken);
+                using var stream = await QuickLookPdfStream.RenderAsync(page, size.Width, size.Height, pageToken);
+                QuickLookDiagnostics.Write($"pdf stream page={index} position={stream.Position} bytes={stream.Size}");
                 pageToken.ThrowIfCancellationRequested();
-                var bitmap = new BitmapImage(); await bitmap.SetSourceAsync(stream).AsTask(pageToken);
-                pageToken.ThrowIfCancellationRequested(); image.Source = bitmap; image.Height = double.NaN;
+                var bitmap = new BitmapImage { DecodePixelWidth = (int)size.Width, DecodePixelHeight = (int)size.Height, DecodePixelType = DecodePixelType.Physical };
+                await bitmap.SetSourceAsync(stream).AsTask(pageToken);
+                pageToken.ThrowIfCancellationRequested();
+                image.Source = bitmap; root.Height = double.NaN; root.MinHeight = 0;
+                QuickLookDiagnostics.Write($"pdf decoded page={index} width={bitmap.PixelWidth} height={bitmap.PixelHeight}");
             }
             catch (OperationCanceledException) { }
-            catch (Exception)
+            catch (Exception ex)
             {
+                QuickLookDiagnostics.Write($"pdf failed page={index} error={ex.GetType().Name} hr=0x{ex.HResult:X8}");
                 if (!pageToken.IsCancellationRequested)
                 {
                     Note = "A PDF page could not be rendered. Choose Open to try its default app.";
-                    container.Content = Label(Note);
+                    image.Visibility = Visibility.Collapsed; error.Visibility = Visibility.Visible; root.Height = double.NaN;
                 }
             }
             finally { if (pages.TryGetValue(container, out var active) && ReferenceEquals(active, rendering)) pages.Remove(container); }
-        };
+        }
+        // Hook before assigning items, so initial realization cannot miss its render callback.
+        list.ItemsSource = Enumerable.Range(0, checked((int)document.PageCount)).ToArray();
         return list;
     }
     public override void Dispose() { lifetime?.Cancel(); lifetime?.Dispose(); lifetime = null; }

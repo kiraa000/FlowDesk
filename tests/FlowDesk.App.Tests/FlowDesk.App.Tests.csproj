@@ -39,6 +39,7 @@
     <Compile Include="..\..\src\FlowDesk.App\Services\HotkeyService.cs" Link="HotkeyService.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\HotkeyHost.cs" Link="HotkeyHost.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\QuickLookNative.cs" Link="QuickLookNative.cs" />
+    <Compile Include="..\..\src\FlowDesk.App\Services\QuickLookPdfStream.cs" Link="QuickLookPdfStream.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\ShortcutTerminal.cs" Link="ShortcutTerminal.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\TimerOneShotScheduler.cs" Link="TimerOneShotScheduler.cs" />
     <Using Include="Xunit" />

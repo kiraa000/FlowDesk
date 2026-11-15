@@ -43,7 +43,7 @@ internal sealed class QuickLookShell : IDisposable
             if (deadline.ElapsedMilliseconds >= 650) return null;
             ((IShellItemImageFactory)factory).GetImage(new Size { Width = 512, Height = 512 }, 1, out bitmap);
             if (bitmap == 0) return null;
-            using var image = System.Drawing.Image.FromHbitmap(bitmap);
+            using var image = AlphaBitmap(bitmap) ?? System.Drawing.Image.FromHbitmap(bitmap);
             using var stream = new MemoryStream();
             image.Save(stream, System.Drawing.Imaging.ImageFormat.Png);
             return stream.ToArray();
@@ -53,6 +53,31 @@ internal sealed class QuickLookShell : IDisposable
             if (bitmap != 0) DeleteObject(bitmap);
             if (factory is not null && Marshal.IsComObject(factory)) Marshal.ReleaseComObject(factory);
         }
+    }
+    private static System.Drawing.Bitmap? AlphaBitmap(nint handle)
+    {
+        if (GetObjectW(handle, Marshal.SizeOf<DibSection>(), out var dib) < Marshal.SizeOf<DibSection>() ||
+            dib.Bitmap.Bits == 0 || dib.Bitmap.BitsPixel != 32 || dib.Bitmap.Width <= 0 || dib.Bitmap.Height <= 0 ||
+            dib.Bitmap.Width > 4096 || dib.Bitmap.Height > 4096 ||
+            !(dib.Header.Compression == 0 || (dib.Header.Compression == 3 && dib.RedMask == 0xff0000 && dib.GreenMask == 0xff00 && dib.BlueMask == 0xff))) return null;
+        int width = dib.Bitmap.Width, height = dib.Bitmap.Height, stride = dib.Bitmap.WidthBytes;
+        if (stride < width * 4 || stride > 4096 * 4) return null;
+        byte[] native = new byte[checked(stride * height)];
+        Marshal.Copy(dib.Bitmap.Bits, native, 0, native.Length);
+        byte[] pixels = ShellThumbnailPixels.StraightBgra(native, width, height, stride, dib.Header.Height < 0);
+        var result = new System.Drawing.Bitmap(width, height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        try
+        {
+            var data = result.LockBits(new System.Drawing.Rectangle(0, 0, width, height), System.Drawing.Imaging.ImageLockMode.WriteOnly,
+                System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+            try
+            {
+                for (int row = 0; row < height; row++) Marshal.Copy(pixels, row * width * 4, data.Scan0 + row * data.Stride, width * 4);
+            }
+            finally { result.UnlockBits(data); }
+            return result;
+        }
+        catch { result.Dispose(); throw; }
     }
     private void Run()
     {
@@ -80,6 +105,7 @@ internal sealed class QuickLookShell : IDisposable
     private QuickLookItem? Read(nint owner)
     {
         var objects = new List<object>();
+        nint? selectedTab = null;
         var deadline = System.Diagnostics.Stopwatch.StartNew();
         void CheckDeadline() { if (deadline.ElapsedMilliseconds >= 650) throw new TimeoutException(); }
         T Keep<T>(T value) { if (value is not null) objects.Add(value); return value; }
@@ -98,14 +124,41 @@ internal sealed class QuickLookShell : IDisposable
             }
             else
             {
+                nint activeTab = QuickLookNative.ActiveShellTab(owner);
+                var candidates = new List<ShellTabCandidate>();
+                var browsers = new List<object>();
                 int count = windows.Count;
                 for (int i = 0; i < count; i++)
                 {
                     CheckDeadline();
                     dynamic browser = Keep((object)windows.Item(i));
                     CheckDeadline();
-                    if ((nint)(long)browser.HWND == owner) { found = browser; break; }
+                    nint browserOwner = (nint)(long)browser.HWND;
+                    CheckDeadline();
+                    if (browserOwner != owner) continue;
+                    nint tab = 0;
+                    if (activeTab != 0)
+                    {
+                        try
+                        {
+                            Guid serviceId = new("4C96BE40-915C-11CF-99D3-00AA004AE837"); // SID_STopLevelBrowser
+                            Guid interfaceId = typeof(IShellBrowser).GUID;
+                            int hr = ((IServiceProvider)browser).QueryService(ref serviceId, ref interfaceId, out object? service);
+                            if (service is not null) Keep(service);
+                            CheckDeadline();
+                            if (hr >= 0 && service is IShellBrowser shellBrowser && shellBrowser.GetWindow(out tab) < 0) tab = 0;
+                        }
+                        catch (Exception ex) when (ex is COMException or InvalidCastException) { /* cannot identify this tab; never guess */ }
+                        CheckDeadline();
+                    }
+                    candidates.Add(new(browserOwner, tab)); browsers.Add((object)browser);
                 }
+                int index = QuickLookWindowRules.SelectTab(owner, activeTab, candidates);
+                QuickLookDiagnostics.Write($"shell tabs owner=0x{owner:X} active=0x{activeTab:X} candidates={candidates.Count} selected={index}");
+                if (index < 0 || QuickLookNative.ActiveShellTab(owner) != activeTab) return null;
+                found = browsers[index];
+                // Re-check after extracting the item too; tab switches can race an outgoing COM call.
+                selectedTab = activeTab;
             }
             if (found is null) return null;
             CheckDeadline();
@@ -132,6 +185,8 @@ internal sealed class QuickLookShell : IDisposable
             bool folder = item.IsFolder;
             CheckDeadline();
             string type = item.Type ?? "Item";
+            CheckDeadline();
+            if (selectedTab is nint expected && QuickLookNative.ActiveShellTab(owner) != expected) return null;
             return new(path.Length == 0 ? name : path, name,
                 fileSystem && System.IO.Path.IsPathFullyQualified(path) ? path : null, folder, type);
         }
@@ -165,6 +220,28 @@ internal sealed class QuickLookShell : IDisposable
     [StructLayout(LayoutKind.Sequential)] private struct Size { public int Width, Height; }
     [ComImport, Guid("bcc18b79-ba16-442f-80c4-8a59c30c463b"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     private interface IShellItemImageFactory { void GetImage(Size size, uint flags, out nint bitmap); }
+    [ComImport, Guid("6D5140C1-7436-11CE-8034-00AA006009FA"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IServiceProvider
+    {
+        [PreserveSig] int QueryService(ref Guid service, ref Guid iid, [MarshalAs(UnmanagedType.Interface)] out object? result);
+    }
+    [ComImport, Guid("000214E2-0000-0000-C000-000000000046"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IShellBrowser
+    {
+        // IShellBrowser inherits IOleWindow; only these first two vtable slots are called.
+        [PreserveSig] int GetWindow(out nint hwnd);
+        [PreserveSig] int ContextSensitiveHelp([MarshalAs(UnmanagedType.Bool)] bool enterMode);
+    }
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)] private static extern int SHCreateItemFromParsingName(string path, nint bind, ref Guid iid, [MarshalAs(UnmanagedType.Interface)] out object? item);
     [DllImport("gdi32.dll")] private static extern bool DeleteObject(nint obj);
+    [StructLayout(LayoutKind.Sequential)] private struct NativeBitmap
+    { public int Type, Width, Height, WidthBytes; public ushort Planes, BitsPixel; public nint Bits; }
+    [StructLayout(LayoutKind.Sequential)] private struct BitmapInfoHeader
+    {
+        public uint Size; public int Width, Height; public ushort Planes, BitCount;
+        public uint Compression, SizeImage; public int XPelsPerMeter, YPelsPerMeter; public uint ColorsUsed, ColorsImportant;
+    }
+    [StructLayout(LayoutKind.Sequential)] private struct DibSection
+    { public NativeBitmap Bitmap; public BitmapInfoHeader Header; public uint RedMask, GreenMask, BlueMask; public nint Section; public uint Offset; }
+    [DllImport("gdi32.dll", CharSet = CharSet.Unicode)] private static extern int GetObjectW(nint obj, int size, out DibSection section);
 }

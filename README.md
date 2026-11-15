@@ -69,8 +69,8 @@ audio, text and code files (first 1 MB), and folders. Other files show a thumbna
 plus an **Open** button. Office documents are not previewed in this version. If QuickLook or PowerToys Peek is
 running, the Settings card shows a short note (QuickLook uses Space; Peek uses Ctrl+Space by default).
 
-Playback uses whichever codecs Windows has installed. On IME layouts FlowDesk conservatively leaves Space alone,
-so composing text is never interrupted by a preview.
+Playback uses whichever codecs Windows has installed. Quick Look does not take Space with a Chinese, Japanese or
+Korean keyboard layout active (v1 limit).
 
 Turn it off in the same Settings card; while it is off FlowDesk does not take the Space key.
 

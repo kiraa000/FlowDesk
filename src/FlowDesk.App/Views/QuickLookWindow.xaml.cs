@@ -59,7 +59,12 @@ internal sealed partial class QuickLookWindow : Window
         AppWindow.MoveAndResize(new RectInt32(area.X + (area.Width - width) / 2, area.Y + (area.Height - height) / 2, width, height));
         FileName.Text = "Quick Look"; Details.Text = "Reading Explorer selection…";
         AppWindow.Show(false);
-        ShowWindow(hwnd, 4); // SW_SHOWNOACTIVATE, including first show
+        var order = QuickLookWindowRules.ZOrder(show: true);
+        // NOACTIVATE does not raise a window above the foreground owner. A temporary topmost band
+        // avoids foreign ownership (which would destroy this reusable HWND if Explorer closes).
+        if (!SetWindowPos(hwnd, order.InsertAfter, 0, 0, 0, 0, order.Flags))
+        { HidePreview(); throw new InvalidOperationException("Preview could not be raised without activation."); }
+        QuickLookDiagnostics.Write($"preview shown foregroundPreserved={QuickLookNative.GetForegroundWindow() == owner} topmost={(GetWindowLongPtrW(hwnd, -20) & 8) != 0}");
     }
     public async Task DisplayAsync(QuickLookItem item)
     {
@@ -134,14 +139,23 @@ internal sealed partial class QuickLookWindow : Window
         try { old?.Dispose(); } catch (Exception) { /* playback teardown must not break Close or selection follow */ }
         Preview.Content = null; FileIcon.Source = null; DefaultIcon.Visibility = Visibility.Visible;
     }
-    public void HidePreview() { ClearContent(); AppWindow.Hide(); }
+    public void HidePreview()
+    {
+        try { ClearContent(); AppWindow.Hide(); }
+        finally
+        {
+            var order = QuickLookWindowRules.ZOrder(show: false);
+            SetWindowPos(hwnd, order.InsertAfter, 0, 0, 0, 0, order.Flags); // NOTOPMOST, no SHOWWINDOW or activation
+            QuickLookDiagnostics.Write($"preview hidden topmost={(GetWindowLongPtrW(hwnd, -20) & 8) != 0}");
+        }
+    }
     public void Shutdown() { HidePreview(); shuttingDown = true; RemoveWindowSubclass(hwnd, subclass, 9012); Close(); }
     private void Open_Click(object sender, RoutedEventArgs args) => OpenRequested?.Invoke();
     private void Close_Click(object sender, RoutedEventArgs args) => Dismissed?.Invoke();
     private delegate nint SubclassProc(nint hwnd, uint message, nuint wParam, nint lParam, nuint id, nuint data);
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] private static extern nint GetWindowLongPtrW(nint hwnd, int index);
     [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")] private static extern nint SetWindowLongPtrW(nint hwnd, int index, nint value);
-    [DllImport("user32.dll")] private static extern bool ShowWindow(nint hwnd, int command);
+    [DllImport("user32.dll", SetLastError = true)] private static extern bool SetWindowPos(nint hwnd, nint after, int x, int y, int width, int height, uint flags);
     [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(nint hwnd, uint attribute, ref int value, int size);
     [DllImport("comctl32.dll")] private static extern bool SetWindowSubclass(nint hwnd, SubclassProc proc, nuint id, nuint data);
     [DllImport("comctl32.dll")] private static extern bool RemoveWindowSubclass(nint hwnd, SubclassProc proc, nuint id);
