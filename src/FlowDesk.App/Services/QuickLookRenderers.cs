@@ -130,18 +130,30 @@ internal sealed class MediaQuickLookRenderer(QuickLookShell shell) : QuickLookRe
 }
 internal sealed class PdfQuickLookRenderer : QuickLookRenderer
 {
+    private const string FailedText = "This PDF page could not be rendered. Choose Open to try its default app.";
+    private const string SlowText = "This PDF page is still rendering. Choose Open to use its default app.";
+    private const int SlowPageMilliseconds = 8000;
     private CancellationTokenSource? lifetime;
+    private PdfDocument? document;
+    // Windows.Data.Pdf renders one page at a time per process. Two slots keep a recycled page that
+    // the engine has not finished yet from holding back the pages that are visible now.
+    private readonly SemaphoreSlim renderSlots = new(2, 2);
+    private readonly HashSet<Image> tracked = [];
     private readonly Dictionary<Microsoft.UI.Xaml.Controls.Primitives.SelectorItem, CancellationTokenSource> pages = [];
     public override async Task<FrameworkElement> LoadAsync(QuickLookItem item, CancellationToken token)
     {
         lifetime = CancellationTokenSource.CreateLinkedTokenSource(token);
         token = lifetime.Token;
         var file = await StorageFile.GetFileFromPathAsync(item.Path!).AsTask(token);
-        var document = await PdfDocument.LoadFromFileAsync(file).AsTask(token);
+        var loaded = await PdfDocument.LoadFromFileAsync(file).AsTask(token);
         token.ThrowIfCancellationRequested();
-        Details = $" · {document.PageCount} {(document.PageCount == 1 ? "page" : "pages")}";
-        // Do not replace ItemContainer.Content while ListView is preparing/binding that container.
-        // Use its actual template visual, after phase 0, and let the recycling panel own layout.
+        document = loaded;
+        Details = $" · {loaded.PageCount} {(loaded.PageCount == 1 ? "page" : "pages")}";
+        QuickLookDiagnostics.Write($"pdf loaded pages={loaded.PageCount}");
+        // Round-1 cause (proven headless): an element assigned to ItemContainer.Content inside
+        // ContainerContentChanging never reaches the visual tree; the container keeps the template
+        // root that ListView built for the data item, so the page area stays empty with no error.
+        // Pages are therefore drawn only into the ItemTemplate's own visuals, after phase 0.
         var list = new ListView { SelectionMode = ListViewSelectionMode.None, IsItemClickEnabled = false,
             HorizontalContentAlignment = HorizontalAlignment.Stretch };
         list.ItemTemplate = (DataTemplate)XamlReader.Load("""
@@ -149,8 +161,7 @@ internal sealed class PdfQuickLookRenderer : QuickLookRenderer
                           xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
                 <Grid MinHeight="160" Margin="0,0,0,12">
                     <Image x:Name="PageImage" Stretch="Uniform" MaxWidth="1600" HorizontalAlignment="Stretch" />
-                    <TextBlock x:Name="PageError" Visibility="Collapsed" TextWrapping="Wrap"
-                        Text="This PDF page could not be rendered. Choose Open to try its default app." />
+                    <TextBlock x:Name="PageError" Visibility="Collapsed" TextWrapping="Wrap" />
                 </Grid>
             </DataTemplate>
             """);
@@ -166,53 +177,97 @@ internal sealed class PdfQuickLookRenderer : QuickLookRenderer
         async void RenderPage(ListViewBase sender, ContainerContentChangingEventArgs args)
         {
             var container = args.ItemContainer;
-            if (token.IsCancellationRequested || args.InRecycleQueue) return;
+            if (token.IsCancellationRequested || args.InRecycleQueue || document is not { } source) return;
             if (container.ContentTemplateRoot is not Grid root)
             {
-                QuickLookDiagnostics.Write($"pdf template-not-ready phase={args.Phase}");
+                QuickLookDiagnostics.Write($"pdf template-not-ready phase={args.Phase} retry={args.Phase < 2}");
                 if (args.Phase < 2) args.RegisterUpdateCallback(2, RenderPage);
                 return;
             }
             if (root.FindName("PageImage") is not Image image || root.FindName("PageError") is not TextBlock error || args.Item is not int index)
             { QuickLookDiagnostics.Write("pdf invalid-template-or-item"); return; }
-            image.Source = null; image.Visibility = Visibility.Visible; error.Visibility = Visibility.Collapsed;
+            Track(image, error);
+            image.Tag = index; image.Source = null; image.Visibility = Visibility.Visible; error.Visibility = Visibility.Collapsed;
             container.HorizontalContentAlignment = HorizontalAlignment.Stretch;
             QuickLookDiagnostics.Write($"pdf render page={index} phase={args.Phase} width={root.ActualWidth} height={root.ActualHeight}");
             if (pages.Remove(container, out var old)) old.Cancel();
             using var rendering = CancellationTokenSource.CreateLinkedTokenSource(token);
             pages[container] = rendering;
             var pageToken = rendering.Token;
+            bool slot = false;
             try
             {
-                using var page = document.GetPage((uint)index);
-                root.Height = Math.Min(1200, page.Size.Height); // nonzero placeholder before the PNG arrives
+                using var page = source.GetPage((uint)index);
+                // Placeholder with the page's final height, so the list does not jump when the image arrives.
+                double width = Math.Min(root.ActualWidth, 1600);
+                root.Height = width > 0 && page.Size.Width > 0 ? width * page.Size.Height / page.Size.Width : Math.Min(1200, page.Size.Height);
                 var size = PreviewContent.Fit(page.Size.Width * 2, page.Size.Height * 2, 1800);
+                _ = ShowSlowNoticeAsync(index, image, error, pageToken);
+                // A page that scrolls away while it waits here is cancelled before it costs a render.
+                await renderSlots.WaitAsync(pageToken);
+                slot = true;
                 using var stream = await QuickLookPdfStream.RenderAsync(page, size.Width, size.Height, pageToken);
                 QuickLookDiagnostics.Write($"pdf stream page={index} position={stream.Position} bytes={stream.Size}");
                 pageToken.ThrowIfCancellationRequested();
                 var bitmap = new BitmapImage { DecodePixelWidth = (int)size.Width, DecodePixelHeight = (int)size.Height, DecodePixelType = DecodePixelType.Physical };
                 await bitmap.SetSourceAsync(stream).AsTask(pageToken);
                 pageToken.ThrowIfCancellationRequested();
+                error.Visibility = Visibility.Collapsed; image.Visibility = Visibility.Visible;
                 image.Source = bitmap; root.Height = double.NaN; root.MinHeight = 0;
                 QuickLookDiagnostics.Write($"pdf decoded page={index} width={bitmap.PixelWidth} height={bitmap.PixelHeight}");
             }
-            catch (OperationCanceledException) { }
+            catch (OperationCanceledException) { QuickLookDiagnostics.Write($"pdf cancelled page={index}"); }
             catch (Exception ex)
             {
                 QuickLookDiagnostics.Write($"pdf failed page={index} error={ex.GetType().Name} hr=0x{ex.HResult:X8}");
                 if (!pageToken.IsCancellationRequested)
                 {
                     Note = "A PDF page could not be rendered. Choose Open to try its default app.";
+                    error.Text = FailedText;
                     image.Visibility = Visibility.Collapsed; error.Visibility = Visibility.Visible; root.Height = double.NaN;
                 }
             }
-            finally { if (pages.TryGetValue(container, out var active) && ReferenceEquals(active, rendering)) pages.Remove(container); }
+            finally
+            {
+                if (slot) renderSlots.Release();
+                if (pages.TryGetValue(container, out var active) && ReferenceEquals(active, rendering)) pages.Remove(container);
+                rendering.Cancel(); // ends this page's slow-notice timer
+            }
         }
         // Hook before assigning items, so initial realization cannot miss its render callback.
-        list.ItemsSource = Enumerable.Range(0, checked((int)document.PageCount)).ToArray();
+        list.ItemsSource = Enumerable.Range(0, checked((int)loaded.PageCount)).ToArray();
         return list;
     }
-    public override void Dispose() { lifetime?.Cancel(); lifetime?.Dispose(); lifetime = null; }
+    /// <summary>A page that is neither drawn nor failed must not stay silently empty.</summary>
+    private static async Task ShowSlowNoticeAsync(int index, Image image, TextBlock error, CancellationToken pageToken)
+    {
+        try { await Task.Delay(SlowPageMilliseconds, pageToken); }
+        catch (OperationCanceledException) { return; }
+        if (pageToken.IsCancellationRequested || image.Source is not null) return;
+        QuickLookDiagnostics.Write($"pdf slow page={index} after={SlowPageMilliseconds}ms");
+        error.Text = SlowText; error.Visibility = Visibility.Visible;
+    }
+    /// <summary>Once per template instance. "pdf layout" is the proof that a decoded page is in the
+    /// live tree with a real size; a decode failure after SetSourceAsync shows the error text.</summary>
+    private void Track(Image image, TextBlock error)
+    {
+        if (!tracked.Add(image)) return;
+        image.SizeChanged += (_, args) =>
+        {
+            if (image.Source is not null && args.NewSize.Height > 0)
+                QuickLookDiagnostics.Write($"pdf layout page={image.Tag} image={args.NewSize.Width:0}x{args.NewSize.Height:0}");
+        };
+        image.ImageFailed += (_, args) =>
+        {
+            QuickLookDiagnostics.Write($"pdf image-failed page={image.Tag} error={args.ErrorMessage}");
+            error.Text = FailedText; image.Visibility = Visibility.Collapsed; error.Visibility = Visibility.Visible;
+        };
+    }
+    public override void Dispose()
+    {
+        // PdfDocument has no Close: cancel the page work and drop the only long-lived reference.
+        lifetime?.Cancel(); lifetime?.Dispose(); lifetime = null; document = null; tracked.Clear();
+    }
 }
 internal sealed class FolderQuickLookRenderer : QuickLookRenderer
 {
