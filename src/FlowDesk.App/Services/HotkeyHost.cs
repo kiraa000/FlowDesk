@@ -16,6 +16,7 @@ public sealed class HotkeyHost : IDisposable
 {
     private const int WM_HOTKEY = 0x0312;
     private const int WM_QUIT = 0x0012;
+    private const int WM_WTSSESSION_CHANGE = 0x02B1;
     private const int WM_MOUSEWHEEL = 0x020A;
     private const int WH_MOUSE_LL = 14;
     private const int ERROR_CLASS_ALREADY_EXISTS = 1410;
@@ -60,6 +61,7 @@ public sealed class HotkeyHost : IDisposable
     private nint _hwnd;
     private nint _hook;
     private nint _keyboardHook;
+    private bool _sessionNotificationsRegistered;
     private int _stopping;
 
     public HotkeyHost(IWindowOps windows, IVirtualDesktops? desktops, Action<string>? notify,
@@ -158,6 +160,8 @@ public sealed class HotkeyHost : IDisposable
             if (Volatile.Read(ref _stopping) != 0) return;
 
             RegisterBindings();
+            _sessionNotificationsRegistered = HotkeyNativeMethods.WTSRegisterSessionNotification(_hwnd, 0); // this session
+            TraceWinInput($"session-notifications registered={_sessionNotificationsRegistered} error={(_sessionNotificationsRegistered ? 0 : Marshal.GetLastWin32Error())}");
             _keyboard.Seed(IsDown);
             _hook = HotkeyNativeMethods.SetWindowsHookExW(WH_MOUSE_LL, _hookProc, HotkeyNativeMethods.GetModuleHandleW(null), 0);
             _keyboardHook = HotkeyNativeMethods.SetWindowsHookExW(WH_KEYBOARD_LL, _keyboardProc, HotkeyNativeMethods.GetModuleHandleW(null), 0);
@@ -194,6 +198,11 @@ public sealed class HotkeyHost : IDisposable
             }
             foreach (int id in _registered.Keys) HotkeyNativeMethods.UnregisterHotKey(_hwnd, id);
             _registered.Clear();
+            if (_sessionNotificationsRegistered)
+            {
+                HotkeyNativeMethods.WTSUnRegisterSessionNotification(_hwnd);
+                _sessionNotificationsRegistered = false;
+            }
             if (_hwnd != 0)
             {
                 HotkeyNativeMethods.DestroyWindow(_hwnd);
@@ -288,6 +297,13 @@ public sealed class HotkeyHost : IDisposable
         {
             try
             {
+                if (_keyboardHook != 0 && _keyboard.ReconcileStale(IsDown))
+                {
+                    _wheel.ObserveWin(_keyboard.Modifiers.Win);
+                    _wheel.ObserveAlt(_keyboard.Modifiers.Alt);
+                    Enqueue(() => _actions.Search.Reset());
+                    TraceWinInput($"resync=stale graceMs={ShortcutKeyboardState.StaleDownGraceMilliseconds} modifiers={_keyboard.Modifiers}");
+                }
                 var modifiers = _keyboardHook != 0 ? _keyboard.Modifiers : new ShortcutModifiers(
                     IsDown(VK_LWIN) || IsDown(VK_RWIN), IsDown(VK_MENU), IsDown(VK_SHIFT), IsDown(VK_CONTROL));
                 // Without a keyboard hook we cannot safely mask Win release; resize still works.
@@ -368,6 +384,16 @@ public sealed class HotkeyHost : IDisposable
 
     private static bool IsDown(int virtualKey) => (HotkeyNativeMethods.GetAsyncKeyState(virtualKey) & 0x8000) != 0;
 
+    private void OnSessionChange(uint reason)
+    {
+        if (Volatile.Read(ref _stopping) != 0 || !_keyboard.ReseedForSessionChange(reason, IsDown)) return;
+        // A session boundary starts fresh bookkeeping, even if the snapshot still includes Win.
+        _wheel.ObserveWin(false);
+        _wheel.ObserveAlt(false);
+        Enqueue(() => _actions.Search.Reset());
+        TraceWinInput($"resync=session reason=0x{reason:X} modifiers={_keyboard.Modifiers}");
+    }
+
     private static void SendAltMenuMask()
     {
         SendKeys([new(VkUnassigned, false), new(VkUnassigned, true)]);
@@ -423,6 +449,11 @@ public sealed class HotkeyHost : IDisposable
 
     private static nint WndProc(nint hwnd, uint message, nint wParam, nint lParam)
     {
+        if (message == WM_WTSSESSION_CHANGE && _current is { } sessionHost)
+        {
+            try { sessionHost.OnSessionChange((uint)wParam); } catch (Exception) { /* never cross a native callback */ }
+            return 0;
+        }
         if (message == WM_HOTKEY && _current is { } host)
         {
             try { host.OnHotkey((int)wParam); } catch (Exception) { /* never cross a native callback */ }
@@ -536,6 +567,12 @@ public sealed class HotkeyHost : IDisposable
 
     private static class HotkeyNativeMethods
     {
+        [DllImport("wtsapi32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool WTSRegisterSessionNotification(nint hwnd, uint flags);
+        [DllImport("wtsapi32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool WTSUnRegisterSessionNotification(nint hwnd);
         [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         public static extern ushort RegisterClassW(ref WNDCLASSW wndClass);
         [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
