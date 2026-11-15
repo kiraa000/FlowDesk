@@ -17,6 +17,9 @@ internal sealed class QuickLookShell : IDisposable
     private readonly BlockingCollection<Action> work = new(1);
     private int disposed;
     private readonly SingleFlightPreviewQuery queries = new();
+    // Acquired/released exclusively on our STA. ShellWindows remains a live collection; cache only
+    // its root, never a tab's Document, which can change while the top-level HWND stays the same.
+    private object? application, shellWindows;
     public QuickLookShell()
     {
         var thread = new Thread(Run) { IsBackground = true, Name = "FlowDesk Quick Look Shell STA" };
@@ -30,12 +33,14 @@ internal sealed class QuickLookShell : IDisposable
             TimeSpan.FromMilliseconds(700), token);
     private static byte[]? Thumbnail(string path)
     {
+        var deadline = System.Diagnostics.Stopwatch.StartNew();
         Guid iid = typeof(IShellItemImageFactory).GUID;
         object? factory = null;
         nint bitmap = 0;
         try
         {
             if (SHCreateItemFromParsingName(path, 0, ref iid, out factory) < 0 || factory is null) return null;
+            if (deadline.ElapsedMilliseconds >= 650) return null;
             ((IShellItemImageFactory)factory).GetImage(new Size { Width = 512, Height = 512 }, 1, out bitmap);
             if (bitmap == 0) return null;
             using var image = System.Drawing.Image.FromHbitmap(bitmap);
@@ -61,9 +66,18 @@ internal sealed class QuickLookShell : IDisposable
                 { TranslateMessage(ref message); DispatchMessageW(ref message); }
             }
         }
-        finally { OleUninitialize(); }
+        finally { ReleaseShell(); OleUninitialize(); }
     }
-    private static QuickLookItem? Read(nint owner)
+    private void ReleaseShell()
+    {
+        foreach (object? obj in new[] { shellWindows, application })
+        {
+            try { if (obj is not null && Marshal.IsComObject(obj)) Marshal.ReleaseComObject(obj); }
+            catch (InvalidComObjectException) { }
+        }
+        shellWindows = null; application = null;
+    }
+    private QuickLookItem? Read(nint owner)
     {
         var objects = new List<object>();
         var deadline = System.Diagnostics.Stopwatch.StartNew();
@@ -71,14 +85,14 @@ internal sealed class QuickLookShell : IDisposable
         T Keep<T>(T value) { if (value is not null) objects.Add(value); return value; }
         try
         {
-            dynamic shell = Keep(Activator.CreateInstance(Type.GetTypeFromProgID("Shell.Application")!)!);
+            dynamic shell = application ??= Activator.CreateInstance(Type.GetTypeFromProgID("Shell.Application")!)!;
             CheckDeadline();
-            dynamic windows = Keep((object)shell.Windows());
+            dynamic windows = shellWindows ??= (object)shell.Windows();
             CheckDeadline();
             object? found = null;
             if (QuickLookNative.ClassName(owner) is "Progman" or "WorkerW")
             {
-                object location = 0, root = Type.Missing;
+                object location = 0, root = null!; // reserved pvarLocRoot must be VT_EMPTY
                 int desktopHwnd;
                 found = Keep((object)windows.FindWindowSW(ref location, ref root, 8, out desktopHwnd, 1));
             }
@@ -89,6 +103,7 @@ internal sealed class QuickLookShell : IDisposable
                 {
                     CheckDeadline();
                     dynamic browser = Keep((object)windows.Item(i));
+                    CheckDeadline();
                     if ((nint)(long)browser.HWND == owner) { found = browser; break; }
                 }
             }
@@ -99,12 +114,15 @@ internal sealed class QuickLookShell : IDisposable
             // FocusedItem can remain set with zero selected items after clicking the background.
             dynamic selected = Keep((object)document.SelectedItems());
             CheckDeadline();
-            if ((int)selected.Count == 0) return QuickLookItem.Empty;
+            int selectedCount = selected.Count;
+            CheckDeadline();
+            if (selectedCount == 0) return QuickLookItem.Empty;
             dynamic? item = null;
             try { item = Keep((object?)document.FocusedItem); }
-            catch (COMException) { /* old Shell views expose only SelectedItems */ }
+            catch (Exception) { /* old Shell views expose only SelectedItems */ }
             CheckDeadline();
             if (item is null) item = Keep((object)selected.Item(0));
+            CheckDeadline();
             string name = item.Name ?? "Selected item";
             CheckDeadline();
             string path = item.Path ?? "";
@@ -116,6 +134,11 @@ internal sealed class QuickLookShell : IDisposable
             string type = item.Type ?? "Item";
             return new(path.Length == 0 ? name : path, name,
                 fileSystem && System.IO.Path.IsPathFullyQualified(path) ? path : null, folder, type);
+        }
+        catch (COMException)
+        {
+            ReleaseShell(); // Explorer may have restarted; reacquire the live root on the next read.
+            throw;
         }
         finally
         {

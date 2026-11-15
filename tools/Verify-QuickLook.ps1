@@ -4,7 +4,7 @@
 # and, unless -NoExplorer is passed, opens one File Explorer window on the samples. It skips entirely
 # while an elevated window (or one whose elevation cannot be read) is in the foreground, so no sample
 # is created before that check; -NoExplorer may still generate samples without touching the desktop.
-# Video samples are not generated: add your own to the folder if you want to test video. Nothing is downloaded.
+# PDF, WAV and a static GIF are generated locally; provide video/animated GIF/optional-codec samples.
 param(
     [string]$SampleDir = 'D:\Workspace\_tmp\opencode\QuickLookSamples',
     [switch]$NoExplorer
@@ -178,7 +178,7 @@ function New-WavSample {
     $path = Join-Path $SampleDir 'sample.wav'
     if (Test-Path -LiteralPath $path) { Write-Output 'keep  sample.wav'; return }
     $rate = 22050
-    $count = [int]($rate / 2)
+    $count = [int]($rate * 8)
     $dataSize = $count * 2
     $stream = New-Object System.IO.MemoryStream
     $writer = New-Object System.IO.BinaryWriter($stream)
@@ -253,7 +253,7 @@ Write-Output 'No content was downloaded and no file was deleted or overwritten.'
 Show-Supplied 'PDF (sample.pdf is generated locally)' @('.pdf')
 Show-Supplied 'video (not generated - add your own file to test video)' @('.mp4', '.mkv', '.webm', '.mov')
 Show-Supplied 'audio (sample.wav is generated locally; others supplied by you)' @('.mp3', '.wav', '.flac', '.m4a')
-Show-Supplied 'animated image / codec (sample-image.gif is generated locally)' @('.gif', '.heic', '.avif')
+Show-Supplied 'image / codec (generated GIF is static; supply an animated GIF, HEIC or AVIF)' @('.gif', '.heic', '.avif')
 
 if (-not (Get-Process FlowDesk.App -ErrorAction SilentlyContinue)) {
     Write-Output 'NOTE: FlowDesk.App is not running. Start it yourself and turn on Settings > Quick Look before testing.'
@@ -261,6 +261,8 @@ if (-not (Get-Process FlowDesk.App -ErrorAction SilentlyContinue)) {
 
 if ($NoExplorer) {
     Write-Output 'SKIP Explorer: -NoExplorer was passed; samples were generated without touching the desktop; open the folder yourself when ready.'
+} elseif ([QuickLookVerifyNative]::ForegroundElevation() -ne 0) {
+    Write-Output 'SKIP Explorer: foreground elevation changed or is unknown. Samples are ready; open them when the desktop is free.'
 } else {
     $first = Get-ChildItem -LiteralPath $SampleDir -File | Sort-Object Name | Select-Object -First 1
     $arguments = if ($first) { '/select,"' + $first.FullName + '"' } else { '"' + $SampleDir + '"' }
@@ -274,6 +276,7 @@ Write-Output '  Enable: Settings > Quick Look is OFF by default; turn it on and 
 Write-Output '  Basic: select sample-image.png, press Space -> the preview appears at once; Space again closes it.'
 Write-Output '  Esc / Enter: press Space to open; Esc closes; Enter opens the file in its default app and closes the preview.'
 Write-Output '  Selection follows: with the preview open, press Down/Up arrows in Explorer; the preview swaps and Explorer keeps keyboard focus.'
+Write-Output '  Rapid arrow + Enter: move selection and immediately press Enter -> the newly selected file opens, never the previous preview.'
 Write-Output '  Rename: press F2 on a file and type a space in the name -> the space is typed, no preview opens.'
 Write-Output '  Address/search: Ctrl+L address bar and Ctrl+E/Ctrl+F search box -> Space types a space, no preview.'
 Write-Output '  Modifiers: Shift+Space, Ctrl+Space, Alt+Space and Win+Space do not open Quick Look and keep their normal Explorer/Windows action.'
@@ -291,6 +294,7 @@ Write-Output '  Folders: select sample-folder -> item count and modified date (n
 Write-Output '  Virtual desktop: with a preview open, switch virtual desktop (Win+Ctrl+Left/Right) -> the preview closes; no stale preview is left behind.'
 Write-Output '  Quick Look only: Window shortcuts OFF, Quick Look ON -> no window shortcut registers (Alt+1, Alt+W, Alt+Q etc. do nothing); Space previews.'
 Write-Output '  Shortcuts only: Window shortcuts ON, Quick Look OFF -> existing window shortcuts work unchanged and Space is left to Explorer.'
+Write-Output '  Exit: with only Quick Look enabled, exit FlowDesk from the tray -> process exits; no replacement hook host or playback remains.'
 Write-Output '  IME: with a Chinese/Japanese/Korean IME composing text in Explorer (rename or search), press Space -> the space reaches the IME composition; no preview opens.'
 Write-Output '  Conflict note: with QuickLook.exe or PowerToys Peek running, the Settings card shows one InfoBar (no dialog); QuickLook uses Space, Peek uses Ctrl+Space by default.'
 Write-Output '  Themes: check Light, Dark and High Contrast (Windows Settings > Accessibility > Contrast themes) -> all text and borders readable.'

@@ -97,6 +97,19 @@ public sealed class HotkeyService(string dataDirectory, VirtualDesktopService? s
         finally { _gate.Release(); }
     }
 
+    /// <summary>App shutdown, unlike disabling window shortcuts: never start another module's host.</summary>
+    public async Task StopAllAsync()
+    {
+        await _gate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (_disposed) return;
+            _shortcutsRequested = false; _quickLook = null;
+            await StopCoreAsync().ConfigureAwait(false);
+        }
+        finally { _gate.Release(); }
+    }
+
     /// <summary>Stops, reloads the DLL from its candidate paths, and starts again if it was running.</summary>
     public async Task ReloadBackendAsync()
         => await ReloadAsync(null).ConfigureAwait(false);

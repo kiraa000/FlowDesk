@@ -262,7 +262,8 @@ public sealed partial class MainWindow : Window
             focusTimer.Start(); autosaveTimer.Start(); App.ViewModels.AutoSave.Start(); return;
         }
         await Task.Run(() => services.Focus.Dispose());
-        await services.Hotkeys.StopAsync();
+        services.QuickLook?.Dispose();
+        await services.Hotkeys.StopAllAsync();
         allowClose = true; Close();
     }
     private void RememberWindow()

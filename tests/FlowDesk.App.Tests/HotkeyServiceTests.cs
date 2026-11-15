@@ -15,6 +15,7 @@ public sealed class HotkeyServiceTests
 
         await service.StartAsync();
         await service.StopAsync();
+        await service.StopAllAsync();
         await service.ReloadBackendAsync();
 
         Assert.False(service.IsRunning);
