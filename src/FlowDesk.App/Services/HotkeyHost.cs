@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
+using System.Diagnostics;
 using FlowDesk.Core.Desktops;
 using FlowDesk.Core.Hotkeys;
 
@@ -8,7 +9,7 @@ namespace FlowDesk.App.Services;
 /// <summary>
 /// Owns global window shortcuts for as long as the feature is on. One dedicated thread runs the
 /// message-only window, the RegisterHotKey ids and the low-level mouse hook; that thread only checks
-/// keys/cooldown and queues. One serialized worker thread runs every action and the timed focus step,
+/// keys/cooldown, submits the small menu-mask/release batch and queues actions. One serialized worker thread runs every action and the timed focus step,
 /// so actions never overlap. Stop unregisters, unhooks, joins and drains stale work.
 /// </summary>
 public sealed class HotkeyHost : IDisposable
@@ -19,10 +20,11 @@ public sealed class HotkeyHost : IDisposable
     private const int WH_MOUSE_LL = 14;
     private const int ERROR_CLASS_ALREADY_EXISTS = 1410;
     private const int WH_KEYBOARD_LL = 13;
-    private const int WM_KEYUP = 0x0101, WM_SYSKEYUP = 0x0105;
+    private const int WM_KEYDOWN = 0x0100, WM_SYSKEYDOWN = 0x0104, WM_KEYUP = 0x0101, WM_SYSKEYUP = 0x0105;
     private const uint ModNoRepeat = 0x4000;
     private const uint INPUT_KEYBOARD = 1;
     private const uint KEYEVENTF_KEYUP = 0x0002;
+    private const uint KEYEVENTF_EXTENDEDKEY = 0x0001;
     private const ushort VkUnassigned = 0xE8;
     private const int VK_SHIFT = 0x10, VK_CONTROL = 0x11, VK_MENU = 0x12, VK_LWIN = 0x5B, VK_RWIN = 0x5C;
     private static readonly nint HWND_MESSAGE = -3;
@@ -43,6 +45,13 @@ public sealed class HotkeyHost : IDisposable
     private readonly HookProc _hookProc;
     private readonly HookProc _keyboardProc;
     private readonly WheelGestures _wheel = new();
+    private readonly ShortcutKeyboardState _keyboard = new();
+#if DEBUG
+    private readonly string? _inputDiagnosticLog = Environment.GetEnvironmentVariable("FLOWDESK_HOTKEY_DIAGNOSTICS_LOG");
+    private readonly string _inputDiagnosticHost = Guid.NewGuid().ToString("N")[..8];
+    private static readonly object InputDiagnosticFileGate = new();
+    private long _inputDiagnosticSequence;
+#endif
     private readonly Action? _openTerminal;
     private readonly Action? _reload;
     private Thread? _messageThread;
@@ -74,6 +83,7 @@ public sealed class HotkeyHost : IDisposable
     }
 
     public bool WheelHookAvailable { get; private set; }
+    public bool WinWheelHookAvailable { get; private set; }
 
     public async Task StartAsync(CancellationToken cancellationToken = default)
     {
@@ -112,6 +122,7 @@ public sealed class HotkeyHost : IDisposable
         _actions.SetPaused(false);
         IsRunning = false;
         WheelHookAvailable = false;
+        WinWheelHookAvailable = false;
     }
 
     private Task JoinThreadsAsync()
@@ -147,9 +158,11 @@ public sealed class HotkeyHost : IDisposable
             if (Volatile.Read(ref _stopping) != 0) return;
 
             RegisterBindings();
+            _keyboard.Seed(IsDown);
             _hook = HotkeyNativeMethods.SetWindowsHookExW(WH_MOUSE_LL, _hookProc, HotkeyNativeMethods.GetModuleHandleW(null), 0);
             _keyboardHook = HotkeyNativeMethods.SetWindowsHookExW(WH_KEYBOARD_LL, _keyboardProc, HotkeyNativeMethods.GetModuleHandleW(null), 0);
-            WheelHookAvailable = _hook != 0 && _keyboardHook != 0;
+            WheelHookAvailable = _hook != 0;
+            WinWheelHookAvailable = _hook != 0 && _keyboardHook != 0;
             _ready.TrySetResult(true);
 
             while (Volatile.Read(ref _stopping) == 0 &&
@@ -189,6 +202,7 @@ public sealed class HotkeyHost : IDisposable
             if (ReferenceEquals(_current, this)) _current = null;
             IsRunning = false;
             WheelHookAvailable = false;
+            WinWheelHookAvailable = false;
         }
     }
 
@@ -274,18 +288,30 @@ public sealed class HotkeyHost : IDisposable
         {
             try
             {
-                bool win = IsDown(VK_LWIN) || IsDown(VK_RWIN);
-                // Fail closed when release observation is unavailable; Settings reports all wheel gestures unavailable.
-                if (_keyboardHook == 0) return HotkeyNativeMethods.CallNextHookEx(_hook, nCode, wParam, lParam);
+                var modifiers = _keyboardHook != 0 ? _keyboard.Modifiers : new ShortcutModifiers(
+                    IsDown(VK_LWIN) || IsDown(VK_RWIN), IsDown(VK_MENU), IsDown(VK_SHIFT), IsDown(VK_CONTROL));
+                // Without a keyboard hook we cannot safely mask Win release; resize still works.
+                if (modifiers.Win && _keyboardHook == 0) return HotkeyNativeMethods.CallNextHookEx(_hook, nCode, wParam, lParam);
                 var info = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
+                if (info.ExtraInfo == ShortcutKeyboardState.InjectionTag)
+                    return HotkeyNativeMethods.CallNextHookEx(_hook, nCode, wParam, lParam);
                 int delta = (short)((info.MouseData >> 16) & 0xFFFF);
                 if (delta == 0) return HotkeyNativeMethods.CallNextHookEx(_hook, nCode, wParam, lParam);
-                var decision = _wheel.Accept(win, IsDown(VK_MENU), IsDown(VK_SHIFT), IsDown(VK_CONTROL), Environment.TickCount64);
+                var decision = _wheel.Accept(modifiers.Win, modifiers.Alt, modifiers.Shift, modifiers.Control, Environment.TickCount64);
                 if (decision.Gesture != WheelGesture.None)
                 {
-                    // Must happen here, while Win is still held, not on the delayed action worker.
-                    if (decision.MaskMenu) SendAltMenuMask();
-                    if (decision.Accepted) QueueWheel(decision.Gesture, delta > 0);
+                    if (decision.Accepted)
+                    {
+                        if (modifiers.Win)
+                        {
+                            _keyboard.AcceptWinGesture();
+                            TraceWinInput($"gesture={decision.Gesture} accepted=true leftHold={_keyboard.LeftHoldId} rightHold={_keyboard.RightHoldId}");
+                        }
+                        // Alt may be released BEFORE Win. Keep the early mask for search only;
+                        // the definitive Win mask is immediately adjacent to the replacement Win-up.
+                        if (decision.MaskMenu && modifiers.Alt) SendAltMenuMask();
+                        QueueWheel(decision.Gesture, delta > 0);
+                    }
                     return 1;
                 }
             }
@@ -296,27 +322,35 @@ public sealed class HotkeyHost : IDisposable
 
     private nint KeyboardHookProc(int nCode, nint wParam, nint lParam)
     {
+        bool swallow = false;
         try
         {
-            if (nCode >= 0 && Volatile.Read(ref _stopping) == 0 && (wParam == WM_KEYUP || wParam == WM_SYSKEYUP))
+            if (nCode >= 0 && (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN || wParam == WM_KEYUP || wParam == WM_SYSKEYUP))
             {
-                int key = Marshal.ReadInt32(lParam);
-                if (key is VK_LWIN or VK_RWIN)
+                var info = Marshal.PtrToStructure<KBDLLHOOKSTRUCT>(lParam);
+                bool down = wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN;
+                var observed = _keyboard.Observe((int)info.VirtualKey, down, info.ExtraInfo, info.ScanCode, (info.Flags & 1) != 0);
+                if (!observed.OwnInput)
                 {
-                    // Async state still includes the key whose key-up is being observed.
-                    bool otherWin = IsDown(key == VK_LWIN ? VK_RWIN : VK_LWIN);
-                    _wheel.ObserveWin(otherWin);
-                    if (!otherWin) Enqueue(() => _actions.Search.Reset());
-                }
-                else if (key is VK_MENU or 0xA4 or 0xA5)
-                {
-                    _wheel.ObserveAlt(false);
-                    Enqueue(() => _actions.Search.Reset());
+                    _wheel.ObserveWin(_keyboard.Modifiers.Win);
+                    _wheel.ObserveAlt(_keyboard.Modifiers.Alt);
+                    if (observed.WinKeyUp)
+                    {
+                        var result = WinKeyRelease.Process((ushort)info.VirtualKey, observed.GestureAccepted,
+                            Volatile.Read(ref _stopping) != 0, SendKeys);
+                        // Set before any diagnostics/queue work. No later exception can accidentally
+                        // lose the successful replacement decision; failed injection forwards original up.
+                        swallow = result.Swallow;
+                        TraceWinInput($"hold={observed.HoldId} key=0x{info.VirtualKey:X2} accepted={observed.GestureAccepted} repeats={observed.Repeats} " +
+                            $"upSwallowed={swallow} maskInjected={result.MaskInjected} SendInput={result.Inserted}/3 attempted={result.Attempted} " +
+                            $"cleanup={result.CleanupInserted} failed={result.Failed} stopping={Volatile.Read(ref _stopping) != 0}");
+                    }
+                    if (observed.ResetSearch) Enqueue(() => _actions.Search.Reset());
                 }
             }
         }
-        catch (Exception) { /* observation must never consume keys or throw into Windows */ }
-        return HotkeyNativeMethods.CallNextHookEx(_keyboardHook, nCode, wParam, lParam);
+        catch (Exception) { /* fail open, unless a complete replacement was already inserted; never throw into Windows */ }
+        return swallow ? 1 : HotkeyNativeMethods.CallNextHookEx(_keyboardHook, nCode, wParam, lParam);
     }
 
     private void QueueWheel(WheelGesture gesture, bool up) => Enqueue(() =>
@@ -336,10 +370,38 @@ public sealed class HotkeyHost : IDisposable
 
     private static void SendAltMenuMask()
     {
-        var inputs = new INPUT[2];
-        inputs[0] = new INPUT { Type = INPUT_KEYBOARD, Data = new INPUTUNION { Keyboard = new KEYBDINPUT { VirtualKey = VkUnassigned } } };
-        inputs[1] = new INPUT { Type = INPUT_KEYBOARD, Data = new INPUTUNION { Keyboard = new KEYBDINPUT { VirtualKey = VkUnassigned, Flags = KEYEVENTF_KEYUP } } };
-        HotkeyNativeMethods.SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<INPUT>());
+        SendKeys([new(VkUnassigned, false), new(VkUnassigned, true)]);
+    }
+
+    private static uint SendKeys(ShortcutKeyStroke[] keys)
+    {
+        var inputs = new INPUT[keys.Length];
+        for (int i = 0; i < keys.Length; i++)
+            inputs[i] = new INPUT { Type = INPUT_KEYBOARD, Data = new INPUTUNION { Keyboard = new KEYBDINPUT {
+                VirtualKey = keys[i].VirtualKey, ExtraInfo = keys[i].ExtraInfo,
+                Flags = (keys[i].KeyUp ? KEYEVENTF_KEYUP : 0) | (keys[i].Extended ? KEYEVENTF_EXTENDEDKEY : 0),
+            } } };
+        return HotkeyNativeMethods.SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<INPUT>());
+    }
+
+    [Conditional("DEBUG")]
+    private void TraceWinInput(string detail)
+    {
+#if DEBUG
+        try
+        {
+            string? file = _inputDiagnosticLog;
+            if (string.IsNullOrWhiteSpace(file) || !Path.IsPathFullyQualified(file)) return;
+            string line = $"{DateTimeOffset.UtcNow:O} host={_inputDiagnosticHost} seq={++_inputDiagnosticSequence} {detail}{Environment.NewLine}";
+            // Never do file I/O or take a file lock on the hook thread. Out-of-order writes retain seq.
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                try { lock (InputDiagnosticFileGate) File.AppendAllText(file, line); }
+                catch (Exception) { /* optional diagnostics cannot affect input */ }
+            });
+        }
+        catch (Exception) { }
+#endif
     }
 
     private static void EnsureWindowClass()
@@ -404,6 +466,13 @@ public sealed class HotkeyHost : IDisposable
         public uint MouseData;
         public uint Flags;
         public uint Time;
+        public nuint ExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct KBDLLHOOKSTRUCT
+    {
+        public uint VirtualKey, ScanCode, Flags, Time;
         public nuint ExtraInfo;
     }
 

@@ -279,7 +279,9 @@ public partial class SettingsViewModel(AppViewModels owner) : ObservableObject
         var hotkeys = owner.Services.Hotkeys;
         string status = hotkeys.DesktopStatus;
         if (hotkeys.IsRunning && !hotkeys.WheelAvailable)
-            status += " Wheel shortcuts (Win+Wheel, Win+Shift+Wheel, Win+Alt+Wheel and Alt+Shift+Wheel) are not available: an input hook could not be installed.";
+            status += " Wheel shortcuts (Win+Wheel, Win+Shift+Wheel, Win+Alt+Wheel and Alt+Shift+Wheel) are not available: the mouse hook could not be installed.";
+        else if (hotkeys.IsRunning && !hotkeys.WinWheelAvailable)
+            status += " Win+Wheel, Win+Shift+Wheel and Win+Alt+Wheel are not available: the keyboard hook could not be installed. Alt+Shift+Wheel resize remains available.";
         WindowShortcutsStatus = status;
         WindowShortcutsDesktopUnavailable = !hotkeys.DesktopsAvailable;
         var conflicts = hotkeys.Conflicts;

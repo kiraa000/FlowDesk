@@ -31,6 +31,7 @@ public sealed class HotkeyService(string dataDirectory, VirtualDesktopService? s
     public IReadOnlyList<string> Conflicts => _host?.Conflicts ?? [];
     public bool DesktopsAvailable => _desktops?.IsAvailable == true;
     public bool WheelAvailable => _host?.WheelHookAvailable == true;
+    public bool WinWheelAvailable => _host?.WinWheelHookAvailable == true;
     public string DesktopStatus => _desktops?.Status
         ?? "Desktop shortcuts need VirtualDesktopAccessor.dll. Choose the file to turn them on.";
 
