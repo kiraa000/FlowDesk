@@ -29,7 +29,9 @@ internal static class QuickLookNative
         // steal a composition Space. This conservatively also skips a closed East Asian IME.
         nint layout = GetKeyboardLayout(thread);
         int language = (int)((long)layout & 0x3ff);
-        bool composing = ImmIsIME(layout) || language is 4 or 17 or 18;
+        // ImmIsIME returns true even for plain en-US (0x04090409) on Windows 11 (live 2026-11-15), so
+        // only the East Asian primary languages (zh, ja, ko) skip Space.
+        bool composing = language is 4 or 17 or 18;
         return new(input.Enabled, foreground, top, focus, shell && gui.Flags == 0, composing, modifiers, input.PreviewOwner);
     }
     public static string ClassName(nint hwnd)
@@ -50,5 +52,4 @@ internal static class QuickLookNative
     [DllImport("user32.dll")] private static extern nint GetParent(nint hwnd);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassNameW(nint hwnd, StringBuilder value, int length);
     [DllImport("user32.dll")] private static extern nint GetKeyboardLayout(uint thread);
-    [DllImport("imm32.dll")] private static extern bool ImmIsIME(nint layout);
 }
