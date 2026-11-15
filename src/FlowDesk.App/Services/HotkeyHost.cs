@@ -364,11 +364,11 @@ public sealed class HotkeyHost : IDisposable
                     var context = down && quickLook?.Enabled == true
                         ? QuickLookNative.Context(quickLook, _keyboard.Modifiers) : default;
                     var decision = _quickLookTrigger.Observe((int)info.VirtualKey, down,
-                        observed.OwnInput || (info.Flags & 0x10) != 0, context);
+                        observed.OwnInput, context);
                     swallow = decision.Swallow;
-                    if (down && quickLook?.Enabled == true && (info.Flags & 0x10) == 0)
+                    if (down && quickLook?.Enabled == true && !observed.OwnInput)
                         TraceWinInput($"quicklook key=0x{info.VirtualKey:X2} command={decision.Command} swallowed={decision.Swallow} " +
-                            $"foreground={context.ForegroundClass} focus={context.FocusClass} shellView={context.UnderShellView} ime={context.ImeComposing} modifiers={context.Modifiers}");
+                            $"foreground={context.ForegroundClass} focus={context.FocusClass} shellView={context.UnderShellView} ime={context.ImeComposing} injected={(info.Flags & 0x10) != 0} modifiers={context.Modifiers}");
                     if (decision.Command != QuickLookCommand.None) quickLook?.Post(decision.Command, context.Foreground);
                 }
                 if (!observed.OwnInput)

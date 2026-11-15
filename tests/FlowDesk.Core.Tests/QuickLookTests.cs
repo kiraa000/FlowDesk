@@ -63,11 +63,12 @@ public sealed class QuickLookTests
         Assert.False(trigger.Observe(32, false, false, Valid).Swallow);
         Assert.Equal(QuickLookCommand.Toggle, trigger.Observe(32, true, false, Valid).Command);
     }
-    [Fact] public void InjectedUpDoesNotConsumePhysicalUpPair()
+    [Fact] public void FlowDeskTaggedInputIsIgnoredButForeignInputCanTrigger()
     {
+        var keyboard = new ShortcutKeyboardState();
         var trigger = new QuickLookTrigger();
-        Assert.True(trigger.Observe(32, true, false, Valid).Swallow);
-        Assert.False(trigger.Observe(32, false, true, Valid).Swallow);
+        Assert.True(trigger.Observe(32, true, keyboard.Observe(32, true, 123).OwnInput, Valid).Swallow);
+        Assert.False(trigger.Observe(32, false, keyboard.Observe(32, false, ShortcutKeyboardState.InjectionTag).OwnInput, Valid).Swallow);
         Assert.True(trigger.Observe(32, false, false, default).Swallow);
         Assert.False(new QuickLookTrigger().Observe(32, true, false, Valid with { Foreground = 0 }).Swallow);
         Assert.False(new QuickLookTrigger().Observe(65, true, false, Valid).Swallow);
