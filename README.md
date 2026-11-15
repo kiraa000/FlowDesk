@@ -21,8 +21,39 @@ Current version: **FlowDesk 1.1.0**. New here? Read [GETTING-STARTED.md](GETTING
 - **Onboarding tour:** six teaching tips through workspaces, layouts, focus and settings. It opens on first run
   and can be replayed from Settings; Back, Next, Skip and Escape work throughout.
 - **Settings:** system/light/dark theme, minimize on switch, 10-60 second launch timeout, start with Windows,
-  the data folder and the app version.
+  the terminal program for Alt+Enter, the data folder and the app version.
+- **Window shortcuts (optional, off by default):** snap and cycle window sizes, move focus, switch and move between
+  virtual desktops, open a terminal, reload or pause the shortcut engine, and use Win+wheel for desktop switching,
+  desktop moves and window search.
 - Mica, light/dark theme, keyboard support, Windows notifications.
+
+## Window shortcuts (optional)
+
+Turn them on in Settings > **Window shortcuts**. The same section sets the terminal program used by Alt+Enter:
+leave the field blank to use Windows Terminal when it is available, otherwise Command Prompt (FlowDesk adds no
+arguments); **Use default** clears a custom program.
+
+| Shortcut | Action |
+| --- | --- |
+| Alt+1 … Alt+5 | Go to virtual desktop 1–5 |
+| Alt+Shift+1 … Alt+Shift+5 | Move the active window to desktop 1–5 and follow it |
+| Alt+W / A / S / D (or arrows) | Snap up / left / down / right; repeated presses cycle 1/2 -> 1/3 -> 2/3 of the height or width |
+| Alt+Shift+W / A / S / D (or arrows) | Focus the window above / left / below / right |
+| Alt+F | Maximize or restore the active window |
+| Alt+M | Minimize the active window |
+| Alt+Q | Minimize the active window and focus the next one |
+| Alt+Shift+Space | Center the active window |
+| Alt+Enter | Open a terminal in your profile folder |
+| Alt+Shift+R | Reload the shortcut engine and re-check the desktop library |
+| Alt+Shift+E | Pause window shortcuts |
+| Alt+Shift+0 | Toggle pause/resume for window shortcuts |
+| Alt+Shift+Wheel | Resize the active window |
+| Win+Wheel | Switch to the previous/next virtual desktop (wheel up/down) |
+| Win+Shift+Wheel | Move the active window to the previous/next desktop and follow it |
+| Win+Alt+Wheel | Search open windows: wheel up cycles, wheel down undoes or minimizes |
+
+The Alt desktop shortcuts need `VirtualDesktopAccessor.dll`; see [GETTING-STARTED.md](GETTING-STARTED.md) for the
+supported Windows versions.
 
 ## Requirements
 

@@ -18,7 +18,8 @@ public sealed class HotkeyHost : IDisposable
     private const int WM_MOUSEWHEEL = 0x020A;
     private const int WH_MOUSE_LL = 14;
     private const int ERROR_CLASS_ALREADY_EXISTS = 1410;
-    private const int WheelCooldownMs = 25;
+    private const int WH_KEYBOARD_LL = 13;
+    private const int WM_KEYUP = 0x0101, WM_SYSKEYUP = 0x0105;
     private const uint ModNoRepeat = 0x4000;
     private const uint INPUT_KEYBOARD = 1;
     private const uint KEYEVENTF_KEYUP = 0x0002;
@@ -40,20 +41,28 @@ public sealed class HotkeyHost : IDisposable
     private readonly List<string> _conflicts = [];
     private readonly Dictionary<int, HotkeyBinding> _registered = [];
     private readonly HookProc _hookProc;
+    private readonly HookProc _keyboardProc;
+    private readonly WheelGestures _wheel = new();
+    private readonly Action? _openTerminal;
+    private readonly Action? _reload;
     private Thread? _messageThread;
     private Thread? _workerThread;
     private uint _threadId;
     private nint _hwnd;
     private nint _hook;
-    private long _lastWheelTick;
+    private nint _keyboardHook;
     private int _stopping;
 
-    public HotkeyHost(IWindowOps windows, IVirtualDesktops? desktops, Action<string>? notify)
+    public HotkeyHost(IWindowOps windows, IVirtualDesktops? desktops, Action<string>? notify,
+        Action? openTerminal = null, Action? reload = null)
     {
         _desktops = desktops;
         _notify = notify;
         _actions = new WindowShortcutActions(windows, desktops, new CancellableDelay());
         _hookProc = MouseHookProc;
+        _keyboardProc = KeyboardHookProc;
+        _openTerminal = openTerminal;
+        _reload = reload;
     }
 
     public bool IsRunning { get; private set; }
@@ -139,7 +148,8 @@ public sealed class HotkeyHost : IDisposable
 
             RegisterBindings();
             _hook = HotkeyNativeMethods.SetWindowsHookExW(WH_MOUSE_LL, _hookProc, HotkeyNativeMethods.GetModuleHandleW(null), 0);
-            WheelHookAvailable = _hook != 0;
+            _keyboardHook = HotkeyNativeMethods.SetWindowsHookExW(WH_KEYBOARD_LL, _keyboardProc, HotkeyNativeMethods.GetModuleHandleW(null), 0);
+            WheelHookAvailable = _hook != 0 && _keyboardHook != 0;
             _ready.TrySetResult(true);
 
             while (Volatile.Read(ref _stopping) == 0 &&
@@ -159,6 +169,11 @@ public sealed class HotkeyHost : IDisposable
             _cts.Cancel();
             _multiPress.Reset();
             _queue.CompleteAdding();
+            if (_keyboardHook != 0)
+            {
+                HotkeyNativeMethods.UnhookWindowsHookEx(_keyboardHook);
+                _keyboardHook = 0;
+            }
             if (_hook != 0)
             {
                 HotkeyNativeMethods.UnhookWindowsHookEx(_hook);
@@ -208,11 +223,16 @@ public sealed class HotkeyHost : IDisposable
         Enqueue(() => HandleBinding(binding));
     }
 
-    private void HandleBinding(HotkeyBinding binding)
+    internal bool IsPaused => _actions.IsPaused;
+
+    internal void HandleBinding(HotkeyBinding binding)
     {
-        if (binding.Id == HotkeyCatalog.PauseToggleId)
+        if (binding.Id == "terminal-open") { _openTerminal?.Invoke(); return; }
+        if (binding.Id == "engine-reload") { _reload?.Invoke(); return; }
+        if (binding.Id == HotkeyCatalog.PauseToggleId || binding.Id == "pause")
         {
-            bool paused = _actions.TogglePause();
+            bool paused = binding.Id == "pause" || !_actions.IsPaused;
+            _actions.SetPaused(paused);
             _multiPress.Reset();
             _notify?.Invoke(paused ? "Window shortcuts paused" : "Window shortcuts on");
             return;
@@ -254,11 +274,18 @@ public sealed class HotkeyHost : IDisposable
         {
             try
             {
-                if (IsDown(VK_MENU) && IsDown(VK_SHIFT) && !IsDown(VK_CONTROL) && !IsDown(VK_LWIN) && !IsDown(VK_RWIN))
+                bool win = IsDown(VK_LWIN) || IsDown(VK_RWIN);
+                // Fail closed when release observation is unavailable; Settings reports all wheel gestures unavailable.
+                if (_keyboardHook == 0) return HotkeyNativeMethods.CallNextHookEx(_hook, nCode, wParam, lParam);
+                var info = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
+                int delta = (short)((info.MouseData >> 16) & 0xFFFF);
+                if (delta == 0) return HotkeyNativeMethods.CallNextHookEx(_hook, nCode, wParam, lParam);
+                var decision = _wheel.Accept(win, IsDown(VK_MENU), IsDown(VK_SHIFT), IsDown(VK_CONTROL), Environment.TickCount64);
+                if (decision.Gesture != WheelGesture.None)
                 {
-                    var info = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
-                    int delta = (short)((info.MouseData >> 16) & 0xFFFF);
-                    if (delta != 0) QueueWheel(delta > 0);
+                    // Must happen here, while Win is still held, not on the delayed action worker.
+                    if (decision.MaskMenu) SendAltMenuMask();
+                    if (decision.Accepted) QueueWheel(decision.Gesture, delta > 0);
                     return 1;
                 }
             }
@@ -267,13 +294,43 @@ public sealed class HotkeyHost : IDisposable
         return HotkeyNativeMethods.CallNextHookEx(_hook, nCode, wParam, lParam);
     }
 
-    private void QueueWheel(bool grow)
+    private nint KeyboardHookProc(int nCode, nint wParam, nint lParam)
     {
-        long now = Environment.TickCount64;
-        if (now - _lastWheelTick < WheelCooldownMs) return;
-        _lastWheelTick = now;
-        Enqueue(() => _actions.ResizeWindow(grow, _cts.Token));
+        try
+        {
+            if (nCode >= 0 && Volatile.Read(ref _stopping) == 0 && (wParam == WM_KEYUP || wParam == WM_SYSKEYUP))
+            {
+                int key = Marshal.ReadInt32(lParam);
+                if (key is VK_LWIN or VK_RWIN)
+                {
+                    // Async state still includes the key whose key-up is being observed.
+                    bool otherWin = IsDown(key == VK_LWIN ? VK_RWIN : VK_LWIN);
+                    _wheel.ObserveWin(otherWin);
+                    if (!otherWin) Enqueue(() => _actions.Search.Reset());
+                }
+                else if (key is VK_MENU or 0xA4 or 0xA5)
+                {
+                    _wheel.ObserveAlt(false);
+                    Enqueue(() => _actions.Search.Reset());
+                }
+            }
+        }
+        catch (Exception) { /* observation must never consume keys or throw into Windows */ }
+        return HotkeyNativeMethods.CallNextHookEx(_keyboardHook, nCode, wParam, lParam);
     }
+
+    private void QueueWheel(WheelGesture gesture, bool up) => Enqueue(() =>
+    {
+        switch (gesture)
+        {
+            case WheelGesture.Resize: _actions.ResizeWindow(up, _cts.Token); break;
+            case WheelGesture.Desktop: _actions.DesktopWheel(up, false, _cts.Token); break;
+            case WheelGesture.MoveDesktop: _actions.DesktopWheel(up, true, _cts.Token); break;
+            case WheelGesture.Search:
+                if (!_actions.IsPaused && !_cts.IsCancellationRequested) _actions.Search.Wheel(up);
+                break;
+        }
+    });
 
     private static bool IsDown(int virtualKey) => (HotkeyNativeMethods.GetAsyncKeyState(virtualKey) & 0x8000) != 0;
 
@@ -306,7 +363,7 @@ public sealed class HotkeyHost : IDisposable
     {
         if (message == WM_HOTKEY && _current is { } host)
         {
-            host.OnHotkey((int)wParam);
+            try { host.OnHotkey((int)wParam); } catch (Exception) { /* never cross a native callback */ }
             return 0;
         }
         return HotkeyNativeMethods.DefWindowProcW(hwnd, message, wParam, lParam);

@@ -17,6 +17,7 @@ internal sealed class FakeWindowOps : IWindowOps
     public List<PixelRect> Moves { get; } = [];
     public HashSet<long> MoveFailures { get; } = [];
     public long? Activated { get; private set; }
+    public int EnumerationCount { get; private set; }
 
     public long AddWindow(PixelRect rect, PixelRect? workArea = null, bool visible = true, bool cloaked = false,
         bool minimized = false, bool maximized = false, string title = "Window", string cls = "Win", bool tool = false)
@@ -67,10 +68,11 @@ internal sealed class FakeWindowOps : IWindowOps
     {
         Log.Add($"activate:{handle}");
         Activated = handle;
+        Foreground = handle;
         return true;
     }
 
-    public IReadOnlyList<FocusWindow> GetWindowsInZOrder() => Windows.ToList();
+    public IReadOnlyList<FocusWindow> GetWindowsInZOrder() { EnumerationCount++; return Windows.ToList(); }
 }
 
 internal sealed class FakeVirtualDesktops : IVirtualDesktops

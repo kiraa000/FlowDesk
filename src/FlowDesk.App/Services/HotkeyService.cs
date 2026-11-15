@@ -21,6 +21,8 @@ public sealed class HotkeyService(string dataDirectory, VirtualDesktopService? s
     private HotkeyHost? _host;
     private bool _disposed;
     private int _disposeStarted;
+    private readonly ShortcutTerminal _terminal = new();
+    public Func<string?>? TerminalProgram { get; set; }
 
     /// <summary>Toast callback; set by the window once notifications are initialized.</summary>
     public Action<string>? Notify { get; set; }
@@ -56,11 +58,17 @@ public sealed class HotkeyService(string dataDirectory, VirtualDesktopService? s
 
     /// <summary>Stops, reloads the DLL from its candidate paths, and starts again if it was running.</summary>
     public async Task ReloadBackendAsync()
+        => await ReloadAsync(null).ConfigureAwait(false);
+
+    private async Task ReloadAsync(HotkeyHost? source)
     {
         await _gate.WaitAsync().ConfigureAwait(false);
         try
         {
             if (_disposed) return;
+            // A queued hotkey reload must not resurrect a host after Settings turned it off,
+            // nor replace a newer generation. No worker waits for its own Stop/Join.
+            if (source is not null && !ReferenceEquals(_host, source)) return;
             bool wasRunning = IsRunning;
             await StopCoreAsync().ConfigureAwait(false);
             if (_shared is not null)
@@ -75,6 +83,7 @@ public sealed class HotkeyService(string dataDirectory, VirtualDesktopService? s
                 await Task.Run(EnsureBackend).ConfigureAwait(false);
             }
             if (wasRunning) await StartCoreAsync().ConfigureAwait(false);
+            if (source is not null) Notify?.Invoke("Window shortcuts reloaded");
         }
         finally { _gate.Release(); }
     }
@@ -84,7 +93,10 @@ public sealed class HotkeyService(string dataDirectory, VirtualDesktopService? s
         if (_host is { IsRunning: true }) return;
         if (_host is not null) await StopCoreAsync().ConfigureAwait(false);
         if (_desktops is null) await Task.Run(EnsureBackend).ConfigureAwait(false);
-        var host = new HotkeyHost(new Win32WindowOps(), _desktops, Notify);
+        HotkeyHost? host = null;
+        host = new HotkeyHost(new Win32WindowOps(), _desktops, Notify,
+            () => _terminal.Open(TerminalProgram?.Invoke(), Notify),
+            () => RequestReload(host!));
         try
         {
             await host.StartAsync().ConfigureAwait(false);
@@ -95,6 +107,17 @@ public sealed class HotkeyService(string dataDirectory, VirtualDesktopService? s
             host.Dispose();
             throw;
         }
+    }
+
+    internal Task ReloadFromHostAsync(HotkeyHost source) => ReloadAsync(source);
+
+    private void RequestReload(HotkeyHost source)
+    {
+        _ = Task.Run(async () =>
+        {
+            try { await ReloadFromHostAsync(source).ConfigureAwait(false); }
+            catch (Exception) { Notify?.Invoke("Window shortcuts could not be reloaded. Turn them off and on in Settings to try again."); }
+        });
     }
 
     private async Task StopCoreAsync()

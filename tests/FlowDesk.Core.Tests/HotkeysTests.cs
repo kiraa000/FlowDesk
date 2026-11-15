@@ -288,12 +288,12 @@ public sealed class HotkeyCatalogTests
     {
         var all = HotkeyCatalog.All;
 
-        Assert.Equal(32, all.Count);
+        Assert.Equal(38, all.Count);
         Assert.Equal(10, all.Count(binding => binding.IsDesktop));
         Assert.Equal(8, all.Count(binding => binding.Id.StartsWith("snap-", StringComparison.Ordinal)));
         Assert.Equal(8, all.Count(binding => binding.Id.StartsWith("focus-", StringComparison.Ordinal)));
-        Assert.Single(all, binding => binding.IsMouseWheel);
-        Assert.Equal(31, HotkeyCatalog.Registerable.Count());
+        Assert.Equal(4, all.Count(binding => binding.IsMouseWheel));
+        Assert.Equal(34, HotkeyCatalog.Registerable.Count());
         Assert.Equal(all.Count, all.Select(binding => binding.Id).Distinct().Count());
     }
 
@@ -334,8 +334,14 @@ public sealed class HotkeyCatalogTests
             ("minimize", alt, 0x4D, false, true),
             ("next-window", alt, 0x51, false, true),
             ("center", both, 0x20, false, true),
+            ("terminal-open", alt, 0x0D, false, false),
+            ("engine-reload", both, 0x52, false, false),
+            ("pause", both, 0x45, false, false),
             ("pause-toggle", both, 0x30, false, false),
             ("resize-wheel", both, 0x00, true, false),
+            ("desktop-wheel", 8, 0, true, false),
+            ("desktop-move-wheel", 8 | HotkeyCatalog.ModShift, 0, true, false),
+            ("search-wheel", 8 | alt, 0, true, true),
         };
 
         var actual = HotkeyCatalog.All
@@ -354,7 +360,7 @@ public sealed class HotkeyCatalogTests
                 || binding.Id.StartsWith("focus-", StringComparison.Ordinal);
             Assert.Equal(directional || binding.IsMouseWheel, binding.Repeat);
             Assert.Equal(directional
-                || binding.Id is "maximize-toggle" or "minimize" or "next-window" or "center", binding.Pausable);
+                || binding.Id is "maximize-toggle" or "minimize" or "next-window" or "center" or "search-wheel", binding.Pausable);
             Assert.Equal(0u, binding.Modifiers & 0x4000u);
         }
     }
@@ -410,7 +416,7 @@ public sealed class WindowShortcutActionsTests
     }
 
     [Fact]
-    public void SwitchingCreatesMissingDesktopsThenGoesWithoutFocusCorrection()
+    public void SwitchingCreatesMissingDesktopsAndToleratesNoFocusCandidate()
     {
         var (actions, ops, desktops, _) = Build();
         desktops.Count = 1;

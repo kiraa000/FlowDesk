@@ -30,6 +30,8 @@ public sealed class AppSettings
     public List<string> BrowserRestoreNoticesSeen { get; set; } = [];
     /// <summary>Optional global Alt window shortcuts. Off by default, also for files written before this existed.</summary>
     public bool WindowShortcutsEnabled { get; set; }
+    /// <summary>Empty uses Windows Terminal's app execution alias, falling back to Command Prompt.</summary>
+    public string TerminalProgram { get; set; } = "";
     public bool TrayCloseNoticeShown { get; set; }
 
     public static int ClampLaunchTimeout(int seconds) => LaunchTimeoutValue.Clamp(seconds);

@@ -66,14 +66,24 @@ Settings → **Window shortcuts**. Turn it on to use:
 | --- | --- |
 | Alt+1 … Alt+5 | Go to virtual desktop 1–5 |
 | Alt+Shift+1 … 5 | Move the active window to desktop 1–5 and follow it |
-| Alt+W / A / S / D (or arrows) | Snap the active window to the top / left / bottom / right half |
+| Alt+W / A / S / D (or arrows) | Snap up / left / down / right; repeated presses cycle 1/2 -> 1/3 -> 2/3 of the height or width |
 | Alt+Shift+W / A / S / D (or arrows) | Focus the window above / left / below / right |
 | Alt+F | Maximize or restore the active window |
 | Alt+M | Minimize the active window |
 | Alt+Q | Minimize the active window and focus the next one |
 | Alt+Shift+Space | Center the active window |
+| Alt+Enter | Open a terminal in your profile folder |
+| Alt+Shift+R | Reload the shortcut engine and re-check the desktop library |
+| Alt+Shift+E | Pause window shortcuts |
+| Alt+Shift+0 | Toggle pause/resume for window shortcuts |
 | Alt+Shift+Wheel | Resize the active window |
-| Alt+Shift+0 | Pause or resume all window shortcuts |
+| Win+Wheel | Switch to the previous/next virtual desktop (wheel up/down) |
+| Win+Shift+Wheel | Move the active window to the previous/next desktop and follow it |
+| Win+Alt+Wheel | Search open windows: wheel up cycles, wheel down undoes or minimizes |
+
+Alt+Enter uses the program in **Settings > Window shortcuts > Terminal program**. Leave the field blank to use
+Windows Terminal when it is available, otherwise Command Prompt; **Use default** clears a custom program. FlowDesk
+starts the terminal in your profile folder, never elevated, and adds no arguments.
 
 The virtual-desktop shortcuts (Alt+1…5, Alt+Shift+1…5) use the third-party file `VirtualDesktopAccessor.dll`,
 which is **included** and works on **Windows 11 24H2 or newer** (Settings → About in Windows shows your version).

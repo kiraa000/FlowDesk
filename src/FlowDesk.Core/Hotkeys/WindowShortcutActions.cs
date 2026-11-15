@@ -13,20 +13,27 @@ public sealed class WindowShortcutActions(
     IActionDelay delay)
 {
     public bool IsPaused { get; private set; }
+    private readonly SnapCycle _snap = new();
+    public WindowSearchSession Search { get; } = new(windows, desktops);
 
     /// <summary>Flips pause and returns the new state.</summary>
     public bool TogglePause()
     {
-        IsPaused = !IsPaused;
+        SetPaused(!IsPaused);
         return IsPaused;
     }
 
-    public void SetPaused(bool paused) => IsPaused = paused;
+    public void SetPaused(bool paused)
+    {
+        IsPaused = paused;
+        Search.Reset();
+    }
 
     /// <summary>Runs one hotkey binding. Pause gates only bindings marked pausable.</summary>
     public void Execute(HotkeyBinding binding, CancellationToken token)
     {
         if (token.IsCancellationRequested) return;
+        if (binding.Id == "maximize-toggle") Search.Reset();
         if (IsPaused && binding.Pausable) return;
 
         if (binding.IsDesktop)
@@ -72,6 +79,7 @@ public sealed class WindowShortcutActions(
         if (token.IsCancellationRequested) return;
         long handle = ActiveWindow();
         if (handle == 0) return;
+        _snap.Clear(handle);
         var metrics = windows.GetMetrics(handle);
         if (!metrics.Exists) return;
         if (metrics.IsMaximized)
@@ -88,22 +96,46 @@ public sealed class WindowShortcutActions(
         windows.Move(handle, WindowGeometry.Resize(metrics.WorkArea, metrics.Rect, grow));
     }
 
+    public void DesktopWheel(bool previous, bool move, CancellationToken token)
+    {
+        if (desktops is not { IsAvailable: true } || token.IsCancellationRequested) return;
+        if (desktops.GetCount() is not int count || desktops.GetCurrent() is not int current) return;
+        count = Math.Max(1, count);
+        int target = (current + (previous ? -1 : 1) + count) % count;
+        if (move) MoveToDesktop(target + 1, token);
+        else SwitchDesktop(target + 1, token);
+    }
+
     private void SwitchDesktop(int number, CancellationToken token)
     {
+        Search.Reset();
         if (desktops is not { IsAvailable: true }) return;
         if (desktops.GetCurrent() == number - 1) return;
         if (!TryEnsureDesktops(number, token) || token.IsCancellationRequested) return;
-        desktops.GoTo(number - 1);
+        if (!desktops.GoTo(number - 1)) return;
+        if (!delay.Wait(TimeSpan.FromMilliseconds(100), token)) return;
+        var candidates = windows.GetWindowsInZOrder().Where(w => w.IsVisible && !w.IsToolWindow &&
+            !string.IsNullOrWhiteSpace(w.Title) && !windows.IsShellWindow(w.Handle) &&
+            w.ClassName is not ("Progman" or "WorkerW") && desktops.IsWindowOnCurrent(w.Handle) == true &&
+            windows.GetMetrics(w.Handle).Exists).ToList();
+        var next = candidates.FirstOrDefault(w => !windows.GetMetrics(w.Handle).IsMinimized) ?? candidates.FirstOrDefault();
+        if (next is not null)
+        {
+            if (windows.GetMetrics(next.Handle).IsMinimized) windows.Restore(next.Handle);
+            windows.Activate(next.Handle);
+        }
     }
 
     private void MoveToDesktop(int number, CancellationToken token)
     {
+        Search.Reset();
         long active = ActiveWindow();
         if (active == 0) return;
+        _snap.Clear(active);
         if (!TryEnsureDesktops(number, token) || token.IsCancellationRequested) return;
         if (!desktops!.MoveWindow(active, number - 1)) return;
         if (token.IsCancellationRequested) return;
-        desktops.GoTo(number - 1);
+        if (!desktops.GoTo(number - 1)) return;
         if (!delay.Wait(TimeSpan.FromMilliseconds(100), token)) return;
         var metrics = windows.GetMetrics(active);
         if (!metrics.Exists) return;
@@ -141,13 +173,17 @@ public sealed class WindowShortcutActions(
             metrics = windows.GetMetrics(handle);
             if (!metrics.Exists) return;
         }
-        windows.Move(handle, WindowGeometry.Snap(metrics.WorkArea, direction));
+        int step = _snap.Next(handle, direction, metrics.Rect, metrics.WorkArea);
+        windows.Move(handle, WindowGeometry.Snap(metrics.WorkArea, direction, step));
+        var observed = windows.GetMetrics(handle);
+        if (observed.Exists) _snap.Remember(handle, direction, step, observed.Rect, observed.WorkArea);
     }
 
     private void Center(CancellationToken token)
     {
         long handle = ActiveWindow();
         if (handle == 0) return;
+        _snap.Clear(handle);
         var metrics = windows.GetMetrics(handle);
         if (!metrics.Exists) return;
         if (metrics.IsMinimized || metrics.IsMaximized)
@@ -165,6 +201,7 @@ public sealed class WindowShortcutActions(
         if (token.IsCancellationRequested) return;
         long handle = ActiveWindow();
         if (handle == 0) return;
+        _snap.Clear(handle);
         var metrics = windows.GetMetrics(handle);
         if (!metrics.Exists) return;
         if (metrics.IsMaximized) windows.Restore(handle);

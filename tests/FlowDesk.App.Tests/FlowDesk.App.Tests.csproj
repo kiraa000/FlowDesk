@@ -38,6 +38,7 @@
     <!-- Hotkey service lifetime is headless: Dispose/guard tests never start threads or hooks. -->
     <Compile Include="..\..\src\FlowDesk.App\Services\HotkeyService.cs" Link="HotkeyService.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\HotkeyHost.cs" Link="HotkeyHost.cs" />
+    <Compile Include="..\..\src\FlowDesk.App\Services\ShortcutTerminal.cs" Link="ShortcutTerminal.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\TimerOneShotScheduler.cs" Link="TimerOneShotScheduler.cs" />
     <Using Include="Xunit" />
   </ItemGroup>

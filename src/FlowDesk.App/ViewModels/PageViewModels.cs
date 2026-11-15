@@ -213,6 +213,7 @@ public partial class SettingsViewModel(AppViewModels owner) : ObservableObject
     [ObservableProperty] public partial double LaunchTimeout { get; set; } = AppSettings.DefaultLaunchTimeoutSeconds;
     [ObservableProperty] public partial bool StartWithWindows { get; set; }
     [ObservableProperty] public partial bool WindowShortcuts { get; set; }
+    [ObservableProperty] public partial string TerminalProgram { get; set; } = "";
     [ObservableProperty] public partial string WindowShortcutsStatus { get; set; } = "";
     [ObservableProperty] public partial bool WindowShortcutsDesktopUnavailable { get; set; }
     [ObservableProperty] public partial bool WindowShortcutsBusy { get; set; }
@@ -237,12 +238,23 @@ public partial class SettingsViewModel(AppViewModels owner) : ObservableObject
         LaunchTimeout = AppSettings.ClampLaunchTimeout(owner.Services.Settings.LaunchTimeoutSeconds);
         StartWithWindows = StartupRegistration.IsEnabled();
         WindowShortcuts = owner.Services.Settings.WindowShortcutsEnabled;
+        TerminalProgram = owner.Services.Settings.TerminalProgram ?? "";
         RefreshWindowShortcutsState();
         loading = false; owner.ApplyTheme();
         _ = RefreshAutoHotkeyAsync();
     }
 
     partial void OnShortcutConflictsChanged(string value) => OnPropertyChanged(nameof(HasShortcutConflicts));
+
+    partial void OnTerminalProgramChanged(string value)
+    {
+        if (loading) return;
+        owner.Services.Settings.TerminalProgram = value;
+        owner.Services.Changed();
+    }
+
+    [RelayCommand]
+    private void UseDefaultTerminal() => TerminalProgram = "";
 
     partial void OnWindowShortcutsBusyChanged(bool value) => OnPropertyChanged(nameof(WindowShortcutsCanToggle));
 
@@ -267,7 +279,7 @@ public partial class SettingsViewModel(AppViewModels owner) : ObservableObject
         var hotkeys = owner.Services.Hotkeys;
         string status = hotkeys.DesktopStatus;
         if (hotkeys.IsRunning && !hotkeys.WheelAvailable)
-            status += " Alt+Shift+Wheel resize is unavailable.";
+            status += " Wheel shortcuts (Win+Wheel, Win+Shift+Wheel, Win+Alt+Wheel and Alt+Shift+Wheel) are not available: an input hook could not be installed.";
         WindowShortcutsStatus = status;
         WindowShortcutsDesktopUnavailable = !hotkeys.DesktopsAvailable;
         var conflicts = hotkeys.Conflicts;

@@ -55,6 +55,18 @@
                 <InfoBar Severity="Warning" IsOpen="{Binding AutoHotkeyRunning, Mode=OneWay}" IsClosable="False"
                          Title="AutoHotkey is running"
                          Message="If it uses the same shortcuts, it handles them before FlowDesk." />
+                <settings:SettingsCard Header="Terminal program"
+                    Description="Program that Alt+Enter starts in your profile folder. Leave blank to use Windows Terminal if available, otherwise Command Prompt; FlowDesk adds no arguments.">
+                    <StackPanel Spacing="8" Width="220">
+                        <TextBox Text="{Binding TerminalProgram, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 MinHeight="32"
+                                 PlaceholderText="Windows Terminal or Command Prompt"
+                                 AutomationProperties.Name="Terminal program" />
+                        <Button Content="Use default" Command="{Binding UseDefaultTerminalCommand}" MinHeight="32"
+                                HorizontalAlignment="Left"
+                                AutomationProperties.Name="Use the default terminal program" />
+                    </StackPanel>
+                </settings:SettingsCard>
                 <Expander Header="Shortcut list" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
                     <ItemsControl ItemsSource="{Binding ShortcutLines}">
                         <ItemsControl.ItemTemplate>

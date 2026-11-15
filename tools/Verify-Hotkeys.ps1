@@ -4,6 +4,9 @@
 # It refuses to run when a note.txt window or a fixture-folder Explorer window already exists, and
 # closes only fixture windows it created and verified itself. It never kills Notepad and never
 # touches any other window or desktop.
+# Alt+Enter (terminal), Alt+Shift+R (reload) and the Win+wheel gestures are NOT injected here: they
+# can open apps, change desktops or move windows. They are listed in the manual checklist printed at
+# the end, so they are checked deliberately and never by accident.
 param(
     [int]$Tolerance = 2
 )
@@ -236,12 +239,22 @@ $shellClasses = @('Progman', 'WorkerW', 'Shell_TrayWnd', 'Shell_SecondaryTrayWnd
 function Pass([string]$Step, [string]$Detail) { Write-Output "PASS $Step $Detail" }
 function Fail([string]$Step, [string]$Detail) { Write-Output "FAIL $Step $Detail"; $script:failures++ }
 
-function Require-Fixture([IntPtr]$Handle, [string]$Step)
+function Require-Fixture([IntPtr]$Handle, [string]$Step, [switch]$WarnOnly)
 {
     for ($i = 0; $i -lt 30; $i++)
     {
-        if ([HotkeyVerifyNative]::Foreground() -eq $Handle) { return }
+        if ([HotkeyVerifyNative]::Foreground() -eq $Handle) {
+            if ($WarnOnly) { return $true }
+            return
+        }
         Start-Sleep -Milliseconds 50
+    }
+    if ($WarnOnly) {
+        # Do not emit Fail's success-stream text here: an array of text plus $false is truthy
+        # in PowerShell and would incorrectly authorize the guarded key injection.
+        $script:failures++
+        Write-Warning "FAIL $Step foreground is not the fixture"
+        return $false
     }
     Fail $Step 'foreground is not the fixture'
     throw "The expected fixture window is not in the foreground before $Step."
@@ -332,32 +345,33 @@ function Assert-Rect([string]$Step, [IntPtr]$Handle, [int[]]$Expected)
     else { Fail $Step ("expected={0} actual={1}" -f ($Expected -join ','), ($actual -join ',')) }
 }
 
-function Snap-Rect([int[]]$Area, [string]$Direction)
+function Snap-Rect([int[]]$Area, [string]$Direction, [int]$Step = 0)
 {
     $left = $Area[0]; $top = $Area[1]; $right = $Area[2]; $bottom = $Area[3]
     $width = $right - $left; $height = $bottom - $top
+    $fraction = switch ($Step) { 1 { 1.0 / 3 } 2 { 2.0 / 3 } default { 0.5 } }
     switch ($Direction)
     {
         'left'
         {
-            $half = [int][Math]::Floor(($width + 8) / 2.0)
-            return @($left, $top, ($left + $half), $bottom)
+            $portion = [int][Math]::Floor(($width + 8) * $fraction)
+            return @($left, $top, ($left + $portion), $bottom)
         }
         'right'
         {
-            $half = [int][Math]::Floor(($width + 8) / 2.0)
-            $x = $left + $half - 8
+            $portion = [int][Math]::Floor(($width + 8) * (1 - $fraction))
+            $x = $left + $portion - 8
             return @($x, $top, $right, $bottom)
         }
         'up'
         {
-            $half = [int][Math]::Floor(($height + 8) / 2.0)
-            return @($left, $top, $right, ($top + $half))
+            $portion = [int][Math]::Floor(($height + 8) * $fraction)
+            return @($left, $top, $right, ($top + $portion))
         }
         'down'
         {
-            $half = [int][Math]::Floor(($height + 8) / 2.0)
-            $y = $top + $half - 8
+            $portion = [int][Math]::Floor(($height + 8) * (1 - $fraction))
+            $y = $top + $portion - 8
             return @($left, $y, $right, $bottom)
         }
     }
@@ -494,13 +508,105 @@ try
     Invoke-AltCombo 0x53
     Assert-Rect 'snap down' $newNotepadHandle (Snap-Rect $work 'down')
 
-    # 2. Center (Alt+Shift+Space), size unchanged.
+    # 2. Snap size cycle: repeated presses go 1/2 -> 1/3 -> 2/3 -> 1/2. A new direction starts
+    # again at 1/2, so the left cycle starts after the down snap and the up cycle after left.
+    Focus-Fixture $newNotepadHandle 'snap cycle left 1/2'
+    Invoke-AltCombo 0x41
+    Assert-Rect 'snap cycle left 1/2' $newNotepadHandle (Snap-Rect $work 'left' 0)
+
+    Require-Fixture $newNotepadHandle 'snap cycle left 1/3'
+    Invoke-AltCombo 0x41
+    Assert-Rect 'snap cycle left 1/3' $newNotepadHandle (Snap-Rect $work 'left' 1)
+
+    Require-Fixture $newNotepadHandle 'snap cycle left 2/3'
+    Invoke-AltCombo 0x41
+    Assert-Rect 'snap cycle left 2/3' $newNotepadHandle (Snap-Rect $work 'left' 2)
+
+    Require-Fixture $newNotepadHandle 'snap cycle left 1/2 again'
+    Invoke-AltCombo 0x41
+    Assert-Rect 'snap cycle left 1/2 again' $newNotepadHandle (Snap-Rect $work 'left' 0)
+
+    Require-Fixture $newNotepadHandle 'snap cycle up 1/2'
+    Invoke-AltCombo 0x57
+    Assert-Rect 'snap cycle up 1/2' $newNotepadHandle (Snap-Rect $work 'up' 0)
+
+    Require-Fixture $newNotepadHandle 'snap cycle up 1/3'
+    Invoke-AltCombo 0x57
+    Assert-Rect 'snap cycle up 1/3' $newNotepadHandle (Snap-Rect $work 'up' 1)
+
+    Require-Fixture $newNotepadHandle 'snap cycle up 2/3'
+    Invoke-AltCombo 0x57
+    Assert-Rect 'snap cycle up 2/3' $newNotepadHandle (Snap-Rect $work 'up' 2)
+
+    Require-Fixture $newNotepadHandle 'snap cycle up 1/2 again'
+    Invoke-AltCombo 0x57
+    Assert-Rect 'snap cycle up 1/2 again' $newNotepadHandle (Snap-Rect $work 'up' 0)
+
+    # 3. Alt+Shift+E pauses. A snap while paused must not move the window; if the pause was
+    # confirmed, Alt+Shift+0 toggles the shortcuts back on and the next snap advances the cycle.
+    $pauseConfirmed = $false
+    try
+    {
+        Require-Fixture $newNotepadHandle 'pause'
+        $pausedRect = [HotkeyVerifyNative]::Rect($newNotepadHandle)
+        Invoke-AltCombo 0x45 -Shift
+        Start-Sleep -Milliseconds 500
+        if (Get-Process FlowDesk.App -ErrorAction SilentlyContinue) {
+            Pass 'pause' 'FlowDesk still running'
+        } else {
+            Fail 'pause' 'FlowDesk exited'
+        }
+        Require-Fixture $newNotepadHandle 'pause ignores snap'
+        Invoke-AltCombo 0x57
+        $afterPausedSnap = [HotkeyVerifyNative]::Rect($newNotepadHandle)
+        $unchanged = $true
+        for ($i = 0; $i -lt 4; $i++) {
+            if ([Math]::Abs($afterPausedSnap[$i] - $pausedRect[$i]) -gt $Tolerance) { $unchanged = $false }
+        }
+        if ($unchanged) {
+            Pass 'pause ignores snap' ("rect=" + ($afterPausedSnap -join ','))
+            $pauseConfirmed = $true
+        } else {
+            Fail 'pause ignores snap' ("expected=" + ($pausedRect -join ',') + " actual=" + ($afterPausedSnap -join ','))
+        }
+    }
+    finally
+    {
+        [HotkeyVerifyNative]::ReleaseModifiers()
+        # Resume only while the verified fixture still owns the foreground. Without that check the
+        # Alt+Shift+0 could reach an elevated or unrelated window and change its behavior.
+        if ($pauseConfirmed)
+        {
+            if (Require-Fixture $newNotepadHandle 'pause resume injection' -WarnOnly)
+            {
+                Invoke-AltCombo 0x30 -Shift
+            }
+            else
+            {
+                Write-Output 'WARNING: the fixture is not in the foreground, so Alt+Shift+0 was not sent; shortcuts may remain paused. Press Alt+Shift+0 manually to resume them.'
+            }
+        }
+    }
+
+    if ($pauseConfirmed)
+    {
+        Require-Fixture $newNotepadHandle 'pause resume'
+        Invoke-AltCombo 0x57
+        Assert-Rect 'pause resume' $newNotepadHandle (Snap-Rect $work 'up' 1)
+    }
+    else
+    {
+        Write-Output 'SKIP pause resume reason=pause was not confirmed'
+        $skips++
+    }
+
+    # 4. Center (Alt+Shift+Space), size unchanged.
     Require-Fixture $newNotepadHandle 'center'
     $before = [HotkeyVerifyNative]::Rect($newNotepadHandle)
     Invoke-AltCombo 0x20 -Shift
     Assert-Rect 'center' $newNotepadHandle (Center-Rect $work $before)
 
-    # 3. Maximize then restore with Alt+F twice.
+    # 5. Maximize then restore with Alt+F twice.
     Require-Fixture $newNotepadHandle 'maximize'
     Invoke-AltCombo 0x46
     if ([HotkeyVerifyNative]::Zoomed($newNotepadHandle)) { Pass 'maximize' 'IsZoomed=True' } else { Fail 'maximize' 'IsZoomed=False' }
@@ -508,7 +614,7 @@ try
     Invoke-AltCombo 0x46
     if (-not [HotkeyVerifyNative]::Zoomed($newNotepadHandle)) { Pass 'restore' 'IsZoomed=False' } else { Fail 'restore' 'IsZoomed=True' }
 
-    # 4. Wheel resize: two grow events, then two shrink events, checked one by one.
+    # 6. Wheel resize: two grow events, then two shrink events, checked one by one.
     Require-Fixture $newNotepadHandle 'wheel grow 1'
     $before = [HotkeyVerifyNative]::Rect($newNotepadHandle)
     Invoke-AltShiftWheel 120
@@ -529,7 +635,7 @@ try
     Invoke-AltShiftWheel -120
     Assert-Rect 'wheel shrink 2' $newNotepadHandle (Resize-Rect $work $before $false)
 
-    # 5. Directional focus: move the Explorer fixture onto the Notepad monitor (SetWindowPos into
+    # 7. Directional focus: move the Explorer fixture onto the Notepad monitor (SetWindowPos into
     # that work area), snap Notepad left and Explorer right, then verify the foreground against the
     # same filter/ranking rules as DirectionalFocus.cs. Expected targets are recomputed after a
     # fresh fixture foreground before each injected step and checked for elevation first.
@@ -613,6 +719,14 @@ finally
     }
     try { if ($null -ne $notepad) { $notepad.Dispose() } } catch { }
 }
+
+Write-Output ''
+Write-Output 'MANUAL CHECKLIST (not automated; do not run with an elevated window in front):'
+Write-Output '  Alt+Enter: opens a terminal in the profile folder, never elevated; blank falls back to Windows Terminal then Command Prompt; Use default clears the field; a bad program notifies once without crashing.'
+Write-Output '  Alt+Shift+R: shows "Window shortcuts reloaded"; other shortcuts and the wheel gestures still work afterwards.'
+Write-Output '  Win+Wheel: switches to the previous/next desktop and wraps at the real desktop count; releasing Win does not open Start.'
+Write-Output '  Win+Shift+Wheel: moves the active window to the previous/next desktop and follows it; releasing Win does not open Start.'
+Write-Output '  Win+Alt+Wheel: wheel up cycles through open windows, wheel down undoes or minimizes; releasing Win or Alt ends the search; no Start menu or app Alt menu opens.'
 
 if ($failures -gt 0) { Write-Output "FAILED: $failures step(s) did not match."; exit 1 }
 if ($skips -gt 0) { Write-Output "PASS: all evaluated shortcut steps matched ($skips unsafe step(s) skipped)." }

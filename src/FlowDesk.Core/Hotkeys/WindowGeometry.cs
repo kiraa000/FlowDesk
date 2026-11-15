@@ -12,30 +12,31 @@ public static class WindowGeometry
     public const int Gap = -8;
 
     /// <summary>Half of the work area, left/right/up/down, with the two halves overlapping by 8 px.</summary>
-    public static PixelRect Snap(PixelRect area, WindowDirection direction)
+    public static PixelRect Snap(PixelRect area, WindowDirection direction, int step = 0)
     {
         int width = area.Width, height = area.Height;
+        double fraction = step switch { 1 => 1.0 / 3, 2 => 2.0 / 3, _ => 0.5 };
         switch (direction)
         {
             case WindowDirection.Left:
             {
-                int half = Half(width);
+                int half = Portion(width, fraction);
                 return new PixelRect(area.X, area.Y, half, height);
             }
             case WindowDirection.Right:
             {
-                int half = Half(width);
+                int half = Portion(width, 1 - fraction);
                 int x = area.X + half + Gap;
                 return new PixelRect(x, area.Y, area.Right - x, height);
             }
             case WindowDirection.Up:
             {
-                int half = Half(height);
+                int half = Portion(height, fraction);
                 return new PixelRect(area.X, area.Y, width, half);
             }
             case WindowDirection.Down:
             {
-                int half = Half(height);
+                int half = Portion(height, 1 - fraction);
                 int y = area.Y + half + Gap;
                 return new PixelRect(area.X, y, width, area.Bottom - y);
             }
@@ -78,7 +79,7 @@ public static class WindowGeometry
         return new PixelRect(x, y, newWidth, newHeight);
     }
 
-    private static int Half(int extent) => (int)Math.Floor((extent - Gap) / 2.0);
+    private static int Portion(int extent, double fraction) => (int)Math.Floor((extent - Gap) * fraction);
 
     private static int Round(double value) => (int)Math.Round(value, MidpointRounding.AwayFromZero);
 }

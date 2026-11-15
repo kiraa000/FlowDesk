@@ -40,6 +40,7 @@ public sealed class AppServices : ObservableObject, IDisposable
     {
         Windows = new(Desktops);
         Hotkeys = new(Store.Folder, Desktops);
+        Hotkeys.TerminalProgram = () => Settings.TerminalProgram;
         Capture = new(Windows, Tracker);
         Restorer = new(Windows, new ShellLauncher(), Tracker, desktops: Desktops);
         Switcher = new(Windows, Tracker, Capture, Restorer);
