@@ -4,7 +4,10 @@
     <!-- Size, placement, theme and behaviour live in CommandPaletteWindow.xaml.cs.
          At 640 x 540 this is 44 search + up to 416 results + footer, on the 4 px grid. -->
     <Grid x:Name="Root" Padding="12" RowSpacing="8"
-          Background="{ThemeResource LayerFillColorDefaultBrush}"
+          Background="{ThemeResource PaletteSurfaceBackgroundBrush}"
+          BorderBrush="{ThemeResource SurfaceStrokeColorDefaultBrush}"
+          BorderThickness="1"
+          CornerRadius="{ThemeResource OverlayCornerRadius}"
           KeyDown="Root_KeyDown">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -13,6 +16,20 @@
         </Grid.RowDefinitions>
 
         <Grid.Resources>
+            <ResourceDictionary>
+                <ResourceDictionary.ThemeDictionaries>
+                    <ResourceDictionary x:Key="Default">
+                        <!-- Do not stack tinted XAML fills over the system Acrylic. The backdrop
+                             supplies its own solid fallback when transparency is unavailable. -->
+                        <SolidColorBrush x:Key="PaletteSurfaceBackgroundBrush" Color="Transparent" />
+                    </ResourceDictionary>
+                    <ResourceDictionary x:Key="Light">
+                        <SolidColorBrush x:Key="PaletteSurfaceBackgroundBrush" Color="Transparent" />
+                    </ResourceDictionary>
+                    <ResourceDictionary x:Key="HighContrast">
+                        <SolidColorBrush x:Key="PaletteSurfaceBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}" />
+                    </ResourceDictionary>
+                </ResourceDictionary.ThemeDictionaries>
             <!-- Subtitle ramp size (20/28) for the query: the search term is the point of the window. -->
             <Style x:Key="PaletteSearchBoxStyle" TargetType="TextBox" BasedOn="{StaticResource DefaultTextBoxStyle}">
                 <Setter Property="FontSize" Value="20" />
@@ -28,6 +45,7 @@
                 <Setter Property="Padding" Value="12,4,12,4" />
                 <Setter Property="HorizontalContentAlignment" Value="Stretch" />
             </Style>
+            </ResourceDictionary>
         </Grid.Resources>
 
         <TextBox x:Name="SearchBox"
@@ -40,9 +58,8 @@
                  KeyDown="SearchBox_KeyDown" />
 
         <Border Grid.Row="1" VerticalAlignment="Top"
-                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                BorderThickness="1"
+                Background="Transparent"
+                BorderThickness="0"
                 CornerRadius="{ThemeResource OverlayCornerRadius}">
             <ListView x:Name="Results"
                       MaxHeight="416"

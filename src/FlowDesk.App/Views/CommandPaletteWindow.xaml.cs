@@ -66,6 +66,11 @@ internal sealed partial class CommandPaletteWindow : Window
         AppWindow.IsShownInSwitchers = false;
         SetWindowLongPtrW(hwnd, -20, GetWindowLongPtrW(hwnd, -20) | 0x80); // TOOLWINDOW, deliberately NOT NOACTIVATE
         int round = 2; DwmSetWindowAttribute(hwnd, 33, ref round, 4);
+        // Borderless WinUI still inherits DWM's OS-theme active border (white when the app is
+        // dark but Windows is light). Let the theme-aware XAML surface stroke own the outline.
+        int noNativeBorder = unchecked((int)0xFFFFFFFE); // DWMWA_COLOR_NONE, Windows 11+
+        DwmSetWindowAttribute(hwnd, 34, ref noNativeBorder, 4); // DWMWA_BORDER_COLOR
+        Root.ActualThemeChanged += (_, _) => TraceSurface();
         AppWindow.Resize(new SizeInt32(640, 540));
         AppWindow.Closing += (_, e) => { if (!shutdown) { e.Cancel = true; HidePalette(); } };
         Activated += (_, e) => { if (!opening && !activationPending && IsOpen && e.WindowActivationState == WindowActivationState.Deactivated) HidePalette(); };
@@ -89,6 +94,7 @@ internal sealed partial class CommandPaletteWindow : Window
         try
         {
             Root.RequestedTheme = theme switch { "Dark" => ElementTheme.Dark, "Light" => ElementTheme.Light, _ => ElementTheme.Default };
+            TraceSurface();
             nint monitor = previous == 0 ? CursorMonitor() : MonitorFromWindow(previous, 2);
             var info = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
             if (!GetMonitorInfoW(monitor, ref info)) throw new InvalidOperationException("Display unavailable.");
@@ -243,6 +249,8 @@ internal sealed partial class CommandPaletteWindow : Window
     private static void Log(Exception ex) => new CrashLog().TryWrite(CrashSource.Activation, ex);
     [Conditional("DEBUG")]
     private static void TraceOpen(long started, bool focused) => Debug.WriteLine($"FlowDesk palette open {Stopwatch.GetElapsedTime(started).TotalMilliseconds:F1} ms focused={focused}");
+    [Conditional("DEBUG")]
+    private void TraceSurface() => Debug.WriteLine($"FlowDesk palette backdrop={SystemBackdrop?.GetType().Name} theme={Root.ActualTheme} surfaceAlpha={(Root.Background as SolidColorBrush)?.Color.A}");
     private static nint CursorMonitor() { GetCursorPos(out var point); return MonitorFromPoint(point, 2); }
     [StructLayout(LayoutKind.Sequential)] private struct Point { public int X, Y; }
     [StructLayout(LayoutKind.Sequential)] private struct Rect { public int Left, Top, Right, Bottom; }
