@@ -1,10 +1,17 @@
+using System.Xml.Linq;
+
 namespace FlowDesk.App.Tests;
 
 public sealed class PaletteSurfaceMarkupTests
 {
     [Fact] public void NormalThemesExposeTheSystemBackdropButHighContrastUsesASolidSystemSurface()
     {
-        var document = PaletteMarkupFixture.Load();
+        // App.xaml, not the window: the Root Grid's Background is resolved before its own Grid.Resources exist,
+        // so a key defined in the window crashed start-up ("Cannot find a Resource ... PaletteSurfaceBackgroundBrush").
+        var palette = PaletteMarkupFixture.Load();
+        Assert.DoesNotContain(palette.Descendants(PaletteMarkupFixture.Xaml + "SolidColorBrush"),
+            e => (string?)e.Attribute(PaletteMarkupFixture.X + "Key") == "PaletteSurfaceBackgroundBrush");
+        var document = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "Fixtures", "App.xaml"));
         var dictionaries = document.Descendants(PaletteMarkupFixture.Xaml + "ResourceDictionary")
             .Where(e => e.Attribute(PaletteMarkupFixture.X + "Key") is not null)
             .ToDictionary(e => (string)e.Attribute(PaletteMarkupFixture.X + "Key")!);

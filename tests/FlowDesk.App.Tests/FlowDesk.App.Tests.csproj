@@ -18,6 +18,8 @@
     <ProjectReference Include="..\..\src\FlowDesk.Core\FlowDesk.Core.csproj" />
     <None Include="..\..\src\FlowDesk.App\Views\CommandPaletteWindow.xaml"
           Link="Fixtures\CommandPaletteWindow.xaml" TargetPath="Fixtures\CommandPaletteWindow.xaml" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\src\FlowDesk.App\App.xaml"
+          Link="Fixtures\App.xaml" TargetPath="Fixtures\App.xaml" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\FlowDesk.App\Views\HotkeysPage.xaml"
           Link="Fixtures\HotkeysPage.xaml" TargetPath="Fixtures\HotkeysPage.xaml" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

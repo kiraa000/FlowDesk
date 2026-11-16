@@ -17,19 +17,8 @@
 
         <Grid.Resources>
             <ResourceDictionary>
-                <ResourceDictionary.ThemeDictionaries>
-                    <ResourceDictionary x:Key="Default">
-                        <!-- Do not stack tinted XAML fills over the system Acrylic. The backdrop
-                             supplies its own solid fallback when transparency is unavailable. -->
-                        <SolidColorBrush x:Key="PaletteSurfaceBackgroundBrush" Color="Transparent" />
-                    </ResourceDictionary>
-                    <ResourceDictionary x:Key="Light">
-                        <SolidColorBrush x:Key="PaletteSurfaceBackgroundBrush" Color="Transparent" />
-                    </ResourceDictionary>
-                    <ResourceDictionary x:Key="HighContrast">
-                        <SolidColorBrush x:Key="PaletteSurfaceBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}" />
-                    </ResourceDictionary>
-                </ResourceDictionary.ThemeDictionaries>
+                <!-- PaletteSurfaceBackgroundBrush lives in App.xaml: this Grid's own Background attribute is
+                     resolved before Grid.Resources is set, so a key defined here is not found at start-up. -->
             <!-- Subtitle ramp size (20/28) for the query: the search term is the point of the window. -->
             <Style x:Key="PaletteSearchBoxStyle" TargetType="TextBox" BasedOn="{StaticResource DefaultTextBoxStyle}">
                 <Setter Property="FontSize" Value="20" />

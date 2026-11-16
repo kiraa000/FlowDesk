@@ -12,6 +12,19 @@
                 <!-- Shared app-wide styles go here as pages are added; see docs/UI-CRAFT.md (type ramp,
                      theme brushes, 4 px grid, one accent action per view). No literal colours or fonts. -->
             </ResourceDictionary.MergedDictionaries>
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Default">
+                    <!-- Command palette surface: do not stack tinted XAML fills over the system Acrylic. The
+                         backdrop supplies its own solid fallback when transparency is unavailable. -->
+                    <SolidColorBrush x:Key="PaletteSurfaceBackgroundBrush" Color="Transparent" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="PaletteSurfaceBackgroundBrush" Color="Transparent" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="HighContrast">
+                    <SolidColorBrush x:Key="PaletteSurfaceBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
             <views:BooleanToVisibilityConverter x:Key="BoolVisibility" />
             <views:StatusKindConverter x:Key="StatusKind" />
             <views:TagColorConverter x:Key="TagColor" />
