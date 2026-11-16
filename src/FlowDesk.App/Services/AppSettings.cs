@@ -30,6 +30,7 @@ public sealed class AppSettings
     public List<string> BrowserRestoreNoticesSeen { get; set; } = [];
     /// <summary>Optional global Alt window shortcuts. Off by default, also for files written before this existed.</summary>
     public bool WindowShortcutsEnabled { get; set; }
+    public List<string> DisabledShortcuts { get; set; } = [];
     /// <summary>Plain Space previews in Explorer/desktop; opt-in, including for older settings files.</summary>
     public bool QuickLookEnabled { get; set; }
     public bool HotCornersEnabled { get; set; }

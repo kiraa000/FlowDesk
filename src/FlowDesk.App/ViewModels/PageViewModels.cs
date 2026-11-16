@@ -226,11 +226,6 @@ public partial class SettingsViewModel(AppViewModels owner) : ObservableObject
     public bool HasShortcutConflicts => ShortcutConflicts.Length > 0;
     /// <summary>False while a start/stop is pending, so the toggle cannot race its own transition.</summary>
     public bool WindowShortcutsCanToggle => !WindowShortcutsBusy;
-    /// <summary>Plain-word list of every binding, shown in the collapsed Shortcut list expander.</summary>
-    public IReadOnlyList<string> ShortcutLines { get; } =
-        FlowDesk.Core.Hotkeys.HotkeyCatalog.All
-            .Select(binding => $"{binding.Shortcut}  ·  {binding.Label}")
-            .ToArray();
     /// <summary>One line for the About card, read from the app assembly.</summary>
     public string VersionText { get; } = $"FlowDesk {AppVersion.Display}";
     private bool loading;
@@ -256,6 +251,7 @@ public partial class SettingsViewModel(AppViewModels owner) : ObservableObject
     {
         if (loading) return;
         owner.Services.Settings.QuickLookEnabled = value; owner.Services.Changed();
+        owner.Hotkeys.RefreshOtherInput();
         _ = ApplyQuickLookAsync(value);
     }
     internal async Task ApplyQuickLookAsync(bool value)
@@ -274,6 +270,7 @@ public partial class SettingsViewModel(AppViewModels owner) : ObservableObject
             owner.Services.Settings.QuickLookEnabled = false; owner.Services.Changed();
             owner.ShowStatus("Quick Look could not start. Turn it on again in Settings to retry.", StatusKind.Warning);
         }
+        finally { owner.Hotkeys.RefreshOtherInput(); }
     }
 
     partial void OnTerminalProgramChanged(string value)
@@ -286,7 +283,8 @@ public partial class SettingsViewModel(AppViewModels owner) : ObservableObject
     [RelayCommand]
     private void UseDefaultTerminal() => TerminalProgram = "";
 
-    partial void OnWindowShortcutsBusyChanged(bool value) => OnPropertyChanged(nameof(WindowShortcutsCanToggle));
+    partial void OnWindowShortcutsBusyChanged(bool value) { OnPropertyChanged(nameof(WindowShortcutsCanToggle)); owner.Hotkeys.RefreshStatus(); }
+    [RelayCommand] private void ManageShortcuts() => owner.Navigate(AppPage.Hotkeys);
 
     partial void OnWindowShortcutsChanged(bool value)
     {
@@ -299,6 +297,7 @@ public partial class SettingsViewModel(AppViewModels owner) : ObservableObject
             return;
         }
         owner.Services.Settings.WindowShortcutsEnabled = value;
+        owner.RefreshInputPages();
         owner.Services.Changed();
         _ = ApplyWindowShortcutsAsync(value);
     }
@@ -316,6 +315,7 @@ public partial class SettingsViewModel(AppViewModels owner) : ObservableObject
         WindowShortcutsDesktopUnavailable = !hotkeys.DesktopsAvailable;
         var conflicts = hotkeys.Conflicts;
         ShortcutConflicts = conflicts.Count == 0 ? "" : "In use by another app: " + string.Join(", ", conflicts);
+        owner.Hotkeys.RefreshStatus();
     }
 
     private async Task ApplyWindowShortcutsAsync(bool enabled)
@@ -334,6 +334,7 @@ public partial class SettingsViewModel(AppViewModels owner) : ObservableObject
             WindowShortcuts = false;
             loading = false;
             owner.Services.Settings.WindowShortcutsEnabled = false;
+            owner.RefreshInputPages();
             owner.Services.Changed();
             owner.ShowStatus("Window shortcuts could not start. " + ex.Message, StatusKind.Warning);
         }

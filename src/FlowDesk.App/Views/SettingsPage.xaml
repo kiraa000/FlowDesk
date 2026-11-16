@@ -67,17 +67,15 @@
                                 AutomationProperties.Name="Use the default terminal program" />
                     </StackPanel>
                 </settings:SettingsCard>
-                <Expander Header="Shortcut list" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
-                    <ItemsControl ItemsSource="{Binding ShortcutLines}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <TextBlock Text="{Binding}" Style="{StaticResource BodyTextBlockStyle}"
-                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                           TextWrapping="Wrap" Margin="0,2" />
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                </Expander>
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Choose which shortcuts FlowDesk handles."
+                               Style="{StaticResource BodyTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               TextWrapping="Wrap" />
+                    <HyperlinkButton Content="Manage shortcuts in the Hotkeys tab"
+                                     Command="{Binding ManageShortcutsCommand}"
+                                     AutomationProperties.Name="Manage shortcuts in the Hotkeys tab" />
+                </StackPanel>
             </StackPanel>
             <StackPanel Spacing="4">
                 <settings:SettingsCard Header="Quick Look"

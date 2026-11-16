@@ -57,6 +57,7 @@ public partial class SettingsViewModel
         settings.HotCornerTopLeft = value.TopLeft; settings.HotCornerTopRight = value.TopRight;
         settings.HotCornerBottomLeft = value.BottomLeft; settings.HotCornerBottomRight = value.BottomRight;
         owner.Services.HotCorners?.UpdateConfiguration(value); owner.Services.Changed();
+        owner.Hotkeys.RefreshOtherInput();
     }
     internal async Task ApplyHotCornersAsync(bool enabled)
     {

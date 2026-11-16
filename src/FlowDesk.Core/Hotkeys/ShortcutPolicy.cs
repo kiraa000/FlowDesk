@@ -8,6 +8,7 @@ public sealed class ShortcutPolicy
 {
     private readonly FrozenSet<string> disabled;
     private static readonly FrozenSet<string> Known = HotkeyCatalog.All.Select(b => b.Id).ToFrozenSet(StringComparer.Ordinal);
+    public static ShortcutPolicy AllOff { get; } = new(HotkeyCatalog.All.Select(b => b.Id));
     public ShortcutPolicy(IEnumerable<string>? ids) => disabled = (ids ?? []).Where(id => id is not null && Known.Contains(id)).ToFrozenSet(StringComparer.Ordinal);
     public bool Enabled(string id) => Known.Contains(id) && !disabled.Contains(id);
     public bool IsCurrent(ShortcutPolicy current) => ReferenceEquals(this, current);
@@ -19,7 +20,8 @@ public sealed class ShortcutPolicy
         WheelGesture.Resize => "resize-wheel", WheelGesture.Desktop => "desktop-wheel",
         WheelGesture.MoveDesktop => "desktop-move-wheel", WheelGesture.Search => "search-wheel", _ => null
     };
-    public bool AllowsWheel(WheelGesture gesture) => WheelId(gesture) is string id && Enabled(id);
+    public bool AllowsWheel(WheelGesture gesture, bool desktopsAvailable = true) => WheelId(gesture) is string id && Enabled(id) &&
+        (desktopsAvailable || gesture is not (WheelGesture.Desktop or WheelGesture.MoveDesktop));
 }
 
 public enum ShortcutGroup { Desktops, Snap, Focus, WindowCommands, Tools, MouseWheel }

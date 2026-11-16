@@ -73,6 +73,10 @@
                 <NavigationViewItem Content="Focus" Tag="Focus">
                     <NavigationViewItem.Icon><FontIcon Glyph="&#xE916;" /></NavigationViewItem.Icon>
                 </NavigationViewItem>
+                <NavigationViewItem Content="Hotkeys" Tag="Hotkeys"
+                    Visibility="{Binding IsHotkeysVisible, Converter={StaticResource BoolVisibility}}">
+                    <NavigationViewItem.Icon><FontIcon Glyph="&#xE765;" FontFamily="Segoe Fluent Icons" /></NavigationViewItem.Icon>
+                </NavigationViewItem>
             </NavigationView.MenuItems>
             <Grid Background="{ThemeResource LayerFillColorDefaultBrush}">
                 <Grid.RowDefinitions>

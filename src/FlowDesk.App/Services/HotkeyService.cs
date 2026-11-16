@@ -27,6 +27,7 @@ public sealed class HotkeyService(string dataDirectory, VirtualDesktopService? s
     private bool _shortcutsRequested;
     private IQuickLookInput? _quickLook;
     private IHotCornerInput? _hotCorners;
+    private IReadOnlyList<string> _disabledShortcuts = [];
     public Func<string?>? TerminalProgram { get; set; }
 
     /// <summary>Toast callback; set by the window once notifications are initialized.</summary>
@@ -35,6 +36,35 @@ public sealed class HotkeyService(string dataDirectory, VirtualDesktopService? s
     public bool IsRunning => _shortcutsRequested && _host?.IsRunning == true;
     internal bool ShortcutsRequested => _shortcutsRequested;
     public IReadOnlyList<string> Conflicts => _host?.Conflicts ?? [];
+    public ShortcutRuntime ShortcutRuntime
+    {
+        get
+        {
+            var host = Volatile.Read(ref _host);
+            return new(_shortcutsRequested && host?.IsRunning == true, DesktopsAvailable, host?.WheelHookAvailable == true,
+                host?.KeyboardHookAvailable == true, host?.BindingStatus ?? ShortcutRegistrationSnapshot.Empty, host?.IsPaused == true);
+        }
+    }
+    public async Task SetDisabledShortcutsAsync(IEnumerable<string>? ids)
+    {
+        var normalized = new ShortcutPolicy(ids).DisabledIds;
+        await _gate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (_disposed) return;
+            var previous = _disabledShortcuts;
+            _disabledShortcuts = normalized;
+            try { if (_host?.IsRunning == true) await _host.ConfigureBindingsAsync(normalized).ConfigureAwait(false); }
+            catch
+            {
+                _disabledShortcuts = previous;
+                try { if (_host?.IsRunning == true) await _host.ConfigureBindingsAsync(previous).ConfigureAwait(false); }
+                catch (Exception) { Notify?.Invoke("Some shortcuts could not be restored. Turn window shortcuts off and on to retry."); }
+                throw;
+            }
+        }
+        finally { _gate.Release(); }
+    }
     public bool DesktopsAvailable => _desktops?.IsAvailable == true;
     public bool WheelAvailable => _host?.WheelHookAvailable == true;
     public bool WinWheelAvailable => _host?.WinWheelHookAvailable == true;
@@ -195,7 +225,7 @@ public sealed class HotkeyService(string dataDirectory, VirtualDesktopService? s
         HotkeyHost? host = null;
         host = new HotkeyHost(new Win32WindowOps(), _desktops, Notify,
             () => _terminal.Open(TerminalProgram?.Invoke(), Notify),
-            () => RequestReload(host!), _shortcutsRequested, _quickLook, _hotCorners);
+            () => RequestReload(host!), _shortcutsRequested, _quickLook, _hotCorners, _disabledShortcuts);
         try
         {
             await host.StartAsync().ConfigureAwait(false);

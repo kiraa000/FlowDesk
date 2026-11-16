@@ -6,10 +6,11 @@ using FlowDesk.App.Services;
 using FlowDesk.App.Tour;
 using FlowDesk.Core.Model;
 using FlowDesk.Core.Restore;
+using FlowDesk.Core.Hotkeys;
 
 namespace FlowDesk.App.ViewModels;
 
-public enum AppPage { Workspaces, Details, Capture, Settings, Layouts, Focus }
+public enum AppPage { Workspaces, Details, Capture, Settings, Layouts, Focus, Hotkeys }
 public enum StatusKind { Information, Success, Warning, Error }
 
 public partial class AppViewModels : ObservableObject
@@ -23,6 +24,16 @@ public partial class AppViewModels : ObservableObject
     public SettingsViewModel Settings { get; }
     public LayoutsViewModel Layouts { get; }
     public FocusViewModel Focus { get; }
+    public HotkeysViewModel Hotkeys { get; }
+    private IReadOnlyDictionary<AppPage, bool> OptionalPages => new Dictionary<AppPage, bool> { [AppPage.Hotkeys] = Services.Settings.WindowShortcutsEnabled };
+    public bool IsHotkeysVisible => OptionalNavigation.Visible(AppPage.Hotkeys, OptionalPages);
+    internal bool IsHotkeysPageOpen => currentPage == AppPage.Hotkeys;
+    internal AppPage ResolvePage(AppPage page) => OptionalNavigation.Resolve(page, AppPage.Workspaces, OptionalPages);
+    internal void RefreshInputPages()
+    {
+        if (ResolvePage(currentPage) != currentPage) Navigate(AppPage.Workspaces);
+        OnPropertyChanged(nameof(IsHotkeysVisible)); Hotkeys.RefreshStatus();
+    }
     public AutoSaveViewModel AutoSave { get; }
     public BrowserNoticeViewModel BrowserNotice { get; }
     public TourStateMachine Tour { get; } = new();
@@ -45,6 +56,7 @@ public partial class AppViewModels : ObservableObject
         Services = services; Ui = ui;
         Workspaces = new(this); Details = new(this); Capture = new(this); Settings = new(this);
         Layouts = new(this); Focus = new(this); BrowserNotice = new(this); AutoSave = new(this);
+        Hotkeys = new(this);
         Services.SaveFailed += message => Ui.Enqueue(() => ShowStatus(message, StatusKind.Error));
         Tour.Finished += () =>
         {
@@ -63,6 +75,7 @@ public partial class AppViewModels : ObservableObject
         await Services.LoadAsync();
         foreach (var workspace in Services.Data.Workspaces) WorkspacesCollection.Add(new(workspace, this));
         Workspaces.UpdateEmpty(); Settings.Load(); Focus.Load();
+        RefreshInputPages();
         if (Services.RecoveryMessage is { } recovery) ShowStatus(recovery, StatusKind.Warning);
     }
 
@@ -102,6 +115,7 @@ public partial class AppViewModels : ObservableObject
     }
     public void Navigate(AppPage page)
     {
+        page = ResolvePage(page);
         Details.Workspace?.CommitName();
         SetCurrentPage(page);
         NavigationRequested?.Invoke(page);

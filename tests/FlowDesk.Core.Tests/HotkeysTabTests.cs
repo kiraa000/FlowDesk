@@ -47,6 +47,19 @@ public sealed class HotkeysTabTests
         Assert.DoesNotContain("snap-up", registrar.Active.Values); Assert.DoesNotContain(HotkeyCatalog.PauseToggleId, registrar.Active.Values);
         Assert.All(registrar.Active.Values, id => Assert.False(HotkeyCatalog.Find(id)!.IsMouseWheel || HotkeyCatalog.Find(id)!.IsDesktop));
     }
+    [Fact] public void ModuleOffRegistrationPolicyCannotClaimAnyGlobalKey()
+    {
+        var registrar = new Registrar(); var registrations = new ShortcutRegistrations();
+        var snapshot = registrations.Apply(ShortcutPolicy.AllOff, true, registrar);
+        Assert.Empty(snapshot.Registered); Assert.Empty(snapshot.Conflicts); Assert.Equal(0, registrar.RegisterCalls);
+        Assert.All(HotkeyCatalog.All, b => Assert.False(ShortcutPolicy.AllOff.Enabled(b.Id)));
+    }
+    [Fact] public void UnavailableDesktopWheelPassesThroughBeforeOwnershipButOtherWheelActionsRemainUsable()
+    {
+        var policy = new ShortcutPolicy([]);
+        Assert.False(policy.AllowsWheel(WheelGesture.Desktop, false)); Assert.False(policy.AllowsWheel(WheelGesture.MoveDesktop, false));
+        Assert.True(policy.AllowsWheel(WheelGesture.Resize, false)); Assert.True(policy.AllowsWheel(WheelGesture.Search, false));
+    }
     [Fact] public void DisablingFreesRegistrationAndReenableDoesNotReuseStaleNativeId()
     {
         var registrar = new Registrar(); var registrations = new ShortcutRegistrations();

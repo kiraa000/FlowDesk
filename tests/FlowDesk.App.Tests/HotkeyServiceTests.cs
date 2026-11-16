@@ -32,6 +32,7 @@ public sealed class HotkeyServiceTests
         await service.StopAsync();
         await service.StopAllAsync();
         await service.SetHotCornersAsync(new FlowDesk.Core.HotCorners.HotCornerMouseState());
+        await service.SetDisabledShortcutsAsync(["pause"]);
         await service.ReloadBackendAsync();
 
         Assert.False(service.IsRunning);

@@ -186,6 +186,7 @@ public sealed partial class MainWindow : Window
     }
     private void Navigate(AppPage page)
     {
+        page = App.ViewModels.ResolvePage(page);
         App.ViewModels.SetCurrentPage(page);
         App.ViewModels.Details.Workspace?.CommitName();
         navigating = true;
@@ -195,7 +196,7 @@ public sealed partial class MainWindow : Window
             {
                 AppPage.Details => typeof(WorkspaceDetailsPage), AppPage.Capture => typeof(SaveOpenWindowsPage),
                 AppPage.Settings => typeof(SettingsPage), AppPage.Layouts => typeof(LayoutsPage),
-                AppPage.Focus => typeof(FocusPage), _ => typeof(WorkspacesPage)
+                AppPage.Focus => typeof(FocusPage), AppPage.Hotkeys => typeof(HotkeysPage), _ => typeof(WorkspacesPage)
             };
             if (PageFrame.CurrentSourcePageType != type) PageFrame.Navigate(type);
             // Navigation is command-driven, not a browser history of stale editing pages.
@@ -302,6 +303,7 @@ public sealed partial class MainWindow : Window
             if (diagnostics is not null) await diagnostics.PollAsync();
 #endif
             await App.ViewModels.Focus.RefreshAsync();
+            if (App.ViewModels.IsHotkeysPageOpen) App.ViewModels.Hotkeys.RefreshStatus();
             var vm = App.ViewModels.Focus;
             TrayIcon.ToolTipText = vm.IsRunning ? $"FlowDesk · {vm.RemainingText} remaining" : "FlowDesk";
             TrayPause.Text = vm.PauseLabel; TrayPause.Visibility = vm.CanPause ? Visibility.Visible : Visibility.Collapsed;
