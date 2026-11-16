@@ -89,6 +89,73 @@
                          Title="Another preview tool is running"
                          Message="{Binding QuickLookConflict}" />
             </StackPanel>
+            <StackPanel Spacing="4">
+                <settings:SettingsCard Header="Hot corners"
+                    Description="Rest in an outer screen corner briefly to run an action.">
+                    <ToggleSwitch IsOn="{Binding HotCorners, Mode=TwoWay}"
+                                  IsEnabled="{Binding HotCornersCanToggle}"
+                                  AutomationProperties.Name="Hot corners" />
+                </settings:SettingsCard>
+                <StackPanel Spacing="8" Margin="0,4,0,8"
+                            Visibility="{Binding HotCorners, Converter={StaticResource BoolVisibility}}">
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Top-left" VerticalAlignment="Center"
+                                   Style="{StaticResource BodyTextBlockStyle}" />
+                        <ComboBox Grid.Column="1" MinWidth="180" IsEnabled="{Binding HotCornersCanToggle}"
+                                  ItemsSource="{Binding HotCornerActions}"
+                                  DisplayMemberPath="Label"
+                                  SelectedIndex="{Binding HotCornerTopLeftIndex, Mode=TwoWay}"
+                                  AutomationProperties.Name="Top-left hot corner action" />
+                    </Grid>
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Top-right" VerticalAlignment="Center"
+                                   Style="{StaticResource BodyTextBlockStyle}" />
+                        <ComboBox Grid.Column="1" MinWidth="180" IsEnabled="{Binding HotCornersCanToggle}"
+                                  ItemsSource="{Binding HotCornerActions}"
+                                  DisplayMemberPath="Label"
+                                  SelectedIndex="{Binding HotCornerTopRightIndex, Mode=TwoWay}"
+                                  AutomationProperties.Name="Top-right hot corner action" />
+                    </Grid>
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Bottom-left" VerticalAlignment="Center"
+                                   Style="{StaticResource BodyTextBlockStyle}" />
+                        <ComboBox Grid.Column="1" MinWidth="180" IsEnabled="{Binding HotCornersCanToggle}"
+                                  ItemsSource="{Binding HotCornerActions}"
+                                  DisplayMemberPath="Label"
+                                  SelectedIndex="{Binding HotCornerBottomLeftIndex, Mode=TwoWay}"
+                                  AutomationProperties.Name="Bottom-left hot corner action" />
+                    </Grid>
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Bottom-right" VerticalAlignment="Center"
+                                   Style="{StaticResource BodyTextBlockStyle}" />
+                        <ComboBox Grid.Column="1" MinWidth="180" IsEnabled="{Binding HotCornersCanToggle}"
+                                  ItemsSource="{Binding HotCornerActions}"
+                                  DisplayMemberPath="Label"
+                                  SelectedIndex="{Binding HotCornerBottomRightIndex, Mode=TwoWay}"
+                                  AutomationProperties.Name="Bottom-right hot corner action" />
+                    </Grid>
+                    <TextBlock Text="Outer corners only. Dragging and full-screen apps suspend hot corners."
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               TextWrapping="Wrap" />
+                </StackPanel>
+            </StackPanel>
             <settings:SettingsCard Header="Start with Windows"
                 Description="Open FlowDesk when you sign in.">
                 <ToggleSwitch IsOn="{Binding StartWithWindows, Mode=TwoWay}"

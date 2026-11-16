@@ -1,6 +1,7 @@
 using FlowDesk.Core.Desktops;
 using FlowDesk.Core.Hotkeys;
 using FlowDesk.Core.QuickLook;
+using FlowDesk.Core.HotCorners;
 
 namespace FlowDesk.App.Services;
 
@@ -25,12 +26,14 @@ public sealed class HotkeyService(string dataDirectory, VirtualDesktopService? s
     private readonly ShortcutTerminal _terminal = new();
     private bool _shortcutsRequested;
     private IQuickLookInput? _quickLook;
+    private IHotCornerInput? _hotCorners;
     public Func<string?>? TerminalProgram { get; set; }
 
     /// <summary>Toast callback; set by the window once notifications are initialized.</summary>
     public Action<string>? Notify { get; set; }
 
     public bool IsRunning => _shortcutsRequested && _host?.IsRunning == true;
+    internal bool ShortcutsRequested => _shortcutsRequested;
     public IReadOnlyList<string> Conflicts => _host?.Conflicts ?? [];
     public bool DesktopsAvailable => _desktops?.IsAvailable == true;
     public bool WheelAvailable => _host?.WheelHookAvailable == true;
@@ -45,9 +48,21 @@ public sealed class HotkeyService(string dataDirectory, VirtualDesktopService? s
         {
             if (_disposed) return;
             if (_shortcutsRequested && _host?.IsRunning == true) return;
-            _shortcutsRequested = true;
-            await StopCoreAsync().ConfigureAwait(false);
-            await StartCoreAsync().ConfigureAwait(false);
+            try { await RequestWindowShortcutsAsync(async () =>
+            {
+                await StopCoreAsync().ConfigureAwait(false);
+                await StartCoreAsync().ConfigureAwait(false);
+            }).ConfigureAwait(false); }
+            catch
+            {
+                // Restore independently enabled modules without the failed shortcut request.
+                if (_quickLook is not null || _hotCorners is not null)
+                {
+                    try { await StartCoreAsync().ConfigureAwait(false); }
+                    catch (Exception) { Notify?.Invoke("Input modules could not be restored. Turn them off and on in Settings to retry."); }
+                }
+                throw;
+            }
         }
         finally { _gate.Release(); }
     }
@@ -60,9 +75,18 @@ public sealed class HotkeyService(string dataDirectory, VirtualDesktopService? s
             if (_disposed) return;
             _shortcutsRequested = false;
             await StopCoreAsync().ConfigureAwait(false);
-            if (_quickLook is not null) await StartCoreAsync().ConfigureAwait(false);
+            if (_quickLook is not null || _hotCorners is not null) await StartCoreAsync().ConfigureAwait(false);
         }
         finally { _gate.Release(); }
+    }
+
+    /// <summary>Caller holds _gate. Failed startup must not leave a latent request that a later
+    /// independent module toggle can accidentally resurrect while Settings says shortcuts are off.</summary>
+    internal async Task RequestWindowShortcutsAsync(Func<Task> transition)
+    {
+        _shortcutsRequested = true;
+        try { await transition().ConfigureAwait(false); }
+        catch { _shortcutsRequested = false; throw; }
     }
 
     public async Task SetQuickLookAsync(IQuickLookInput? input)
@@ -84,27 +108,48 @@ public sealed class HotkeyService(string dataDirectory, VirtualDesktopService? s
             await StopCoreAsync().ConfigureAwait(false);
             try
             {
-                if (_shortcutsRequested || _quickLook is not null) await StartCoreAsync().ConfigureAwait(false);
+                if (_shortcutsRequested || _quickLook is not null || _hotCorners is not null) await StartCoreAsync().ConfigureAwait(false);
             }
             catch
             {
                 // A failed module must not silently disable the unrelated window shortcuts.
                 _quickLook = previous;
-                if (_shortcutsRequested || _quickLook is not null) await StartCoreAsync().ConfigureAwait(false);
+                if (_shortcutsRequested || _quickLook is not null || _hotCorners is not null) await StartCoreAsync().ConfigureAwait(false);
                 throw;
             }
         }
         finally { _gate.Release(); }
     }
 
-    /// <summary>App shutdown, unlike disabling window shortcuts: never start another module's host.</summary>
+    /// <summary>Changes the mouse module in place; existing shortcut state and Quick Look keep their host.</summary>
+    public async Task SetHotCornersAsync(IHotCornerInput? input)
+    {
+        await _gate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (_disposed) return;
+            if (_host?.IsRunning == true)
+            {
+                await _host.ConfigureHotCornersAsync(input).ConfigureAwait(false);
+                _hotCorners = input;
+                if (input is null && !_shortcutsRequested && _quickLook is null) await StopCoreAsync().ConfigureAwait(false);
+                return;
+            }
+            var previous = _hotCorners; _hotCorners = input;
+            try { if (input is not null) await StartCoreAsync().ConfigureAwait(false); }
+            catch { _hotCorners = previous; throw; }
+        }
+        finally { _gate.Release(); }
+    }
+
+    /// <summary>App shutdown: do not restart a host for another enabled module.</summary>
     public async Task StopAllAsync()
     {
         await _gate.WaitAsync().ConfigureAwait(false);
         try
         {
             if (_disposed) return;
-            _shortcutsRequested = false; _quickLook = null;
+            _shortcutsRequested = false; _quickLook = null; _hotCorners = null;
             await StopCoreAsync().ConfigureAwait(false);
         }
         finally { _gate.Release(); }
@@ -150,7 +195,7 @@ public sealed class HotkeyService(string dataDirectory, VirtualDesktopService? s
         HotkeyHost? host = null;
         host = new HotkeyHost(new Win32WindowOps(), _desktops, Notify,
             () => _terminal.Open(TerminalProgram?.Invoke(), Notify),
-            () => RequestReload(host!), _shortcutsRequested, _quickLook);
+            () => RequestReload(host!), _shortcutsRequested, _quickLook, _hotCorners);
         try
         {
             await host.StartAsync().ConfigureAwait(false);

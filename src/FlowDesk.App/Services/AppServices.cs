@@ -26,6 +26,7 @@ public sealed class AppServices : ObservableObject, IDisposable
     public JsonStore Store { get; } = new();
     public HotkeyService Hotkeys { get; }
     public QuickLookService? QuickLook { get; set; }
+    public HotCornerService? HotCorners { get; set; }
     public FlowDeskData Data { get; private set; } = new();
     public AppSettings Settings { get; private set; } = new();
     public string? RecoveryMessage { get; private set; }

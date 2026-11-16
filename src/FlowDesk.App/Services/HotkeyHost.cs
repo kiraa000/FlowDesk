@@ -4,6 +4,7 @@ using System.Diagnostics;
 using FlowDesk.Core.Desktops;
 using FlowDesk.Core.Hotkeys;
 using FlowDesk.Core.QuickLook;
+using FlowDesk.Core.HotCorners;
 
 namespace FlowDesk.App.Services;
 
@@ -19,6 +20,7 @@ public sealed class HotkeyHost : IDisposable
     private const int WM_QUIT = 0x0012;
     private const int WM_WTSSESSION_CHANGE = 0x02B1;
     private const int WM_MOUSEWHEEL = 0x020A;
+    private const uint WM_CONFIGURE_HOTCORNERS = 0x800D;
     private const int WH_MOUSE_LL = 14;
     private const int ERROR_CLASS_ALREADY_EXISTS = 1410;
     private const int WH_KEYBOARD_LL = 13;
@@ -50,6 +52,10 @@ public sealed class HotkeyHost : IDisposable
     private readonly ShortcutKeyboardState _keyboard = new();
     private readonly QuickLookTrigger _quickLookTrigger = new();
     private IQuickLookInput? _quickLook;
+    private IHotCornerInput? _hotCorners;
+    private readonly object _hotCornerGate = new();
+    private HotCornerHookChange? _hotCornerChange;
+    private bool _sessionBlocked;
     private readonly bool _windowShortcuts;
 #if DEBUG
     private readonly string? _inputDiagnosticLog = Environment.GetEnvironmentVariable("FLOWDESK_HOTKEY_DIAGNOSTICS_LOG");
@@ -69,7 +75,8 @@ public sealed class HotkeyHost : IDisposable
     private int _stopping;
 
     public HotkeyHost(IWindowOps windows, IVirtualDesktops? desktops, Action<string>? notify,
-        Action? openTerminal = null, Action? reload = null, bool windowShortcuts = true, IQuickLookInput? quickLook = null)
+        Action? openTerminal = null, Action? reload = null, bool windowShortcuts = true, IQuickLookInput? quickLook = null,
+        IHotCornerInput? hotCorners = null)
     {
         _desktops = desktops;
         _notify = notify;
@@ -80,6 +87,7 @@ public sealed class HotkeyHost : IDisposable
         _reload = reload;
         _windowShortcuts = windowShortcuts;
         _quickLook = quickLook;
+        _hotCorners = hotCorners;
     }
 
     public bool IsRunning { get; private set; }
@@ -94,6 +102,60 @@ public sealed class HotkeyHost : IDisposable
     public bool WinWheelHookAvailable { get; private set; }
     public bool KeyboardHookAvailable => _keyboardHook != 0;
     public void SetQuickLook(IQuickLookInput? input) => Volatile.Write(ref _quickLook, input);
+
+    private sealed record HotCornerHookChange(IHotCornerInput? Input)
+    {
+        public TaskCompletionSource<bool> Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+    public async Task ConfigureHotCornersAsync(IHotCornerInput? input)
+    {
+        var change = new HotCornerHookChange(input);
+        lock (_hotCornerGate)
+        {
+            if (Volatile.Read(ref _stopping) != 0 || _hotCornerChange is not null) throw new InvalidOperationException("Input host is stopping or changing.");
+            _hotCornerChange = change;
+            if (!HotkeyNativeMethods.PostMessageW(_hwnd, WM_CONFIGURE_HOTCORNERS, 0, 0))
+            { _hotCornerChange = null; throw new InvalidOperationException("Mouse hook update could not be queued."); }
+        }
+        try { await change.Completion.Task.WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false); }
+        catch (TimeoutException)
+        {
+            lock (_hotCornerGate)
+            {
+                if (ReferenceEquals(_hotCornerChange, change)) _hotCornerChange = null; // queued update must not apply late
+            }
+            if (change.Completion.Task.IsCompleted) { await change.Completion.Task.ConfigureAwait(false); return; }
+            throw;
+        }
+    }
+    private void ApplyHotCornerHookChange()
+    {
+        lock (_hotCornerGate)
+        {
+            var change = _hotCornerChange; _hotCornerChange = null;
+            if (change is null) return;
+            try
+            {
+                if (Volatile.Read(ref _stopping) != 0) throw new InvalidOperationException("Input host is stopping.");
+                if (change.Input is not null)
+                {
+                    if (!_sessionNotificationsRegistered) throw new InvalidOperationException("Session safety notifications are unavailable.");
+                    if (_hook == 0) _hook = HotkeyNativeMethods.SetWindowsHookExW(WH_MOUSE_LL, _hookProc, HotkeyNativeMethods.GetModuleHandleW(null), 0);
+                    if (_hook == 0) throw new InvalidOperationException("Mouse hook could not be installed.");
+                }
+                var previous = Volatile.Read(ref _hotCorners);
+                if (!ReferenceEquals(previous, change.Input)) previous?.SetHookAvailable(false);
+                Volatile.Write(ref _hotCorners, change.Input);
+                change.Input?.SetSessionBlocked(_sessionBlocked);
+                change.Input?.SetHookAvailable(true);
+                if (change.Input is null && !_windowShortcuts && _hook != 0)
+                { HotkeyNativeMethods.UnhookWindowsHookEx(_hook); _hook = 0; }
+                WheelHookAvailable = _hook != 0; WinWheelHookAvailable = _hook != 0 && _keyboardHook != 0;
+                change.Completion.TrySetResult(true);
+            }
+            catch (Exception ex) { change.Completion.TrySetException(ex); }
+        }
+    }
 
     public async Task StartAsync(CancellationToken cancellationToken = default)
     {
@@ -171,9 +233,13 @@ public sealed class HotkeyHost : IDisposable
             _sessionNotificationsRegistered = HotkeyNativeMethods.WTSRegisterSessionNotification(_hwnd, 0); // this session
             TraceWinInput($"session-notifications registered={_sessionNotificationsRegistered} error={(_sessionNotificationsRegistered ? 0 : Marshal.GetLastWin32Error())}");
             _keyboard.Seed(IsDown);
-            if (_windowShortcuts) _hook = HotkeyNativeMethods.SetWindowsHookExW(WH_MOUSE_LL, _hookProc, HotkeyNativeMethods.GetModuleHandleW(null), 0);
-            _keyboardHook = HotkeyNativeMethods.SetWindowsHookExW(WH_KEYBOARD_LL, _keyboardProc, HotkeyNativeMethods.GetModuleHandleW(null), 0);
+            var requirements = InputHookRequirements.For(_windowShortcuts, _quickLook is not null, _hotCorners is not null);
+            if (requirements.Mouse) _hook = HotkeyNativeMethods.SetWindowsHookExW(WH_MOUSE_LL, _hookProc, HotkeyNativeMethods.GetModuleHandleW(null), 0);
+            if (requirements.Keyboard) _keyboardHook = HotkeyNativeMethods.SetWindowsHookExW(WH_KEYBOARD_LL, _keyboardProc, HotkeyNativeMethods.GetModuleHandleW(null), 0);
             if (_quickLook is not null && _keyboardHook == 0) throw new InvalidOperationException("Quick Look keyboard hook could not be installed.");
+            if (_hotCorners is not null && (_hook == 0 || !_sessionNotificationsRegistered)) throw new InvalidOperationException("Hot corner mouse/session safety hooks are unavailable.");
+            _hotCorners?.SetSessionBlocked(_sessionBlocked);
+            _hotCorners?.SetHookAvailable(true);
             WheelHookAvailable = _hook != 0;
             WinWheelHookAvailable = _hook != 0 && _keyboardHook != 0;
             _ready.TrySetResult(true);
@@ -191,6 +257,12 @@ public sealed class HotkeyHost : IDisposable
         }
         finally
         {
+            _hotCorners?.SetHookAvailable(false);
+            lock (_hotCornerGate)
+            {
+                _hotCornerChange?.Completion.TrySetException(new InvalidOperationException("Input host stopped."));
+                _hotCornerChange = null;
+            }
             Interlocked.Exchange(ref _stopping, 1);
             _cts.Cancel();
             _multiPress.Reset();
@@ -302,7 +374,16 @@ public sealed class HotkeyHost : IDisposable
 
     private nint MouseHookProc(int nCode, nint wParam, nint lParam)
     {
-        if (nCode >= 0 && wParam == WM_MOUSEWHEEL && Volatile.Read(ref _stopping) == 0)
+        if (nCode >= 0 && Volatile.Read(ref _stopping) == 0 && Volatile.Read(ref _hotCorners) is { } corners)
+        {
+            try
+            {
+                var info = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
+                corners.Observe(info.Point.X, info.Point.Y, (int)wParam, info.MouseData);
+            }
+            catch (Exception) { /* hook records only; never let exceptions reach Windows */ }
+        }
+        if (_windowShortcuts && nCode >= 0 && wParam == WM_MOUSEWHEEL && Volatile.Read(ref _stopping) == 0)
         {
             try
             {
@@ -411,6 +492,8 @@ public sealed class HotkeyHost : IDisposable
 
     private void OnSessionChange(uint reason)
     {
+        if (reason is 2 or 4 or 6 or 7) { _sessionBlocked = true; _hotCorners?.SetSessionBlocked(true); }
+        else if (reason is 1 or 3 or 5 or 8 or 0xF) { _sessionBlocked = false; _hotCorners?.SetSessionBlocked(false); }
         if (Volatile.Read(ref _stopping) != 0 || !_keyboard.ReseedForSessionChange(reason, IsDown)) return;
         // A session boundary starts fresh bookkeeping, even if the snapshot still includes Win.
         _wheel.ObserveWin(false);
@@ -474,6 +557,8 @@ public sealed class HotkeyHost : IDisposable
 
     private static nint WndProc(nint hwnd, uint message, nint wParam, nint lParam)
     {
+        if (message == WM_CONFIGURE_HOTCORNERS && _current is { } cornerHost)
+        { try { cornerHost.ApplyHotCornerHookChange(); } catch (Exception) { } return 0; }
         if (message == WM_WTSSESSION_CHANGE && _current is { } sessionHost)
         {
             try { sessionHost.OnSessionChange((uint)wParam); } catch (Exception) { /* never cross a native callback */ }
@@ -592,6 +677,7 @@ public sealed class HotkeyHost : IDisposable
 
     private static class HotkeyNativeMethods
     {
+        [DllImport("user32.dll", SetLastError = true)] public static extern bool PostMessageW(nint hwnd, uint message, nint wParam, nint lParam);
         [DllImport("wtsapi32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool WTSRegisterSessionNotification(nint hwnd, uint flags);

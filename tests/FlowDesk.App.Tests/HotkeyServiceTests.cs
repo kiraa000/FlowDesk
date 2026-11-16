@@ -5,6 +5,21 @@ namespace FlowDesk.App.Tests;
 public sealed class HotkeyServiceTests
 {
     [Fact]
+    public async Task FailedStartupCannotBeResurrectedByAnotherModule()
+    {
+        using var service = new HotkeyService("unused-headless-data");
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.RequestWindowShortcutsAsync(() =>
+        {
+            Assert.True(service.ShortcutsRequested);
+            throw new InvalidOperationException("simulated host startup failure");
+        }));
+        Assert.False(service.ShortcutsRequested);
+        await service.RequestWindowShortcutsAsync(() => Task.CompletedTask);
+        Assert.True(service.ShortcutsRequested);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.RequestWindowShortcutsAsync(() => throw new InvalidOperationException()));
+        Assert.False(service.ShortcutsRequested);
+    }
+    [Fact]
     public async Task DisposeIsIdempotentAndLaterTransitionsDoNotStartAnything()
     {
         string dataDirectory = Path.Combine(Path.GetTempPath(), "flowdesk-hotkeys-" + Guid.NewGuid().ToString("N"));
@@ -16,6 +31,7 @@ public sealed class HotkeyServiceTests
         await service.StartAsync();
         await service.StopAsync();
         await service.StopAllAsync();
+        await service.SetHotCornersAsync(new FlowDesk.Core.HotCorners.HotCornerMouseState());
         await service.ReloadBackendAsync();
 
         Assert.False(service.IsRunning);

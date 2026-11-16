@@ -135,6 +135,34 @@ public partial class FocusViewModel : ObservableObject
         }
         finally { operations.Release(); }
     });
+    internal async Task<bool> TryStartFromHotCornerAsync(Func<bool> stillAllowed)
+    {
+        if (owner.IsBusy || !stillAllowed()) return false;
+        bool started = false;
+        await owner.ExecuteAsync(async () =>
+        {
+            await operations.WaitAsync();
+            try
+            {
+                if (!stillAllowed()) return;
+                if (await Task.Run(() => owner.Services.Focus.State is not null)) return;
+                if (!stillAllowed()) return;
+                Persist();
+                var snapshot = JsonSerializer.Deserialize<FocusSettings>(JsonSerializer.Serialize(owner.Services.Data.Focus, JsonStore.Options), JsonStore.Options)!;
+                totalSeconds = snapshot.DurationMinutes * 60;
+                SessionChanged?.Invoke();
+                bool accepted = await Task.Run(() =>
+                {
+                    if (!stillAllowed() || owner.Services.Focus.State is not null) return false;
+                    owner.Services.Focus.Start(snapshot); return true;
+                });
+                if (!accepted) return;
+                await RefreshAsync(); started = true;
+            }
+            finally { operations.Release(); }
+        });
+        return started;
+    }
     [RelayCommand] private async Task PauseAsync()
     {
         await operations.WaitAsync();

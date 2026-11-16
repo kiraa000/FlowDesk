@@ -32,6 +32,11 @@ public sealed class AppSettings
     public bool WindowShortcutsEnabled { get; set; }
     /// <summary>Plain Space previews in Explorer/desktop; opt-in, including for older settings files.</summary>
     public bool QuickLookEnabled { get; set; }
+    public bool HotCornersEnabled { get; set; }
+    public FlowDesk.Core.HotCorners.HotCornerAction HotCornerTopLeft { get; set; } = FlowDesk.Core.HotCorners.HotCornerAction.TaskView;
+    public FlowDesk.Core.HotCorners.HotCornerAction HotCornerTopRight { get; set; }
+    public FlowDesk.Core.HotCorners.HotCornerAction HotCornerBottomLeft { get; set; }
+    public FlowDesk.Core.HotCorners.HotCornerAction HotCornerBottomRight { get; set; } = FlowDesk.Core.HotCorners.HotCornerAction.ShowDesktop;
     /// <summary>Empty uses Windows Terminal's app execution alias, falling back to Command Prompt.</summary>
     public string TerminalProgram { get; set; } = "";
     public bool TrayCloseNoticeShown { get; set; }

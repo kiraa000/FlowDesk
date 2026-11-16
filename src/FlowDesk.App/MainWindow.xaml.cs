@@ -37,6 +37,8 @@ public sealed partial class MainWindow : Window
         try { if (File.Exists(iconPath)) TrayIcon.UpdateIcon(new System.Drawing.Icon(iconPath, 32, 32)); }
         catch (Exception) { }
         App.ViewModels = new(services, new UserInteraction(this, Root));
+        services.HotCorners = new(services.Hotkeys, DispatcherQueue,
+            stillAllowed => closing || exitRequested || endingSession || initializing ? Task.FromResult(false) : App.ViewModels.Focus.TryStartFromHotCornerAsync(stillAllowed));
         notifications = new(a => DispatcherQueue.TryEnqueue(() => a()),
             message => App.ViewModels.ShowStatus(message, StatusKind.Warning), async window =>
             {
@@ -66,6 +68,7 @@ public sealed partial class MainWindow : Window
         Closed += (_, _) =>
         {
             services.QuickLook?.Dispose();
+            services.HotCorners?.Dispose();
             sessionEnd.Dispose(); focusTimer.Stop(); autosaveTimer.Stop(); notifications.Dispose(); TrayIcon.Dispose();
             if (endingSession)
                 _ = Task.Run(() => { services.Focus.Dispose(); services.Hotkeys.Dispose(); services.Dispose(); });
@@ -106,6 +109,8 @@ public sealed partial class MainWindow : Window
             notifications.Initialize();
             if (services.Settings.QuickLookEnabled)
                 await App.ViewModels.Settings.ApplyQuickLookAsync(true);
+            if (services.Settings.HotCornersEnabled)
+                await App.ViewModels.Settings.ApplyHotCornersAsync(true);
             if (services.Settings.WindowShortcutsEnabled)
             {
                 // Keep the Settings toggle disabled while the startup start is still pending.
@@ -261,6 +266,7 @@ public sealed partial class MainWindow : Window
             closing = false; exitRequested = false; PageFrame.IsEnabled = true; Navigation.IsEnabled = true;
             focusTimer.Start(); autosaveTimer.Start(); App.ViewModels.AutoSave.Start(); return;
         }
+        services.HotCorners?.Dispose();
         await Task.Run(() => services.Focus.Dispose());
         services.QuickLook?.Dispose();
         await services.Hotkeys.StopAllAsync();
@@ -275,6 +281,7 @@ public sealed partial class MainWindow : Window
     }
     private void OnSessionEnd()
     {
+        services.HotCorners?.Dispose();
         endingSession = true; allowClose = true;
         focusTimer.Stop(); autosaveTimer.Stop();
         // StopAsync invalidates the generation synchronously before its first await.

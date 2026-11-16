@@ -243,6 +243,7 @@ public partial class SettingsViewModel(AppViewModels owner) : ObservableObject
         StartWithWindows = StartupRegistration.IsEnabled();
         WindowShortcuts = owner.Services.Settings.WindowShortcutsEnabled;
         QuickLook = owner.Services.Settings.QuickLookEnabled;
+        LoadHotCornerSettings();
         TerminalProgram = owner.Services.Settings.TerminalProgram ?? "";
         RefreshWindowShortcutsState();
         loading = false; owner.ApplyTheme();
