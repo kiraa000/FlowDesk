@@ -22,13 +22,15 @@ public static class CommandMatcher
         }
         return new(result.ToString(), starts.ToArray(), ends.ToArray());
     }
-    public static Result Match(string text, string query)
+    public static Result Match(string text, string query, bool allowFuzzy = true)
     {
         var value = Fold(text); string q = Fold(query.Trim()).Text;
         if (q.Length == 0) return new(0, []);
         string t = value.Text; var indices = new List<int>(); double score;
         bool WordStart(int i) => i == 0 || !char.IsLetterOrDigit(t[i - 1]);
         int offset = t.IndexOf(q, StringComparison.Ordinal);
+        // File names/paths need actual contiguous text, not initials or scattered letters.
+        if (!allowFuzzy && offset < 0) return new(0, []);
         if (offset == 0) { score = 500; indices.AddRange(Enumerable.Range(0, q.Length)); }
         else if (offset >= 0 && WordStart(offset)) { score = 400; indices.AddRange(Enumerable.Range(offset, q.Length)); }
         else
@@ -36,12 +38,14 @@ public static class CommandMatcher
             var words = Enumerable.Range(0, t.Length).Where(i => WordStart(i) && char.IsLetterOrDigit(t[i])).ToArray();
             string initials = new(words.Select(i => t[i]).ToArray());
             int acronym = initials.IndexOf(q, StringComparison.Ordinal);
-            if (acronym >= 0) { score = 300; indices.AddRange(words.Skip(acronym).Take(q.Length)); }
+            if (allowFuzzy && acronym >= 0) { score = 300; indices.AddRange(words.Skip(acronym).Take(q.Length)); }
             else if (offset >= 0) { score = 200; indices.AddRange(Enumerable.Range(offset, q.Length)); }
             else
             {
+                if (t.Length > 64) return new(0, []);
                 int at = 0;
                 foreach (char c in q) { int found = t.IndexOf(c, at); if (found < 0) return new(0, []); indices.Add(found); at = found + 1; }
+                if (indices[^1] - indices[0] + 1 > q.Length * 3) return new(0, []);
                 score = 100;
             }
         }

@@ -20,8 +20,9 @@ public sealed class SnapshotCommandSource(string name, Func<IReadOnlyList<Comman
     {
         foreach (var item in snapshot())
         {
-            var match = CommandMatcher.Match(item.Title, query);
-            var alias = CommandMatcher.Match(item.Synonyms, query);
+            bool allowFuzzy = item.Kind != CommandKind.File;
+            var match = CommandMatcher.Match(item.Title, query, allowFuzzy);
+            var alias = CommandMatcher.Match(item.Synonyms, query, allowFuzzy);
             if (match.Score > 0 || alias.Score > 0 || string.IsNullOrWhiteSpace(query))
                 yield return new(item, Math.Max(match.Score, alias.Score * .85), match.Highlights);
         }

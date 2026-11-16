@@ -15,11 +15,11 @@ public sealed class PaletteTests
         var word = CommandMatcher.Match("Open Visual Studio", "vis");
         var acronym = CommandMatcher.Match("Visual Studio", "vs");
         var substring = CommandMatcher.Match("Provision", "vis");
-        var subsequence = CommandMatcher.Match("Violet intense", "vis");
+        var subsequence = CommandMatcher.Match("Violets", "vis");
         Assert.True(prefix.Score > word.Score && word.Score > acronym.Score && acronym.Score > substring.Score && substring.Score > subsequence.Score);
         Assert.Equal([new MatchRange(0, 3)], prefix.Highlights);
         Assert.Equal([new MatchRange(0, 1), new MatchRange(7, 1)], acronym.Highlights);
-        Assert.Equal([new MatchRange(0, 2), new MatchRange(12, 1)], subsequence.Highlights);
+        Assert.Equal([new MatchRange(0, 2), new MatchRange(6, 1)], subsequence.Highlights);
         Assert.Equal(0, CommandMatcher.Match("Code", "zzz").Score);
     }
     [Theory]
