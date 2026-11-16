@@ -21,4 +21,30 @@ public sealed class PaletteSettingsTests
         loaded.CommandPaletteEnabled = true; loaded.CommandPaletteEnabled = true;
         Assert.Empty(loaded.DisabledShortcuts);
     }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void PersistedSettingsContainOnlyThePaletteDisabledIdNotTheComputedProperty(bool enabled)
+    {
+        var settings = new AppSettings { CommandPaletteEnabled = enabled };
+        string json = settings.ToJson();
+        using var document = JsonDocument.Parse(json);
+        Assert.DoesNotContain(document.RootElement.EnumerateObject(),
+            property => property.Name.Equals(nameof(AppSettings.CommandPaletteEnabled), StringComparison.OrdinalIgnoreCase));
+        var loaded = AppSettings.FromJson(json);
+        Assert.Equal(enabled, loaded.CommandPaletteEnabled);
+        Assert.Equal(!enabled, loaded.DisabledShortcuts.Contains(HotkeyCatalog.PaletteId));
+    }
+
+    [Theory]
+    [InlineData("\"CommandPaletteEnabled\":true,\"DisabledShortcuts\":[\"command-palette\"]")]
+    [InlineData("\"DisabledShortcuts\":[\"command-palette\"],\"CommandPaletteEnabled\":true")]
+    public void LegacyComputedPropertyCannotOverrideDisabledIdRegardlessOfJsonOrder(string properties)
+    {
+        var loaded = AppSettings.FromJson("{" + properties + "}");
+        Assert.False(loaded.CommandPaletteEnabled);
+        Assert.Contains(HotkeyCatalog.PaletteId, loaded.DisabledShortcuts);
+        Assert.False(AppSettings.FromJson(loaded.ToJson()).CommandPaletteEnabled);
+    }
 }

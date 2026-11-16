@@ -32,6 +32,7 @@ public sealed class AppSettings
     public bool WindowShortcutsEnabled { get; set; }
     public List<string> DisabledShortcuts { get; set; } = [];
     // One preference shared with the Hotkeys tab; no independent switch that can drift out of sync.
+    [System.Text.Json.Serialization.JsonIgnore]
     public bool CommandPaletteEnabled
     {
         get => !(DisabledShortcuts ?? []).Contains(FlowDesk.Core.Hotkeys.HotkeyCatalog.PaletteId);
