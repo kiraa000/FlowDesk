@@ -30,13 +30,20 @@ public sealed class SnapshotCommandSource(string name, Func<IReadOnlyList<Comman
 
 public sealed class CommandSearch(IEnumerable<ICommandSource> sources, PaletteUsageStore usage, Action<string, Exception> log)
 {
-    public IReadOnlyList<CommandMatch> Query(string query)
+    public IReadOnlyList<CommandMatch> Query(string query, CancellationToken token = default)
     {
         var matches = new List<CommandMatch>();
         foreach (var source in sources)
         {
             // Materialize inside the boundary: deferred iterators can throw after Query returns.
-            try { matches.AddRange(source.Query(query).ToArray()); }
+            try
+            {
+                token.ThrowIfCancellationRequested();
+                var complete = new List<CommandMatch>();
+                foreach (var match in source.Query(query)) { token.ThrowIfCancellationRequested(); complete.Add(match); }
+                matches.AddRange(complete);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
             catch (Exception ex) { log(source.Name, ex); }
         }
         bool recent = string.IsNullOrWhiteSpace(query);
@@ -52,13 +59,19 @@ public sealed class CommandSearch(IEnumerable<ICommandSource> sources, PaletteUs
 /// <summary>Atomic snapshot publication; failed refreshes keep the last usable index.</summary>
 public sealed class CommandIndex
 {
+    public event Action? Changed;
     private CommandItem[] items = [];
     private int refreshing;
     public IReadOnlyList<CommandItem> Snapshot => Volatile.Read(ref items);
     public async Task RefreshAsync(Func<Task<IReadOnlyList<CommandItem>>> load)
     {
         if (Interlocked.Exchange(ref refreshing, 1) != 0) return;
-        try { var next = await load().ConfigureAwait(false); Volatile.Write(ref items, next.DistinctBy(i => i.Id).ToArray()); }
+        try
+        {
+            var next = await load().ConfigureAwait(false);
+            Volatile.Write(ref items, next.DistinctBy(i => i.Id).ToArray());
+            Changed?.Invoke();
+        }
         finally { Volatile.Write(ref refreshing, 0); }
     }
 }

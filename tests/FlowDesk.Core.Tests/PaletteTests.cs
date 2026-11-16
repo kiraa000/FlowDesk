@@ -19,6 +19,7 @@ public sealed class PaletteTests
         Assert.True(prefix.Score > word.Score && word.Score > acronym.Score && acronym.Score > substring.Score && substring.Score > subsequence.Score);
         Assert.Equal([new MatchRange(0, 3)], prefix.Highlights);
         Assert.Equal([new MatchRange(0, 1), new MatchRange(7, 1)], acronym.Highlights);
+        Assert.Equal([new MatchRange(0, 2), new MatchRange(12, 1)], subsequence.Highlights);
         Assert.Equal(0, CommandMatcher.Match("Code", "zzz").Score);
     }
     [Theory]
@@ -68,15 +69,19 @@ public sealed class PaletteTests
     }
     [Fact] public async Task IndexPublishesAtomicallyCoalescesAndKeepsCacheAfterFailure()
     {
-        var index = new CommandIndex(); await index.RefreshAsync(() => Task.FromResult<IReadOnlyList<CommandItem>>([Item("old")]));
+        var index = new CommandIndex(); int changed = 0;
+        index.Changed += () => { Assert.NotEmpty(index.Snapshot); changed++; };
+        await index.RefreshAsync(() => Task.FromResult<IReadOnlyList<CommandItem>>([Item("old")]));
         var pending = new TaskCompletionSource<IReadOnlyList<CommandItem>>();
         var refresh = index.RefreshAsync(() => pending.Task);
+        Assert.Single(new AppCommandSource(index).Query("code"));
         bool duplicate = false;
         await index.RefreshAsync(() => { duplicate = true; return Task.FromResult<IReadOnlyList<CommandItem>>([]); });
         Assert.False(duplicate); Assert.Equal("old", index.Snapshot[0].Id);
         pending.SetResult([Item("new"), Item("new")]); await refresh; Assert.Single(index.Snapshot);
         await Assert.ThrowsAsync<IOException>(() => index.RefreshAsync(() => throw new IOException()));
         Assert.Equal("new", index.Snapshot[0].Id);
+        Assert.Equal(2, changed);
     }
     [Fact] public void SeparateProvidersUseSnapshotsAndSynonyms()
     {
@@ -95,6 +100,15 @@ public sealed class PaletteTests
             link => link == "broken" ? throw new IOException() : link == "missing" ? "gone.txt" : "notes.txt",
             target => target != "gone.txt", _ => Task.CompletedTask, _ => Task.CompletedTask, _ => errors++);
         Assert.Single(items); Assert.NotNull(items[0].Secondary); Assert.Equal(1, errors);
+    }
+    [Fact] public async Task RecentProviderQueriesItsResolvedSnapshotAndSearchCancels()
+    {
+        var index = new CommandIndex();
+        await index.RefreshAsync(() => Task.FromResult<IReadOnlyList<CommandItem>>([Item("recent", "notes.txt", CommandKind.File)]));
+        Assert.Single(new RecentFileCommandSource(index).Query("notes"));
+        var engine = new CommandSearch([new RecentFileCommandSource(index)], Store(), (_, _) => { });
+        using var cancel = new CancellationTokenSource(); cancel.Cancel();
+        Assert.Throws<OperationCanceledException>(() => engine.Query("notes", cancel.Token));
     }
     [Fact] public void ActionsOnlyApplyInTheirValidState()
     {

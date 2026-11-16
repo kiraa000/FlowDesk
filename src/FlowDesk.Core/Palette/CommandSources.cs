@@ -36,7 +36,7 @@ public sealed class RecentFileCommandSource(CommandIndex index) : ICommandSource
                 string? target = resolve(link);
                 if (string.IsNullOrWhiteSpace(target) || !exists(target)) continue;
                 items.Add(new("file:" + target.ToUpperInvariant(), Path.GetFileName(target.TrimEnd('\\')), "File · " + target,
-                    CommandKind.File, target, () => open(target), () => location(target)));
+                    CommandKind.File, target, () => open(target), () => location(target), Synonyms: target));
             }
             catch (Exception ex) { log(ex); }
         }
