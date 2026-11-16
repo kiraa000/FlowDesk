@@ -70,7 +70,7 @@ public sealed class AppServices : ObservableObject, IDisposable
             try
             {
                 if (File.Exists(SettingsPath))
-                    settings = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(SettingsPath)) ?? new();
+                    settings = AppSettings.FromJson(File.ReadAllText(SettingsPath));
             }
             catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
             { warning = "App settings could not be loaded. Defaults are in use; your workspaces are unchanged."; }

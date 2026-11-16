@@ -55,6 +55,15 @@ public sealed class AppSettings
 
     public static int ClampLaunchTimeout(int seconds) => LaunchTimeoutValue.Clamp(seconds);
 
+    /// <summary>
+    /// Reads app-settings.json with the same options it is written with (enums as strings, e.g. hot corner
+    /// actions). Reading with default options failed on every file saved since hot corners existed.
+    /// </summary>
+    public static AppSettings FromJson(string json) =>
+        System.Text.Json.JsonSerializer.Deserialize<AppSettings>(json, FlowDesk.Core.Storage.JsonStore.Options) ?? new();
+
+    public string ToJson() => System.Text.Json.JsonSerializer.Serialize(this, FlowDesk.Core.Storage.JsonStore.Options);
+
     public bool IsAutosaveEnabled(string workspaceId) =>
         !(AutosaveOff ?? []).Contains(workspaceId, StringComparer.Ordinal);
 

@@ -100,4 +100,38 @@ public sealed class AppSettingsTests
         var roundTrip = JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(settings))!;
         Assert.True(roundTrip.HasSeenBrowserNotice("chrome"));
     }
+
+    [Fact]
+    public void SavedFileFormatLoadsBackIncludingEnumStrings()
+    {
+        var settings = new AppSettings
+        {
+            WindowShortcutsEnabled = true,
+            HotCornersEnabled = true,
+            HotCornerTopRight = FlowDesk.Core.HotCorners.HotCornerAction.Lock,
+            DisabledShortcuts = ["desktop-switch-3"],
+        };
+        string json = settings.ToJson();
+        Assert.Contains("\"TaskView\"", json);
+
+        var loaded = AppSettings.FromJson(json);
+        Assert.True(loaded.WindowShortcutsEnabled);
+        Assert.True(loaded.HotCornersEnabled);
+        Assert.Equal(FlowDesk.Core.HotCorners.HotCornerAction.TaskView, loaded.HotCornerTopLeft);
+        Assert.Equal(FlowDesk.Core.HotCorners.HotCornerAction.Lock, loaded.HotCornerTopRight);
+        Assert.Equal(["desktop-switch-3"], loaded.DisabledShortcuts);
+    }
+
+    [Fact]
+    public void LiveFileWrittenByTask014LoadsWithoutFallingBackToDefaults()
+    {
+        var loaded = AppSettings.FromJson("""
+            { "Theme": "Dark", "WindowShortcutsEnabled": true, "DisabledShortcuts": ["desktop-switch-3"],
+              "HotCornersEnabled": false, "HotCornerTopLeft": "TaskView", "HotCornerTopRight": "None",
+              "HotCornerBottomLeft": "None", "HotCornerBottomRight": "ShowDesktop" }
+            """);
+        Assert.Equal("Dark", loaded.Theme);
+        Assert.True(loaded.WindowShortcutsEnabled);
+        Assert.Equal(FlowDesk.Core.HotCorners.HotCornerAction.ShowDesktop, loaded.HotCornerBottomRight);
+    }
 }
