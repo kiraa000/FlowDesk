@@ -58,6 +58,8 @@ public static class ShortcutPresentation
     }
     public static string StatusText(ShortcutStatus status) => status switch {
         ShortcutStatus.Active => "Active", ShortcutStatus.Off => "Off", ShortcutStatus.Conflict => "In use by another app", _ => "Not available" };
+    public static bool ShowStatusDetail(ShortcutStatus status) => status != ShortcutStatus.Active;
+    public static bool IsConflict(ShortcutStatus status) => status == ShortcutStatus.Conflict;
 }
 
 /// <summary>Reusable optional-tab rule; an unlisted page is always visible.</summary>

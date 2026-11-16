@@ -18,6 +18,10 @@ public sealed partial class HotkeyRowViewModel : ObservableObject
     [ObservableProperty] public partial bool IsOn { get; set; } = true;
     [ObservableProperty] public partial bool CanToggle { get; set; }
     [ObservableProperty] public partial string StatusText { get; set; } = "Not available";
+    private ShortcutStatus status = ShortcutStatus.Unavailable;
+    public bool ShowStatus => ShortcutPresentation.ShowStatusDetail(status);
+    public bool IsConflict => ShortcutPresentation.IsConflict(status);
+    public bool IsNeutralStatus => ShowStatus && !IsConflict;
     private bool applying;
     public HotkeyRowViewModel(HotkeyBinding binding, HotkeysViewModel owner)
     {
@@ -29,7 +33,15 @@ public sealed partial class HotkeyRowViewModel : ObservableObject
     internal void Apply(bool enabled, bool canToggle, ShortcutStatus status)
     {
         applying = true;
-        try { IsOn = enabled; CanToggle = canToggle; StatusText = ShortcutPresentation.StatusText(status); }
+        try
+        {
+            IsOn = enabled; CanToggle = canToggle; StatusText = ShortcutPresentation.StatusText(status);
+            if (this.status != status)
+            {
+                this.status = status;
+                OnPropertyChanged(nameof(ShowStatus)); OnPropertyChanged(nameof(IsConflict)); OnPropertyChanged(nameof(IsNeutralStatus));
+            }
+        }
         finally { applying = false; }
     }
 }

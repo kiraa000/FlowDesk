@@ -54,56 +54,95 @@
                             <ItemsControl ItemsSource="{Binding Rows}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
-                                        <Border Padding="0,12" BorderThickness="0,0,0,1"
+                                        <Border Padding="0,8" BorderThickness="0,0,0,1"
                                                 BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
-                                            <Grid ColumnSpacing="12">
+                                            <Grid ColumnSpacing="12" MinHeight="36">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="*" />
                                                     <ColumnDefinition Width="Auto" />
+                                                    <ColumnDefinition Width="40" />
                                                 </Grid.ColumnDefinitions>
-                                                <StackPanel Grid.Column="0" Spacing="4" VerticalAlignment="Center">
-                                                    <ItemsControl ItemsSource="{Binding Keys}">
-                                                        <ItemsControl.ItemsPanel>
-                                                            <ItemsPanelTemplate>
-                                                                <StackPanel Orientation="Horizontal" />
-                                                            </ItemsPanelTemplate>
-                                                        </ItemsControl.ItemsPanel>
-                                                        <ItemsControl.ItemTemplate>
-                                                            <DataTemplate>
-                                                                <StackPanel Orientation="Horizontal">
-                                                                    <Border Background="{ThemeResource ControlFillColorDefaultBrush}"
-                                                                            BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
-                                                                            BorderThickness="1"
-                                                                            CornerRadius="{ThemeResource ControlCornerRadius}"
-                                                                            Padding="6,2" Margin="0,0,4,0">
-                                                                        <TextBlock Text="{Binding Key}"
-                                                                                   Style="{StaticResource CaptionTextBlockStyle}"
-                                                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                                                    </Border>
-                                                                    <TextBlock Text="{Binding Join}"
+                                                <Grid.RowDefinitions>
+                                                    <RowDefinition Height="*" />
+                                                    <RowDefinition Height="Auto" />
+                                                </Grid.RowDefinitions>
+                                                <TextBlock Grid.Row="0" Grid.Column="0"
+                                                           Text="{Binding Label}"
+                                                           Style="{StaticResource BodyTextBlockStyle}"
+                                                           Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                                                           TextWrapping="NoWrap"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           MaxLines="1"
+                                                           VerticalAlignment="Center"
+                                                           ToolTipService.ToolTip="{Binding Label}" />
+                                                <ItemsControl Grid.Row="0" Grid.Column="1"
+                                                              ItemsSource="{Binding Keys}"
+                                                              HorizontalAlignment="Right"
+                                                              VerticalAlignment="Center">
+                                                    <ItemsControl.ItemsPanel>
+                                                        <ItemsPanelTemplate>
+                                                            <StackPanel Orientation="Horizontal" />
+                                                        </ItemsPanelTemplate>
+                                                    </ItemsControl.ItemsPanel>
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <StackPanel Orientation="Horizontal">
+                                                                <Border Background="{ThemeResource ControlFillColorDefaultBrush}"
+                                                                        BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
+                                                                        BorderThickness="1"
+                                                                        CornerRadius="{ThemeResource ControlCornerRadius}"
+                                                                        Padding="6,2" Margin="0,0,4,0">
+                                                                    <TextBlock Text="{Binding Key}"
                                                                                Style="{StaticResource CaptionTextBlockStyle}"
-                                                                               Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                                                               VerticalAlignment="Center"
-                                                                               Margin="0,0,4,0" />
-                                                                </StackPanel>
-                                                            </DataTemplate>
-                                                        </ItemsControl.ItemTemplate>
-                                                    </ItemsControl>
-                                                    <TextBlock Text="{Binding Label}"
-                                                               Style="{StaticResource BodyTextBlockStyle}"
-                                                               Foreground="{ThemeResource TextFillColorPrimaryBrush}"
-                                                               TextWrapping="Wrap" />
-                                                    <TextBlock Text="{Binding StatusText}"
-                                                               Style="{StaticResource CaptionTextBlockStyle}"
-                                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                                               TextWrapping="Wrap" />
-                                                </StackPanel>
-                                                <ToggleSwitch Grid.Column="1"
+                                                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                                                </Border>
+                                                                <TextBlock Text="{Binding Join}"
+                                                                           Style="{StaticResource CaptionTextBlockStyle}"
+                                                                           Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                                                           VerticalAlignment="Center"
+                                                                           Margin="0,0,4,0" />
+                                                            </StackPanel>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                                <ToggleSwitch Grid.Row="0" Grid.RowSpan="2" Grid.Column="2"
                                                               IsOn="{Binding IsOn, Mode=TwoWay}"
                                                               IsEnabled="{Binding CanToggle}"
                                                               OnContent="" OffContent=""
+                                                              Width="40" MinWidth="0"
+                                                              HorizontalAlignment="Right"
                                                               VerticalAlignment="Center"
                                                               AutomationProperties.Name="{Binding AutomationName}" />
+                                                <Grid Grid.Row="1" Grid.Column="0"
+                                                            ColumnSpacing="4"
+                                                            Margin="0,2,0,0"
+                                                            Visibility="{Binding ShowStatus, Converter={StaticResource BoolVisibility}}">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto" />
+                                                        <ColumnDefinition Width="*" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <FontIcon Glyph="&#xE7BA;" FontSize="12"
+                                                              Foreground="{ThemeResource SystemFillColorCautionBrush}"
+                                                              VerticalAlignment="Center"
+                                                              Visibility="{Binding IsConflict, Converter={StaticResource BoolVisibility}}"
+                                                              AutomationProperties.AccessibilityView="Raw" />
+                                                    <TextBlock Grid.Column="1" Text="{Binding StatusText}"
+                                                               Style="{StaticResource CaptionTextBlockStyle}"
+                                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                               TextWrapping="NoWrap"
+                                                               TextTrimming="CharacterEllipsis"
+                                                               MaxLines="1"
+                                                               VerticalAlignment="Center"
+                                                               Visibility="{Binding IsNeutralStatus, Converter={StaticResource BoolVisibility}}" />
+                                                    <TextBlock Grid.Column="1" Text="{Binding StatusText}"
+                                                               Style="{StaticResource CaptionTextBlockStyle}"
+                                                               Foreground="{ThemeResource SystemFillColorCautionBrush}"
+                                                               TextWrapping="NoWrap"
+                                                               TextTrimming="CharacterEllipsis"
+                                                               MaxLines="1"
+                                                               VerticalAlignment="Center"
+                                                               Visibility="{Binding IsConflict, Converter={StaticResource BoolVisibility}}" />
+                                                </Grid>
                                             </Grid>
                                         </Border>
                                     </DataTemplate>
