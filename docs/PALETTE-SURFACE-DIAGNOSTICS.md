@@ -1,47 +1,52 @@
-# Palette surface: collect evidence before changing the frame
+# Palette surface: R4 frame and Acrylic fix
 
-TASK-015 R3 has **not established the visual cause**. The installed FlowDesk instance must not be
-stopped or redirected by an agent. Opus owns the live check and any temporary instance/data setup.
-No WS_THICKFRAME removal, WM_NCCALCSIZE override, or custom backdrop controller has been added.
+Status: the mechanism was proven live in R3; R4 implements it. **Runtime is not verified yet** — Opus
+owns the live check. Do not stop or redirect the user's installed FlowDesk.
+
+## What R3 proved (live, build f0c4784)
+
+- Outline: after `SetBorderAndTitleBar(false, false)` the native style was `0x04480000`
+  (WS_DLGFRAME | WS_SYSMENU | WS_CLIPSIBLINGS, no WS_POPUP); window 800x185 vs client 794x179, i.e.
+  `clientOffset 3,3`. Those 3 non-client px were the bright line; DWMWA_BORDER_COLOR = NONE returned S_OK.
+- Acrylic was active but near-opaque: the default `DesktopAcrylicBackdrop` uses the Base kind (Dark
+  surface pixel 44,44,44). Flyouts/Start use the Thin kind.
+
+## R4 implementation (runtime unverified)
+
+- Frame: `PaletteWindowStyle.Apply` clears WS_DLGFRAME, WS_THICKFRAME, WS_BORDER, WS_CAPTION, WS_SYSMENU
+  and sets WS_POPUP, then SetWindowPos with SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER |
+  SWP_NOACTIVATE. It runs after the presenter call and again after show and after every resize to
+  repair frame bits if these AppWindow calls restore them. The DWM corner preference is retained;
+  corners, shadow availability and the single remaining XAML stroke still require live verification.
+- Acrylic: `PaletteAcrylicBackdrop` (custom SystemBackdrop) drives `DesktopAcrylicController` with
+  `Kind = Thin` and a `SystemBackdropConfiguration`: `IsInputActive` true while shown, `Theme` synced to
+  `Root.ActualTheme`, High Contrast and its colours inherited from WinUI's default configuration.
+  Surface colours still come from theme brushes, so Light/Dark/High Contrast use system colours.
+- Fallback: `Root` keeps the outer Grid, stroke, radius and resources. The new inner `SurfaceContent`
+  Grid carries the padding and rows; the `SolidFallback` Border (`SolidBackgroundFillColorBaseBrush`,
+  system Window colour in HC) sits behind it and stays hidden unless code shows it. It is shown when the
+  controller is missing or inactive, transparency is off, or High Contrast is on.
 
 ## Capture (Debug only)
 
-Before launching the R3 Debug build in an approved live-test session, set:
+Before launching a Debug build in an approved live-test session, set (unchanged):
 
 ```powershell
-$env:FLOWDESK_PALETTE_DIAGNOSTICS_LOG = 'D:\Workspace\_tmp\opencode\task015r3-live-surface.log'
+$env:FLOWDESK_PALETTE_DIAGNOSTICS_LOG = 'D:\Workspace\_tmp\opencode\task015r4-live-surface.log'
 ```
 
-Use an existing writable parent directory and an absolute filename. The log is append-only and
-contains surface/native state, not queries, results or document names. Release does not emit it.
-The opt-in Debug backdrop derives from DesktopAcrylicBackdrop and delegates its lifecycle to base;
-it only reads WinUI's default SystemBackdropConfiguration. It does not force IsInputActive or theme.
+The log is append-only, Debug-only and contains surface/native state only (no queries, results or
+document names). R4 adds `kind=` / `controller=` / `state=` / `solidFallback=` from the backdrop and
+`fallbackLayer=<Visibility>/<colour>` from `SolidFallback`.
 
-Capture a Dark-theme palette open with Win+Alt+Space, results resizing, dismissal and reopen.
-Compare Light and High Contrast; also record whether Windows Transparency effects is on.
-Check the quiet outline, Acrylic, corners, shadow, focus, one activation per press and no Start on
-Win-up. Do not infer visual success from a successful build or from these logs alone.
+## What Opus must verify live
 
-## What the records distinguish
+Dark and Light, then High Contrast, with Windows Transparency effects both on and off:
 
-- `before-presenter`, `after-presenter`, `attributes-set`, `constructed-hidden`: actual GWL_STYLE /
-  GWL_EXSTYLE and border/corner DWM HRESULTs/readback, around the presenter's native changes.
-- `resized`, `shown`, activation and `activation-settled`: whether later AppWindow operations reset
-  those attributes, and whether WinUI's configuration agrees with native foreground ownership.
-- `window`, `client`, `clientOffset`: non-client space, alongside style bits WS_THICKFRAME `0x40000`,
-  WS_DLGFRAME `0x400000`, WS_BORDER `0x800000`, WS_POPUP `0x80000000`. Style bits alone do not prove
-  which component painted a visible line. A successful DWMWA_BORDER_COLOR readback of `FFFFFFFE`
-  suppresses the DWM border colour; it does not prove there is no residual non-client frame.
-- `surface`, `stroke`, `resultsBackground`, `strokeThickness`: resolved XAML colours/alpha. The
-  normal surface and results are intended transparent; High Contrast deliberately uses solid
-  system colours and a visible stroke. A white stroke must be checked against ActualTheme and HC.
-- `configuration`: default backdrop IsInputActive, theme, High Contrast and configuration-change
-  count, or `disconnected`. Compare the settled shown record, not the expected inactive hidden one.
-- `advancedEffects`, `acrylicSupported`, `highContrast`, `batterySaver`, `remoteSession`: system
-  fallback conditions. These are clues, not a claim that the native controller is rendering Acrylic.
+- `clientOffset=0,0` and window size equal to client size at `shown` **and** after results `resized`.
+- Style is WS_POPUP without DLGFRAME/SYSMENU; one quiet 1 px stroke, no bright frame; corners and shadow.
+- Acrylic Thin visible in Dark/Light; the solid fallback appears only when expected (transparency off or
+  High Contrast), with system Window colours in HC.
+- Dismiss and reopen, and toggle transparency, so the Acrylic/fallback switch is shown in both directions.
 
-If the shown, foreground palette has inactive/default-theme configuration, investigate WinUI's
-configuration lifecycle before implementing a custom controller. If configuration and transparent
-fills are correct, investigate system fallback/composition rather than forcing activation. For the
-outline, first distinguish native non-client pixels from the resolved XAML stroke using the live
-image and these records; only then change the responsible layer.
+Do not infer visual success from a successful build or from these logs alone.

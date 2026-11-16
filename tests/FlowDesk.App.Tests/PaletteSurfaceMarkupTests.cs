@@ -29,8 +29,23 @@ public sealed class PaletteSurfaceMarkupTests
             .Single(e => (string?)e.Attribute(PaletteMarkupFixture.X + "Name") == "Root");
         Assert.Equal("{ThemeResource SurfaceStrokeColorFlyoutBrush}", (string?)root.Attribute("BorderBrush"));
         Assert.Equal("1", (string?)root.Attribute("BorderThickness"));
-        var results = root.Elements(PaletteMarkupFixture.Xaml + "Border").Single();
+        var results = root.Descendants(PaletteMarkupFixture.Xaml + "Border").Single(e => (string?)e.Attribute("Grid.Row") == "1");
         Assert.Equal("Transparent", (string?)results.Attribute("Background"));
         Assert.Equal("0", (string?)results.Attribute("BorderThickness"));
+    }
+
+    [Fact] public void SolidFallbackCoversOnlyTheSurfaceAndCannotInterceptInput()
+    {
+        var root = PaletteMarkupFixture.Load().Descendants(PaletteMarkupFixture.Xaml + "Grid")
+            .Single(e => (string?)e.Attribute(PaletteMarkupFixture.X + "Name") == "Root");
+        var fallback = root.Elements(PaletteMarkupFixture.Xaml + "Border").Single();
+        Assert.Equal("SolidFallback", (string?)fallback.Attribute(PaletteMarkupFixture.X + "Name"));
+        Assert.Equal("{ThemeResource SolidBackgroundFillColorBaseBrush}", (string?)fallback.Attribute("Background"));
+        Assert.Equal("Collapsed", (string?)fallback.Attribute("Visibility"));
+        Assert.Equal("False", (string?)fallback.Attribute("IsHitTestVisible"));
+        var content = root.Elements(PaletteMarkupFixture.Xaml + "Grid").Single();
+        Assert.True(XNode.DocumentOrderComparer.Compare(fallback, content) < 0);
+        Assert.Equal("12", (string?)content.Attribute("Padding"));
+        Assert.Null(root.Attribute("Padding"));
     }
 }
