@@ -10,6 +10,7 @@ public sealed class WheelGestures
     private bool _winMasked;
     private bool _altMasked;
     private readonly Dictionary<WheelGesture, long> _last = [];
+    public void Reset() { _last.Clear(); _winMasked = false; _altMasked = false; }
 
     public void ObserveWin(bool held)
     {

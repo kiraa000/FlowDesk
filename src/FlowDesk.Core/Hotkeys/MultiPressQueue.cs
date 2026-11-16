@@ -21,11 +21,13 @@ public sealed class MultiPressQueue(IOneShotScheduler scheduler)
     private IDisposable? _timer;
     private long _nextToken;
     private long _activeToken;
+    private object? _context;
 
     /// <summary>Raised on the timer callback with the direction and how many times it was pressed.</summary>
     public event Action<WindowDirection, int>? Fired;
+    public event Action<WindowDirection, int, object?>? FiredWithContext;
 
-    public void Press(WindowDirection direction)
+    public void Press(WindowDirection direction, object? context = null)
     {
         lock (_gate)
         {
@@ -35,6 +37,7 @@ public sealed class MultiPressQueue(IOneShotScheduler scheduler)
                 _count = 0;
             }
             _count++;
+            _context = context;
             _timer?.Dispose();
             long token = ++_nextToken;
             _activeToken = token;
@@ -50,6 +53,7 @@ public sealed class MultiPressQueue(IOneShotScheduler scheduler)
             _direction = null;
             _count = 0;
             _activeToken = 0;
+            _context = null;
             _timer?.Dispose();
             _timer = null;
         }
@@ -59,17 +63,19 @@ public sealed class MultiPressQueue(IOneShotScheduler scheduler)
     {
         WindowDirection? direction;
         int count;
+        object? context;
         lock (_gate)
         {
             if (_activeToken != token) return; // a newer press replaced this timer
             _activeToken = 0;
             direction = _direction;
             count = _count;
+            context = _context; _context = null;
             _direction = null;
             _count = 0;
             _timer?.Dispose();
             _timer = null;
         }
-        if (direction is { } value && count > 0) Fired?.Invoke(value, count);
+        if (direction is { } value && count > 0) { Fired?.Invoke(value, count); FiredWithContext?.Invoke(value, count, context); }
     }
 }
