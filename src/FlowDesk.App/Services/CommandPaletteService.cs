@@ -58,7 +58,7 @@ internal sealed class CommandPaletteService : IDisposable
     }
     private void Snapshot(nint target, uint targetProcess)
     {
-        bool hasTarget = target != 0 && targetProcess != 0 && targetProcess != services.Windows.OwnProcessId && CommandPaletteWindow.ProcessOf(target) == targetProcess;
+        bool hasTarget = PaletteTargetRules.IsAppTarget(targetProcess, (uint)services.Windows.OwnProcessId, CommandPaletteWindow.ClassOf(target)) && CommandPaletteWindow.ProcessOf(target) == targetProcess;
         // UI-owned VMs are read once, then only immutable arrays are searched on background threads.
         CommandItem[] workspaceItems = vm.IsBusy ? [] : vm.WorkspacesCollection.Select(w => new CommandItem("workspace:" + w.Model.Id,
             "Switch to " + w.Name, $"Workspace · {w.Model.Items.Count} apps", CommandKind.Workspace, "\uE8A1",
@@ -98,7 +98,9 @@ internal sealed class CommandPaletteService : IDisposable
                             var results = await Task.Run(() =>
                             {
                                 var active = services.Windows.Get((long)target);
-                                if (active is null || CommandPaletteWindow.ProcessOf(target) != targetProcess || active.ProcessId == services.Windows.OwnProcessId) throw new InvalidOperationException("The previous window is no longer available.");
+                                if (active is null || CommandPaletteWindow.ProcessOf(target) != targetProcess ||
+                                    !PaletteTargetRules.IsAppTarget(targetProcess, (uint)services.Windows.OwnProcessId, active.ClassName))
+                                    throw new InvalidOperationException("The previous window is no longer available.");
                                 return services.Layouts.Apply(layout.Preset, [active], active.MonitorDevice);
                             });
                             int placed = results.Count(r => r.Outcome == FlowDesk.Core.Windows.PlaceOutcome.Ok);

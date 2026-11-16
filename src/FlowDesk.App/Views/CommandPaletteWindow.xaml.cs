@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Text;
 using CommunityToolkit.Mvvm.ComponentModel;
 using FlowDesk.App.Services;
 using FlowDesk.Core.Palette;
@@ -45,11 +46,12 @@ internal sealed partial class CommandPaletteWindow : Window
     private long generation;
     private long openEpoch;
     private long openStarted;
-    private bool shutdown, opening, running;
+    private bool shutdown, opening, running, activationPending;
     public bool IsOpen { get; private set; }
     public Action? BeforeQuery { get; set; }
     public static nint Foreground => GetForegroundWindow();
     public static uint ProcessOf(nint window) { GetWindowThreadProcessId(window, out uint process); return process; }
+    public static string ClassOf(nint window) { var text = new StringBuilder(256); GetClassNameW(window, text, text.Capacity); return text.ToString(); }
     public CommandPaletteWindow(CommandSearch search, PaletteUsageStore usage, Action<string> notify)
     {
         this.search = search; this.usage = usage; this.notify = notify;
@@ -66,8 +68,11 @@ internal sealed partial class CommandPaletteWindow : Window
         int round = 2; DwmSetWindowAttribute(hwnd, 33, ref round, 4);
         AppWindow.Resize(new SizeInt32(640, 540));
         AppWindow.Closing += (_, e) => { if (!shutdown) { e.Cancel = true; HidePalette(); } };
-        Activated += (_, e) => { if (!opening && IsOpen && e.WindowActivationState == WindowActivationState.Deactivated) HidePalette(); };
-        SearchBox.Loaded += (_, _) => { if (IsOpen) TraceOpen(openStarted, SearchBox.Focus(FocusState.Programmatic)); };
+        Activated += (_, e) => { if (!opening && !activationPending && IsOpen && e.WindowActivationState == WindowActivationState.Deactivated) HidePalette(); };
+        SearchBox.Loaded += (_, _) =>
+        {
+            if (IsOpen && GetForegroundWindow() == hwnd && SearchBox.Focus(FocusState.Programmatic)) TraceOpen(openStarted, true);
+        };
         Results.ContainerContentChanging += (_, e) =>
         {
             if (!e.InRecycleQueue && e.Item is PaletteResultRow row) AutomationProperties.SetName(e.ItemContainer, row.AutomationName);
@@ -78,6 +83,7 @@ internal sealed partial class CommandPaletteWindow : Window
     {
         if (shutdown || running) return;
         opening = true;
+        activationPending = true;
         openStarted = started;
         long epoch = ++openEpoch;
         try
@@ -90,23 +96,13 @@ internal sealed partial class CommandPaletteWindow : Window
             workArea = new(info.Work.Left, info.Work.Top, info.Work.Right - info.Work.Left, info.Work.Bottom - info.Work.Top);
             monitorScale = scale;
             ResizeForResults(0);
-            IsOpen = true; SearchBox.Text = ""; Results.ItemsSource = null; StatusText.Text = "Recent";
+            IsOpen = true; SearchBox.Text = ""; Results.ItemsSource = null; SetStatus("Recent");
             AppWindow.Show(); Activate();
             // No synthetic keys or AttachThreadInput: use the foreground permission granted by WM_HOTKEY.
             bool foreground = SetForegroundWindow(hwnd) || GetForegroundWindow() == hwnd;
             bool focused = SearchBox.Focus(FocusState.Programmatic);
-            if (!foreground)
-            {
-                // One dispatcher retry after activation/layout; never leave a topmost, unfocused search box.
-                DispatcherQueue.TryEnqueue(() =>
-                {
-                    if (!IsOpen || openEpoch != epoch) return;
-                    if (!SetForegroundWindow(hwnd) && GetForegroundWindow() != hwnd)
-                    { HidePalette(); notify("Command palette could not take focus. Leave the full-screen or administrator window and try Ctrl+Alt+Space again."); return; }
-                    SearchBox.Focus(FocusState.Programmatic); TraceOpen(started, true);
-                });
-            }
-            else TraceOpen(started, focused);
+            if (!foreground || !focused) _ = RetryFocusAsync(epoch, previous, started);
+            else { activationPending = false; TraceOpen(started, true); }
             QueueQuery();
         }
         catch (Exception ex) { Log(ex); HidePalette(); notify("Command palette could not open. Try again."); }
@@ -114,7 +110,35 @@ internal sealed partial class CommandPaletteWindow : Window
     }
     public void HidePalette()
     {
-        IsOpen = false; generation++; openEpoch++; query?.Cancel(); AppWindow.Hide();
+        IsOpen = false; activationPending = false; generation++; openEpoch++; query?.Cancel(); AppWindow.Hide();
+    }
+    private async Task RetryFocusAsync(long epoch, nint previous, long started)
+    {
+        try
+        {
+            for (int attempt = 0; attempt <= 3; attempt++)
+            {
+                await Task.Delay(20); // let first-show XAML layout finish; bounded to 80 ms
+                bool current = IsOpen && !shutdown && openEpoch == epoch;
+                nint foreground = GetForegroundWindow();
+                var decision = PaletteFocusRules.Decide(current, foreground == hwnd, foreground == previous,
+                    SearchBox.FocusState != FocusState.Unfocused, attempt);
+                if (decision == PaletteFocusDecision.Cancel) { if (current) HidePalette(); return; }
+                if (decision == PaletteFocusDecision.Focused) { activationPending = false; TraceOpen(started, true); return; }
+                if (decision == PaletteFocusDecision.Failed) break;
+                bool activated = SetForegroundWindow(hwnd) || GetForegroundWindow() == hwnd;
+                if (activated && SearchBox.Focus(FocusState.Programmatic))
+                { activationPending = false; TraceOpen(started, true); return; }
+            }
+            HidePalette();
+            notify("Command palette could not take focus. Leave the full-screen or administrator window and try Ctrl+Alt+Space again.");
+        }
+        catch (Exception ex) { Log(ex); if (IsOpen && openEpoch == epoch) { HidePalette(); notify("Command palette could not take focus. Try again."); } }
+    }
+    private void SetStatus(string text)
+    {
+        StatusText.Text = text; AutomationProperties.SetName(StatusText, text);
+        if (StatusText.IsLoaded) FrameworkElementAutomationPeer.CreatePeerForElement(StatusText)?.RaiseAutomationEvent(AutomationEvents.LiveRegionChanged);
     }
     private void SearchBox_TextChanged(object sender, TextChangedEventArgs e) { if (IsOpen && !opening) QueueQuery(); }
     public void RefreshResults() { if (IsOpen) QueueQuery(true); }
@@ -134,10 +158,8 @@ internal sealed partial class CommandPaletteWindow : Window
             int selectedIndex = Array.FindIndex(rows, r => r.Match.Item.Id == selectedId);
             Results.SelectedIndex = rows.Length > 0 ? Math.Max(0, selectedIndex) : -1;
             ResizeForResults(rows.Length);
-            StatusText.Text = rows.Length == 0 ? (string.IsNullOrWhiteSpace(text) ? "Recent · Your recently used commands will appear here" : "No results")
-                : (string.IsNullOrWhiteSpace(text) ? "Recent · " : "") + $"{rows.Length} results";
-            AutomationProperties.SetName(StatusText, StatusText.Text);
-            FrameworkElementAutomationPeer.CreatePeerForElement(StatusText)?.RaiseAutomationEvent(AutomationEvents.LiveRegionChanged);
+            SetStatus(rows.Length == 0 ? (string.IsNullOrWhiteSpace(text) ? "Recent · Your recently used commands will appear here" : "No results")
+                : (string.IsNullOrWhiteSpace(text) ? "Recent · " : "") + $"{rows.Length} results");
             foreach (var row in rows)
             {
                 if (row.Match.Item.Icon.Length == 1) continue;
@@ -153,7 +175,7 @@ internal sealed partial class CommandPaletteWindow : Window
             }
         }
         catch (OperationCanceledException) { }
-        catch (Exception ex) { Log(ex); if (IsOpen && generation == expected) StatusText.Text = "Search is unavailable. Try again."; }
+        catch (Exception ex) { Log(ex); if (IsOpen && generation == expected) SetStatus("Search is unavailable. Try again."); }
     }
     private void SearchBox_KeyDown(object sender, KeyRoutedEventArgs e)
     {
@@ -191,7 +213,7 @@ internal sealed partial class CommandPaletteWindow : Window
     {
         if (running || !IsOpen) return;
         var action = secondary ? row.Match.Item.Secondary : row.Match.Item.Primary;
-        if (action is null) { StatusText.Text = "No secondary action for this item"; return; }
+        if (action is null) { SetStatus("No secondary action for this item"); return; }
         running = true; HidePalette();
         try
         {
@@ -227,6 +249,7 @@ internal sealed partial class CommandPaletteWindow : Window
     [StructLayout(LayoutKind.Sequential)] private struct MonitorInfo { public int Size; public Rect Monitor, Work; public uint Flags; }
     [DllImport("user32.dll")] private static extern nint GetForegroundWindow();
     [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(nint window, out uint process);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassNameW(nint window, StringBuilder text, int capacity);
     [DllImport("user32.dll")] private static extern bool SetForegroundWindow(nint window);
     [DllImport("user32.dll")] private static extern short GetKeyState(int key);
     [DllImport("user32.dll")] private static extern bool GetCursorPos(out Point point);

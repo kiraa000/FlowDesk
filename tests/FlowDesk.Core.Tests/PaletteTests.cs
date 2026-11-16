@@ -151,4 +151,28 @@ public sealed class PaletteTests
         Assert.False(new ShortcutPolicy([HotkeyCatalog.PaletteId]).ForModules(false, true).Enabled(HotkeyCatalog.PaletteId));
     }
     private static PaletteUsageStore Store() => new(Path.Combine(Path.GetTempPath(), "unused-palette-usage.json"));
+    [Theory]
+    [InlineData("Shell_TrayWnd")]
+    [InlineData("Shell_SecondaryTrayWnd")]
+    [InlineData("Progman")]
+    [InlineData("WorkerW")]
+    [InlineData("MultitaskingViewFrame")]
+    [InlineData("")]
+    public void LayoutTargetsRejectShellSurfacesAndOwnOrMissingProcess(string shellClass)
+    {
+        Assert.False(PaletteTargetRules.IsAppTarget(10, 20, shellClass));
+        Assert.False(PaletteTargetRules.IsAppTarget(20, 20, "AppWindow"));
+        Assert.False(PaletteTargetRules.IsAppTarget(0, 20, "AppWindow"));
+        Assert.True(PaletteTargetRules.IsAppTarget(10, 20, "ApplicationFrameWindow"));
+        Assert.True(PaletteTargetRules.IsAppTarget(10, 20, "CabinetWClass"));
+    }
+    [Theory]
+    [InlineData(true, true, false, false, 0, PaletteFocusDecision.Retry)]
+    [InlineData(true, true, false, true, 0, PaletteFocusDecision.Focused)]
+    [InlineData(false, true, false, true, 0, PaletteFocusDecision.Cancel)]
+    [InlineData(true, false, false, false, 0, PaletteFocusDecision.Cancel)]
+    [InlineData(true, false, true, false, 3, PaletteFocusDecision.Failed)]
+    [InlineData(true, true, false, false, 3, PaletteFocusDecision.Failed)]
+    public void FocusRetryRequiresBothForegroundAndSearchAndRespectsUserOrEpochChange(bool current, bool palette, bool original, bool focused, int attempt, PaletteFocusDecision expected)
+        => Assert.Equal(expected, PaletteFocusRules.Decide(current, palette, original, focused, attempt));
 }

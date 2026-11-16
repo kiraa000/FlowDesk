@@ -81,14 +81,17 @@ internal sealed class PaletteShellIndex : IDisposable
                 {
                     entry = ((dynamic)entries).Item(i);
                     string name = ((dynamic)entry).Name;
-                    string id = ((dynamic)entry).Path;
-                    if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(name)) continue;
+                    string? path = ((dynamic)entry).Path as string;
                     string? aumid = Property(entry, "System.AppUserModel.ID");
+                    string id = !string.IsNullOrWhiteSpace(aumid) ? aumid : path ?? "";
+                    if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(name)) continue;
                     string identity = !string.IsNullOrWhiteSpace(aumid) ? "shell:AppsFolder\\" + aumid :
                         Path.IsPathFullyQualified(id) || id.StartsWith("shell:", StringComparison.OrdinalIgnoreCase) ? id : "shell:AppsFolder\\" + id;
                     string? target = Property(entry, "System.Link.TargetParsingPath");
                     if (string.IsNullOrWhiteSpace(target) && Path.IsPathFullyQualified(id)) target = id;
-                    Func<Task>? secondary = !string.IsNullOrWhiteSpace(target) && Path.IsPathFullyQualified(target) ? () => OpenLocationAsync(target) : () => LaunchAsync("shell:AppsFolder");
+                    // Packaged apps need not expose an accessible executable. Do not label the virtual
+                    // AppsFolder root as a file location: secondary exists only for real file targets.
+                    Func<Task>? secondary = !string.IsNullOrWhiteSpace(target) && Path.IsPathFullyQualified(target) ? () => OpenLocationAsync(target) : null;
                     result.Add(new("app:" + id, name, "App", CommandKind.App, identity, () => LaunchAsync(identity), secondary));
                 }
                 catch (Exception ex) { Log(ex); }
