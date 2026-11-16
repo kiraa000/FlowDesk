@@ -24,8 +24,8 @@ Status: R3 proved the mechanism; R4's frame fix and Dark Thin Acrylic passed liv
   Surface colours still come from theme brushes, so Light/Dark/High Contrast use system colours.
 - Fallback: `Root` keeps the outer Grid, stroke, radius and resources. The new inner `SurfaceContent`
   Grid carries the padding and rows; the `SolidFallback` Border (`SolidBackgroundFillColorBaseBrush`,
-  system Window colour in HC) sits behind it and stays hidden unless code shows it. It is shown when the
-  controller is missing or inactive, transparency is off, or High Contrast is on.
+  system Window colour in HC) sits behind it. R5 shows it only for a missing controller, transparency off
+  or High Contrast; native Fallback (opening/hidden or persistent) uses the controller's own colour/transition.
 - Live R4: `clientOffset 0,0` (also after reopen), Thin Acrylic Active in Dark, quiet stroke.
 
 ## R5 implementation (runtime unverified)
@@ -50,7 +50,7 @@ Status: R3 proved the mechanism; R4's frame fix and Dark Thin Acrylic passed liv
 Before launching a Debug build in an approved live-test session, set (unchanged):
 
 ```powershell
-$env:FLOWDESK_PALETTE_DIAGNOSTICS_LOG = 'D:\Workspace\_tmp\opencode\task015r4-live-surface.log'
+$env:FLOWDESK_PALETTE_DIAGNOSTICS_LOG = 'D:\Workspace\_tmp\opencode\task015r5-live-surface.log'
 ```
 
 The log is append-only, Debug-only and contains surface/native state only (no queries, results or document
@@ -64,6 +64,7 @@ Dark and Light, then High Contrast, with Windows Transparency effects both on an
 - Style is WS_POPUP without DLGFRAME/SYSMENU; one quiet 1 px stroke, no bright frame; corners and shadow.
 - Measure actual Light/black and Dark/white surfaces plus normal mixed-content Acrylic: it must still
   visibly tint/blur rather than read as a solid fill.
-- Dismiss/reopen and toggle transparency so both Acrylic and fallback paths show, including HC and transparency off.
+- Dismiss/reopen: transient `state=Fallback` must not add the XAML cover (`solidFallback=False`).
+- Toggle transparency/HC: explicit fallback must show immediately and recover without a timer or stale reopen callback.
 
 Do not infer visual success from a successful build or from these logs alone.
