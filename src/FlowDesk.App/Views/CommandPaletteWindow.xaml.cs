@@ -58,22 +58,38 @@ internal sealed partial class CommandPaletteWindow : Window
         InitializeComponent();
         Title = "Command palette — FlowDesk";
         SystemBackdrop = new DesktopAcrylicBackdrop(); // system handles transparency-off/high-contrast fallback
+#if DEBUG
+        // Observe WinUI's real default configuration, not a replacement controller with different
+        // activation semantics. Only opt-in diagnostics use the derived (otherwise identical) backdrop.
+        if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("FLOWDESK_PALETTE_DIAGNOSTICS_LOG")))
+            SystemBackdrop = new PaletteDiagnosticAcrylicBackdrop();
+#endif
         hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        TraceSurface("before-presenter");
         if (AppWindow.Presenter is OverlappedPresenter p)
         {
             p.SetBorderAndTitleBar(false, false); p.IsResizable = false; p.IsMaximizable = false; p.IsMinimizable = false; p.IsAlwaysOnTop = true;
         }
         AppWindow.IsShownInSwitchers = false;
+        TraceSurface("after-presenter");
         SetWindowLongPtrW(hwnd, -20, GetWindowLongPtrW(hwnd, -20) | 0x80); // TOOLWINDOW, deliberately NOT NOACTIVATE
-        int round = 2; DwmSetWindowAttribute(hwnd, 33, ref round, 4);
+        int round = 2; int roundResult = DwmSetWindowAttribute(hwnd, 33, ref round, 4);
         // Borderless WinUI still inherits DWM's OS-theme active border (white when the app is
         // dark but Windows is light). Let the theme-aware XAML surface stroke own the outline.
         int noNativeBorder = unchecked((int)0xFFFFFFFE); // DWMWA_COLOR_NONE, Windows 11+
-        DwmSetWindowAttribute(hwnd, 34, ref noNativeBorder, 4); // DWMWA_BORDER_COLOR
-        Root.ActualThemeChanged += (_, _) => TraceSurface();
+        int borderResult = DwmSetWindowAttribute(hwnd, 34, ref noNativeBorder, 4); // DWMWA_BORDER_COLOR
+        TraceSurface($"attributes-set roundHR=0x{roundResult:X8} borderHR=0x{borderResult:X8}");
+        Root.ActualThemeChanged += (_, _) => TraceSurface("theme-changed");
         AppWindow.Resize(new SizeInt32(640, 540));
         AppWindow.Closing += (_, e) => { if (!shutdown) { e.Cancel = true; HidePalette(); } };
-        Activated += (_, e) => { if (!opening && !activationPending && IsOpen && e.WindowActivationState == WindowActivationState.Deactivated) HidePalette(); };
+        Activated += (_, e) =>
+        {
+            TraceSurface($"activated-{e.WindowActivationState}");
+            // Configuration updates can run after Window.Activated; capture the settled value too.
+            DispatcherQueue.TryEnqueue(() => TraceSurface("activation-settled"));
+            if (!opening && !activationPending && IsOpen && e.WindowActivationState == WindowActivationState.Deactivated) HidePalette();
+        };
+        Root.Loaded += (_, _) => TraceSurface("root-loaded");
         SearchBox.Loaded += (_, _) =>
         {
             if (IsOpen && GetForegroundWindow() == hwnd && SearchBox.Focus(FocusState.Programmatic)) TraceOpen(openStarted, true);
@@ -83,6 +99,7 @@ internal sealed partial class CommandPaletteWindow : Window
             if (!e.InRecycleQueue && e.Item is PaletteResultRow row) AutomationProperties.SetName(e.ItemContainer, row.AutomationName);
         };
         AppWindow.Hide();
+        TraceSurface("constructed-hidden");
     }
     public void Open(nint previous, string theme, long started)
     {
@@ -94,7 +111,7 @@ internal sealed partial class CommandPaletteWindow : Window
         try
         {
             Root.RequestedTheme = theme switch { "Dark" => ElementTheme.Dark, "Light" => ElementTheme.Light, _ => ElementTheme.Default };
-            TraceSurface();
+            TraceSurface("opening");
             nint monitor = previous == 0 ? CursorMonitor() : MonitorFromWindow(previous, 2);
             var info = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
             if (!GetMonitorInfoW(monitor, ref info)) throw new InvalidOperationException("Display unavailable.");
@@ -104,6 +121,7 @@ internal sealed partial class CommandPaletteWindow : Window
             ResizeForResults(0);
             IsOpen = true; SearchBox.Text = ""; Results.ItemsSource = null; SetStatus("Recent");
             AppWindow.Show(); Activate();
+            TraceSurface("shown");
             // No synthetic keys or AttachThreadInput: use the foreground permission granted by WM_HOTKEY.
             bool foreground = SetForegroundWindow(hwnd) || GetForegroundWindow() == hwnd;
             bool focused = SearchBox.Focus(FocusState.Programmatic);
@@ -117,6 +135,7 @@ internal sealed partial class CommandPaletteWindow : Window
     public void HidePalette()
     {
         IsOpen = false; activationPending = false; generation++; openEpoch++; query?.Cancel(); AppWindow.Hide();
+        TraceSurface("hidden");
     }
     private async Task RetryFocusAsync(long epoch, nint previous, long started)
     {
@@ -201,6 +220,7 @@ internal sealed partial class CommandPaletteWindow : Window
         double height = count == 0 ? 148 : Math.Min(540, 116 + Math.Min(8, count) * 52);
         var rect = PalettePlacement.Place(workArea, monitorScale, height);
         AppWindow.MoveAndResize(new RectInt32(rect.X, rect.Y, rect.Width, rect.Height));
+        TraceSurface("resized");
     }
     private void Root_KeyDown(object sender, KeyRoutedEventArgs e)
     {
@@ -250,9 +270,45 @@ internal sealed partial class CommandPaletteWindow : Window
     [Conditional("DEBUG")]
     private static void TraceOpen(long started, bool focused) => Debug.WriteLine($"FlowDesk palette open {Stopwatch.GetElapsedTime(started).TotalMilliseconds:F1} ms focused={focused}");
     [Conditional("DEBUG")]
-    private void TraceSurface() => Debug.WriteLine($"FlowDesk palette backdrop={SystemBackdrop?.GetType().Name} theme={Root.ActualTheme} surfaceAlpha={(Root.Background as SolidColorBrush)?.Color.A}");
+    private void TraceSurface(string stage)
+    {
+#if DEBUG
+        try
+        {
+            int borderHr = DwmGetWindowAttribute(hwnd, 34, out int border, 4);
+            int cornerHr = DwmGetWindowAttribute(hwnd, 33, out int corner, 4);
+            int cloakHr = DwmGetWindowAttribute(hwnd, 14, out int cloaked, 4);
+            GetWindowRect(hwnd, out var window); GetClientRect(hwnd, out var client);
+            var origin = new Point(); ClientToScreen(hwnd, ref origin);
+            var ui = new Windows.UI.ViewManagement.UISettings();
+            var accessibility = new Windows.UI.ViewManagement.AccessibilitySettings();
+            GetSystemPowerStatus(out var power);
+            string line = $"{DateTimeOffset.UtcNow:O} palette {stage} hwnd=0x{hwnd:X} " +
+                $"style=0x{GetWindowLongPtrW(hwnd, -16):X} exstyle=0x{GetWindowLongPtrW(hwnd, -20):X} " +
+                $"window={window.Right - window.Left}x{window.Bottom - window.Top} client={client.Right}x{client.Bottom} " +
+                $"clientOffset={origin.X - window.Left},{origin.Y - window.Top} " +
+                $"border=0x{border:X8}/hr=0x{borderHr:X8} corner={corner}/hr=0x{cornerHr:X8} cloaked={cloaked}/hr=0x{cloakHr:X8} " +
+                $"backdrop={SystemBackdrop?.GetType().Name} theme={Root.ActualTheme} open={IsOpen} foreground={GetForegroundWindow() == hwnd} " +
+                $"surface={(Root.Background as SolidColorBrush)?.Color} stroke={(Root.BorderBrush as SolidColorBrush)?.Color} " +
+                $"strokeThickness={Root.BorderThickness} resultsBackground={(Results.Background as SolidColorBrush)?.Color} " +
+                $"acrylicSupported={Microsoft.UI.Composition.SystemBackdrops.DesktopAcrylicController.IsSupported()} " +
+                $"advancedEffects={ui.AdvancedEffectsEnabled} highContrast={accessibility.HighContrast} batterySaver={power.SystemStatusFlag} " +
+                $"remoteSession={GetSystemMetrics(0x1000)} " +
+                $"configuration=[{(SystemBackdrop as PaletteDiagnosticAcrylicBackdrop)?.Describe() ?? "not observed"}]";
+            Debug.WriteLine(line);
+            string? path = Environment.GetEnvironmentVariable("FLOWDESK_PALETTE_DIAGNOSTICS_LOG");
+            if (!string.IsNullOrWhiteSpace(path) && Path.IsPathFullyQualified(path)) File.AppendAllText(path, line + Environment.NewLine);
+        }
+        catch (Exception) { /* Optional diagnostics must never prevent activation. */ }
+#endif
+    }
     private static nint CursorMonitor() { GetCursorPos(out var point); return MonitorFromPoint(point, 2); }
     [StructLayout(LayoutKind.Sequential)] private struct Point { public int X, Y; }
+    [StructLayout(LayoutKind.Sequential)] private struct PowerStatus
+    {
+        public byte AcLineStatus, BatteryFlag, BatteryLifePercent, SystemStatusFlag;
+        public uint BatteryLifeTime, BatteryFullLifeTime;
+    }
     [StructLayout(LayoutKind.Sequential)] private struct Rect { public int Left, Top, Right, Bottom; }
     [StructLayout(LayoutKind.Sequential)] private struct MonitorInfo { public int Size; public Rect Monitor, Work; public uint Flags; }
     [DllImport("user32.dll")] private static extern nint GetForegroundWindow();
@@ -268,4 +324,46 @@ internal sealed partial class CommandPaletteWindow : Window
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] private static extern nint GetWindowLongPtrW(nint window, int index);
     [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")] private static extern nint SetWindowLongPtrW(nint window, int index, nint value);
     [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(nint window, int attribute, ref int value, int size);
+    [DllImport("dwmapi.dll")] private static extern int DwmGetWindowAttribute(nint window, int attribute, out int value, int size);
+    [DllImport("user32.dll")] private static extern bool GetWindowRect(nint window, out Rect rect);
+    [DllImport("user32.dll")] private static extern bool GetClientRect(nint window, out Rect rect);
+    [DllImport("user32.dll")] private static extern bool ClientToScreen(nint window, ref Point point);
+    [DllImport("user32.dll")] private static extern int GetSystemMetrics(int index);
+    [DllImport("kernel32.dll")] private static extern bool GetSystemPowerStatus(out PowerStatus status);
 }
+
+#if DEBUG
+// No configuration setters, controllers or custom activation policy: preserve DesktopAcrylicBackdrop's
+// behaviour so diagnostics can distinguish a real inactive fallback from an opaque XAML/native frame.
+internal sealed class PaletteDiagnosticAcrylicBackdrop : DesktopAcrylicBackdrop
+{
+    private Microsoft.UI.Composition.ICompositionSupportsSystemBackdrop? target;
+    private XamlRoot? root;
+    private int configurationChanges;
+
+    protected override void OnTargetConnected(Microsoft.UI.Composition.ICompositionSupportsSystemBackdrop connectedTarget, XamlRoot xamlRoot)
+    {
+        base.OnTargetConnected(connectedTarget, xamlRoot);
+        target = connectedTarget; root = xamlRoot;
+    }
+
+    protected override void OnTargetDisconnected(Microsoft.UI.Composition.ICompositionSupportsSystemBackdrop disconnectedTarget)
+    {
+        target = null; root = null;
+        base.OnTargetDisconnected(disconnectedTarget);
+    }
+
+    protected override void OnDefaultSystemBackdropConfigurationChanged(Microsoft.UI.Composition.ICompositionSupportsSystemBackdrop target, XamlRoot xamlRoot)
+    {
+        base.OnDefaultSystemBackdropConfigurationChanged(target, xamlRoot);
+        configurationChanges++;
+    }
+
+    internal string Describe()
+    {
+        if (target is null || root is null) return "disconnected";
+        var configuration = GetDefaultSystemBackdropConfiguration(target, root);
+        return $"inputActive={configuration.IsInputActive} theme={configuration.Theme} highContrast={configuration.IsHighContrast} changes={configurationChanges}";
+    }
+}
+#endif
