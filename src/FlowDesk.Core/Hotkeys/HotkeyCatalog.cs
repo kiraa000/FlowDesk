@@ -28,6 +28,8 @@ public sealed record HotkeyBinding(
 public static class HotkeyCatalog
 {
     public const uint ModAlt = 0x0001;
+    public const uint ModControl = 0x0002;
+    public const string PaletteId = "command-palette";
     public const uint ModShift = 0x0004;
     public const uint ModWin = 0x0008;
     public const string PauseToggleId = "pause-toggle";
@@ -58,6 +60,7 @@ public static class HotkeyCatalog
     private static IReadOnlyList<HotkeyBinding> Build()
     {
         var bindings = new List<HotkeyBinding>(32);
+        bindings.Add(new(PaletteId, ModControl | ModAlt, 0x20, false, false, "Ctrl+Alt+Space", "Open command palette"));
         for (int n = 1; n <= 5; n++)
         {
             bindings.Add(new($"desktop-switch-{n}", ModAlt, (uint)('0' + n), Repeat: false, Pausable: false,

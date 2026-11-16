@@ -15,6 +15,8 @@ public sealed class ShortcutPolicy
     public bool CanExecute(ShortcutPolicy current, string id) => IsCurrent(current) && Enabled(id);
     public IReadOnlyList<string> DisabledIds => HotkeyCatalog.All.Where(b => disabled.Contains(b.Id)).Select(b => b.Id).ToArray();
     public bool CanRegister(HotkeyBinding binding, bool desktopsAvailable) => !binding.IsMouseWheel && Enabled(binding.Id) && (!binding.IsDesktop || desktopsAvailable);
+    public ShortcutPolicy ForModules(bool windowShortcuts, bool palette) => new(HotkeyCatalog.All
+        .Where(b => !Enabled(b.Id) || (b.Id == HotkeyCatalog.PaletteId ? !palette : !windowShortcuts)).Select(b => b.Id));
     public static string? WheelId(WheelGesture gesture) => gesture switch
     {
         WheelGesture.Resize => "resize-wheel", WheelGesture.Desktop => "desktop-wheel",
@@ -24,7 +26,7 @@ public sealed class ShortcutPolicy
         (desktopsAvailable || gesture is not (WheelGesture.Desktop or WheelGesture.MoveDesktop));
 }
 
-public enum ShortcutGroup { Desktops, Snap, Focus, WindowCommands, Tools, MouseWheel }
+public enum ShortcutGroup { Desktops, Snap, Focus, WindowCommands, Tools, MouseWheel, CommandPalette }
 public enum ShortcutStatus { Active, Off, Conflict, Unavailable }
 public sealed record ShortcutGroupInfo(ShortcutGroup Group, string Title);
 public sealed record ShortcutRegistrationSnapshot(IReadOnlySet<string> Registered, IReadOnlySet<string> Conflicts)
@@ -36,9 +38,10 @@ public sealed record ShortcutRuntime(bool Running, bool DesktopsAvailable, bool 
 public static class ShortcutPresentation
 {
     public static IReadOnlyList<ShortcutGroupInfo> Groups { get; } = Array.AsReadOnly(new[] {
+        new ShortcutGroupInfo(ShortcutGroup.CommandPalette, "Command palette"),
         new ShortcutGroupInfo(ShortcutGroup.Desktops, "Desktops"), new(ShortcutGroup.Snap, "Snap"), new(ShortcutGroup.Focus, "Focus"),
         new(ShortcutGroup.WindowCommands, "Window commands"), new(ShortcutGroup.Tools, "Terminal, reload and pause"), new(ShortcutGroup.MouseWheel, "Mouse wheel") });
-    public static ShortcutGroup Group(HotkeyBinding binding) => binding.IsMouseWheel ? ShortcutGroup.MouseWheel : binding.IsDesktop ? ShortcutGroup.Desktops :
+    public static ShortcutGroup Group(HotkeyBinding binding) => binding.Id == HotkeyCatalog.PaletteId ? ShortcutGroup.CommandPalette : binding.IsMouseWheel ? ShortcutGroup.MouseWheel : binding.IsDesktop ? ShortcutGroup.Desktops :
         binding.Id.StartsWith("snap-", StringComparison.Ordinal) ? ShortcutGroup.Snap : binding.Id.StartsWith("focus-", StringComparison.Ordinal) ? ShortcutGroup.Focus :
         binding.Id is "terminal-open" or "engine-reload" or "pause" or HotkeyCatalog.PauseToggleId ? ShortcutGroup.Tools : ShortcutGroup.WindowCommands;
     public static bool Matches(HotkeyBinding binding, string? filter) => string.IsNullOrWhiteSpace(filter) ||

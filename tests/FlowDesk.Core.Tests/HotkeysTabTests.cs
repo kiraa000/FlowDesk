@@ -28,7 +28,7 @@ public sealed class HotkeysTabTests
         var grouped = ShortcutPresentation.Groups.SelectMany(g => HotkeyCatalog.All.Where(b => ShortcutPresentation.Group(b) == g.Group)).ToArray();
         Assert.Equal(HotkeyCatalog.All.Select(b => b.Id), grouped.Select(b => b.Id));
         Assert.Equal(HotkeyCatalog.All.Count, grouped.Select(b => b.Id).Distinct().Count());
-        Assert.Equal(new[] { "Desktops", "Snap", "Focus", "Window commands", "Terminal, reload and pause", "Mouse wheel" }, ShortcutPresentation.Groups.Select(g => g.Title));
+        Assert.Equal(new[] { "Command palette", "Desktops", "Snap", "Focus", "Window commands", "Terminal, reload and pause", "Mouse wheel" }, ShortcutPresentation.Groups.Select(g => g.Title));
     }
     [Fact] public void DisabledIdsAreKnownDistinctOrdinalAndDefensivelyCopied()
     {

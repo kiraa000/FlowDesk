@@ -3,7 +3,7 @@ using FlowDesk.Core.Hotkeys;
 namespace FlowDesk.Core.HotCorners;
 
 public enum HotCorner { TopLeft, TopRight, BottomLeft, BottomRight }
-public enum HotCornerAction { None, TaskView, ShowDesktop, StartFocus, Lock }
+public enum HotCornerAction { None, TaskView, ShowDesktop, StartFocus, Lock, CommandPalette }
 public static class HotCornerActionKeys
 {
     public static ShortcutKeyStroke[] For(HotCornerAction action)
@@ -29,7 +29,7 @@ public sealed record HotCornerConfiguration(bool Enabled = false, HotCornerActio
 {
     public static IReadOnlyList<HotCornerActionOption> Actions { get; } = Array.AsReadOnly(new[] {
         new HotCornerActionOption(HotCornerAction.None, "None"), new(HotCornerAction.TaskView, "Task View"),
-        new(HotCornerAction.ShowDesktop, "Show desktop"), new(HotCornerAction.StartFocus, "Start Focus"), new(HotCornerAction.Lock, "Lock") });
+        new(HotCornerAction.ShowDesktop, "Show desktop"), new(HotCornerAction.StartFocus, "Start Focus"), new(HotCornerAction.Lock, "Lock"), new(HotCornerAction.CommandPalette, "Open command palette") });
     public HotCornerAction For(HotCorner corner)
     {
         var value = corner switch { HotCorner.TopLeft => TopLeft, HotCorner.TopRight => TopRight,
