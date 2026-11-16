@@ -16,6 +16,8 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\FlowDesk.Core\FlowDesk.Core.csproj" />
+    <None Include="..\..\src\FlowDesk.App\Views\CommandPaletteWindow.xaml"
+          Link="Fixtures\CommandPaletteWindow.xaml" TargetPath="Fixtures\CommandPaletteWindow.xaml" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\..\src\FlowDesk.App\Tour\TourStateMachine.cs" Link="TourStateMachine.cs" />

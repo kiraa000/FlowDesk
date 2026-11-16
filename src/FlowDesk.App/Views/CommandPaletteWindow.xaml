@@ -23,6 +23,7 @@
                 <Setter Property="IsTextPredictionEnabled" Value="False" />
             </Style>
             <Style x:Key="PaletteResultItemStyle" TargetType="ListViewItem" BasedOn="{StaticResource DefaultListViewItemStyle}">
+                <Setter Property="Height" Value="52" />
                 <Setter Property="MinHeight" Value="52" />
                 <Setter Property="Padding" Value="12,4,12,4" />
                 <Setter Property="HorizontalContentAlignment" Value="Stretch" />
@@ -55,7 +56,7 @@
                       SelectionChanged="Results_SelectionChanged">
                 <ListView.ItemTemplate>
                     <DataTemplate>
-                        <Grid MinHeight="44" ColumnSpacing="12"
+                        <Grid Height="44" ColumnSpacing="12"
                               AutomationProperties.Name="{Binding AutomationName}">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="24" />
@@ -79,21 +80,29 @@
                             <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                 <!-- Regular weight: the Loaded handler bolds the matched characters. -->
                                  <TextBlock x:Name="ResultTitle"
-                                            Loaded="ResultTitle_Loaded"
-                                            DataContextChanged="ResultTitle_DataContextChanged"
-                                           Style="{StaticResource BodyTextBlockStyle}"
-                                           Foreground="{ThemeResource TextFillColorPrimaryBrush}"
-                                           TextTrimming="CharacterEllipsis" />
+                                             Loaded="ResultTitle_Loaded"
+                                             DataContextChanged="ResultTitle_DataContextChanged"
+                                            Style="{StaticResource BodyTextBlockStyle}"
+                                            Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                                            TextWrapping="NoWrap"
+                                            MaxLines="1"
+                                            TextTrimming="CharacterEllipsis"
+                                            ToolTipService.ToolTip="{Binding Title}" />
                                 <TextBlock Text="{Binding Subtitle}"
                                            Style="{StaticResource CaptionTextBlockStyle}"
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                           TextTrimming="CharacterEllipsis" />
+                                           TextWrapping="NoWrap"
+                                           MaxLines="1"
+                                           TextTrimming="CharacterEllipsis"
+                                           ToolTipService.ToolTip="{Binding Subtitle}" />
                             </StackPanel>
                             <TextBlock Grid.Column="2"
                                        Text="{Binding Hint}"
                                        Style="{StaticResource CaptionTextBlockStyle}"
                                        Foreground="{ThemeResource TextFillColorTertiaryBrush}"
                                        VerticalAlignment="Center"
+                                       TextWrapping="NoWrap"
+                                       MaxLines="1"
                                        TextTrimming="CharacterEllipsis" />
                         </Grid>
                     </DataTemplate>
