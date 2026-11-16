@@ -76,16 +76,17 @@ internal sealed class CommandPaletteService : IDisposable
         }
         if (!vm.IsBusy)
         {
-            if (PaletteActionRules.Applies("start-focus", state))
-                foreach (int duration in new[] { 25, 50, 90 })
-                    Add("focus-" + duration, $"Start Focus {duration} min", async () =>
-                    {
-                        EnsureIdle(); if (!vm.Focus.CanStart) throw new InvalidOperationException();
-                        vm.Focus.Duration = duration; await vm.Focus.StartCommand.ExecuteAsync(null);
-                        if (!vm.Focus.IsRunning) notify("Focus could not start. Open the Focus page to check your session.");
-                    }, "\uE916", "Start");
-            if (PaletteActionRules.Applies("stop-focus", state))
-                Add("focus-stop", "Stop Focus", async () => { EnsureIdle(); showMain(); await vm.Focus.EndSessionAsync(); }, "\uE71A", "Stop");
+            Task OpenFocusSetup()
+            {
+                EnsureIdle(); showMain(); vm.Navigate(AppPage.Focus); return Task.CompletedTask;
+            }
+            list.AddRange(PaletteFocusCommands.Create(state, async duration =>
+            {
+                EnsureIdle();
+                if (!vm.Focus.CanStart) { await OpenFocusSetup(); return; }
+                vm.Focus.Duration = duration; await vm.Focus.StartCommand.ExecuteAsync(null);
+                if (!vm.Focus.IsRunning) notify("Focus could not start. Open the Focus page to check your session.");
+            }, OpenFocusSetup, async () => { EnsureIdle(); showMain(); await vm.Focus.EndSessionAsync(); }));
             Add("save-workspace", "Save open windows as workspace", async () =>
             { EnsureIdle(); showMain(); await vm.Workspaces.NewFromWindowsCommand.ExecuteAsync(null); }, "\uE74E", "Save");
             if (PaletteActionRules.Applies("layout", state))
