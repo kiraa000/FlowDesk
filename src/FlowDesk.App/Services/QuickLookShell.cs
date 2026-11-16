@@ -9,28 +9,28 @@ internal sealed record QuickLookItem(string Identity, string Name, string? Path,
     public static QuickLookItem Empty { get; } = new("", "", null, false, "");
 }
 
-/// <summary>One dedicated background STA and one outstanding operation maximum. A COM server cannot
-/// safely be killed in-process: timeout abandons the result, NOT the thread. The busy circuit refuses
-/// further work until that call returns; repeated Space never accumulates hung threads/RCWs.</summary>
+/// <summary>One background STA, at most one read and one thumbnail outstanding. A COM server cannot
+/// safely be killed in-process: timeout abandons the result, NOT the thread. Each kind retains its
+/// busy lease until its callback returns; repeated Space never accumulates hung threads/RCWs.</summary>
 internal sealed class QuickLookShell : IDisposable
 {
-    private readonly BlockingCollection<Action> work = new(1);
+    private readonly BlockingCollection<Action> work = new(ShellPreviewQueries.QueueCapacity);
     private int disposed;
-    private readonly SingleFlightPreviewQuery queries = new();
+    private readonly ShellPreviewQueries queries;
     // Acquired/released exclusively on our STA. ShellWindows remains a live collection; cache only
     // its root, never a tab's Document, which can change while the top-level HWND stays the same.
     private object? application, shellWindows;
     public QuickLookShell()
     {
+        queries = new(action => Volatile.Read(ref disposed) == 0 && work.TryAdd(action));
         var thread = new Thread(Run) { IsBackground = true, Name = "FlowDesk Quick Look Shell STA" };
         thread.SetApartmentState(ApartmentState.STA);
         thread.Start();
     }
-    public Task<QuickLookItem?> ReadAsync(nint owner, CancellationToken token) => RequestAsync(() => Read(owner), token);
-    public Task<byte[]?> ThumbnailAsync(string path, CancellationToken token) => RequestAsync(() => Thumbnail(path), token);
-    private Task<T?> RequestAsync<T>(Func<T?> operation, CancellationToken token) where T : class =>
-        queries.RunAsync(operation, action => Volatile.Read(ref disposed) == 0 && work.TryAdd(action),
-            TimeSpan.FromMilliseconds(700), token);
+    public Task<QuickLookItem?> ReadAsync(nint owner, CancellationToken token) =>
+        queries.ReadAsync(() => Read(owner), TimeSpan.FromMilliseconds(700), token);
+    public Task<byte[]?> ThumbnailAsync(string path, CancellationToken token) =>
+        queries.ThumbnailAsync(() => Thumbnail(path), TimeSpan.FromMilliseconds(700), token);
     private static byte[]? Thumbnail(string path)
     {
         var deadline = System.Diagnostics.Stopwatch.StartNew();
@@ -120,7 +120,9 @@ internal sealed class QuickLookShell : IDisposable
             {
                 object location = 0, root = null!; // reserved pvarLocRoot must be VT_EMPTY
                 int desktopHwnd;
-                found = Keep((object)windows.FindWindowSW(ref location, ref root, 8, out desktopHwnd, 1));
+                // Null is handled below. Let a collection-level COM failure reach ReleaseShell so
+                // Explorer restart recovery is preserved (unlike an individual stale Item entry).
+                found = Keep((object?)windows.FindWindowSW(ref location, ref root, 8, out desktopHwnd, 1));
             }
             else
             {
@@ -131,9 +133,9 @@ internal sealed class QuickLookShell : IDisposable
                 for (int i = 0; i < count; i++)
                 {
                     CheckDeadline();
-                    dynamic browser = Keep((object)windows.Item(i));
+                    object? browser = Keep(ShellWindowEntry.Read(() => (object?)windows.Item(i)));
                     CheckDeadline();
-                    nint browserOwner = (nint)(long)browser.HWND;
+                    if (browser is null || !ShellWindowEntry.TryGetOwner(browser, out nint browserOwner)) continue;
                     CheckDeadline();
                     if (browserOwner != owner) continue;
                     nint tab = 0;
@@ -148,7 +150,7 @@ internal sealed class QuickLookShell : IDisposable
                             CheckDeadline();
                             if (hr >= 0 && service is IShellBrowser shellBrowser && shellBrowser.GetWindow(out tab) < 0) tab = 0;
                         }
-                        catch (Exception ex) when (ex is COMException or InvalidCastException) { /* cannot identify this tab; never guess */ }
+                        catch (Exception ex) when (ShellWindowEntry.IsStale(ex)) { /* stale entry: cannot identify this tab; never guess */ }
                         CheckDeadline();
                     }
                     candidates.Add(new(browserOwner, tab)); browsers.Add((object)browser);
@@ -162,11 +164,15 @@ internal sealed class QuickLookShell : IDisposable
             }
             if (found is null) return null;
             CheckDeadline();
-            dynamic document = Keep((object)((dynamic)found).Document);
+            object? documentObject = Keep(ShellWindowEntry.Read(() => (object?)((dynamic)found).Document));
             CheckDeadline();
+            if (documentObject is null) return null;
+            dynamic document = documentObject;
             // FocusedItem can remain set with zero selected items after clicking the background.
-            dynamic selected = Keep((object)document.SelectedItems());
+            object? selectedObject = Keep(ShellWindowEntry.Read(() => (object?)document.SelectedItems()));
             CheckDeadline();
+            if (selectedObject is null) return null;
+            dynamic selected = selectedObject;
             int selectedCount = selected.Count;
             CheckDeadline();
             if (selectedCount == 0) return QuickLookItem.Empty;
