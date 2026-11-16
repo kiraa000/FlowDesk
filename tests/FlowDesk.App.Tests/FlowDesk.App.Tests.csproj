@@ -32,6 +32,7 @@
     <Compile Include="..\..\src\FlowDesk.App\Services\AppSettings.cs" Link="AppSettings.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\PaletteWindowStyle.cs" Link="PaletteWindowStyle.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\PaletteBackdropPolicy.cs" Link="PaletteBackdropPolicy.cs" />
+    <Compile Include="..\..\src\FlowDesk.App\Services\PaletteAcrylicAppearance.cs" Link="PaletteAcrylicAppearance.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\BrowserRestoreHelp.cs" Link="BrowserRestoreHelp.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\RestoreReportText.cs" Link="RestoreReportText.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\NewWindowEligibility.cs" Link="NewWindowEligibility.cs" />

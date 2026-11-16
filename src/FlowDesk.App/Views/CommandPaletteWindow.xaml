@@ -114,7 +114,7 @@
                                 <TextBlock Grid.Column="2"
                                            Text="{Binding Hint}"
                                            Style="{StaticResource CaptionTextBlockStyle}"
-                                           Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                            VerticalAlignment="Center"
                                            TextWrapping="NoWrap"
                                            MaxLines="1"
@@ -141,7 +141,7 @@
                 <TextBlock Grid.Column="1"
                            Text="↑ ↓ to select · Enter to open · Ctrl+Enter for more"
                            Style="{StaticResource CaptionTextBlockStyle}"
-                           Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                            VerticalAlignment="Center"
                            TextTrimming="CharacterEllipsis" />
             </Grid>

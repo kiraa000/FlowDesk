@@ -79,6 +79,15 @@ internal sealed class PaletteAcrylicBackdrop : SystemBackdrop
         };
         configuration.HighContrastBackgroundColor = defaults.HighContrastBackgroundColor;
         configuration.IsHighContrast = defaults.IsHighContrast;
+        if (controller is not null && !configuration.IsHighContrast)
+        {
+            // Set AFTER Theme: changing theme can restore the controller's built-in material defaults.
+            var appearance = PaletteAcrylicAppearance.For(configuration.Theme == SystemBackdropTheme.Dark);
+            controller.TintColor = Windows.UI.Color.FromArgb(255, appearance.TintGray, appearance.TintGray, appearance.TintGray);
+            controller.TintOpacity = appearance.TintOpacity;
+            controller.LuminosityOpacity = appearance.LuminosityOpacity;
+            controller.FallbackColor = Windows.UI.Color.FromArgb(255, appearance.FallbackGray, appearance.FallbackGray, appearance.FallbackGray);
+        }
         StateChanged?.Invoke();
     }
 
@@ -106,5 +115,6 @@ internal sealed class PaletteAcrylicBackdrop : SystemBackdrop
 
     public string Describe() => $"kind=Thin controller={controller is not null} state={controller?.State.ToString() ?? "unavailable"} " +
         $"inputActive={configuration.IsInputActive} theme={configuration.Theme} highContrast={configuration.IsHighContrast} " +
+        $"tint={controller?.TintColor} tintOpacity={controller?.TintOpacity} luminosityOpacity={controller?.LuminosityOpacity} fallbackColor={controller?.FallbackColor} " +
         $"solidFallback={UseSolidFallback} failure={failure ?? "none"}";
 }

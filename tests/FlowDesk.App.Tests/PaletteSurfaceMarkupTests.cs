@@ -48,4 +48,13 @@ public sealed class PaletteSurfaceMarkupTests
         Assert.Equal("12", (string?)content.Attribute("Padding"));
         Assert.Null(root.Attribute("Padding"));
     }
+
+    [Fact] public void ActionAndKeyboardHintsUseTheSecondaryContrastBudget()
+    {
+        var hints = PaletteMarkupFixture.Load().Descendants(PaletteMarkupFixture.Xaml + "TextBlock")
+            .Where(e => (string?)e.Attribute("Text") == "{Binding Hint}" ||
+                ((string?)e.Attribute("Text"))?.Contains("to select", StringComparison.Ordinal) == true).ToArray();
+        Assert.Equal(2, hints.Length);
+        Assert.All(hints, hint => Assert.Equal("{ThemeResource TextFillColorSecondaryBrush}", (string?)hint.Attribute("Foreground")));
+    }
 }
