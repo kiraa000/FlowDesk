@@ -72,15 +72,16 @@ internal sealed partial class CommandPaletteWindow : Window
         }
         AppWindow.IsShownInSwitchers = false;
         TraceSurface("after-presenter");
+        EnsureBorderlessFrame();
         SetWindowLongPtrW(hwnd, -20, GetWindowLongPtrW(hwnd, -20) | 0x80); // TOOLWINDOW, deliberately NOT NOACTIVATE
         int round = 2; int roundResult = DwmSetWindowAttribute(hwnd, 33, ref round, 4);
-        // Borderless WinUI still inherits DWM's OS-theme active border (white when the app is
-        // dark but Windows is light). Let the theme-aware XAML surface stroke own the outline.
+        // The native frame is removed above; the theme-aware XAML stroke owns the outline.
         int noNativeBorder = unchecked((int)0xFFFFFFFE); // DWMWA_COLOR_NONE, Windows 11+
         int borderResult = DwmSetWindowAttribute(hwnd, 34, ref noNativeBorder, 4); // DWMWA_BORDER_COLOR
         TraceSurface($"attributes-set roundHR=0x{roundResult:X8} borderHR=0x{borderResult:X8}");
         Root.ActualThemeChanged += (_, _) => TraceSurface("theme-changed");
         AppWindow.Resize(new SizeInt32(640, 540));
+        EnsureBorderlessFrame();
         AppWindow.Closing += (_, e) => { if (!shutdown) { e.Cancel = true; HidePalette(); } };
         Activated += (_, e) =>
         {
@@ -121,6 +122,7 @@ internal sealed partial class CommandPaletteWindow : Window
             ResizeForResults(0);
             IsOpen = true; SearchBox.Text = ""; Results.ItemsSource = null; SetStatus("Recent");
             AppWindow.Show(); Activate();
+            EnsureBorderlessFrame();
             TraceSurface("shown");
             // No synthetic keys or AttachThreadInput: use the foreground permission granted by WM_HOTKEY.
             bool foreground = SetForegroundWindow(hwnd) || GetForegroundWindow() == hwnd;
@@ -220,6 +222,7 @@ internal sealed partial class CommandPaletteWindow : Window
         double height = count == 0 ? 148 : Math.Min(540, 116 + Math.Min(8, count) * 52);
         var rect = PalettePlacement.Place(workArea, monitorScale, height);
         AppWindow.MoveAndResize(new RectInt32(rect.X, rect.Y, rect.Width, rect.Height));
+        EnsureBorderlessFrame();
         TraceSurface("resized");
     }
     private void Root_KeyDown(object sender, KeyRoutedEventArgs e)
@@ -267,6 +270,19 @@ internal sealed partial class CommandPaletteWindow : Window
     }
     public void Shutdown() { if (shutdown) return; shutdown = true; HidePalette(); icons.Dispose(); Close(); }
     private static void Log(Exception ex) => new CrashLog().TryWrite(CrashSource.Activation, ex);
+    private void EnsureBorderlessFrame()
+    {
+        uint original = unchecked((uint)(long)GetWindowLongPtrW(hwnd, -16));
+        uint desired = PaletteWindowStyle.Apply(original);
+        if (original == desired) return;
+        Marshal.SetLastPInvokeError(0);
+        if (SetWindowLongPtrW(hwnd, -16, (nint)(long)desired) == 0 && Marshal.GetLastPInvokeError() != 0)
+            throw new System.ComponentModel.Win32Exception(Marshal.GetLastPInvokeError());
+        // Flush the cached non-client metrics without moving, resizing, reordering or activating.
+        if (!SetWindowPos(hwnd, 0, 0, 0, 0, 0, 0x0020 | 0x0002 | 0x0001 | 0x0004 | 0x0010))
+            throw new System.ComponentModel.Win32Exception(Marshal.GetLastPInvokeError());
+        TraceSurface("frame-applied");
+    }
     [Conditional("DEBUG")]
     private static void TraceOpen(long started, bool focused) => Debug.WriteLine($"FlowDesk palette open {Stopwatch.GetElapsedTime(started).TotalMilliseconds:F1} ms focused={focused}");
     [Conditional("DEBUG")]
@@ -322,7 +338,8 @@ internal sealed partial class CommandPaletteWindow : Window
     [DllImport("user32.dll")] private static extern bool GetMonitorInfoW(nint monitor, ref MonitorInfo info);
     [DllImport("shcore.dll")] private static extern int GetDpiForMonitor(nint monitor, int type, out uint x, out uint y);
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] private static extern nint GetWindowLongPtrW(nint window, int index);
-    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")] private static extern nint SetWindowLongPtrW(nint window, int index, nint value);
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)] private static extern nint SetWindowLongPtrW(nint window, int index, nint value);
+    [DllImport("user32.dll", SetLastError = true)] private static extern bool SetWindowPos(nint window, nint after, int x, int y, int width, int height, uint flags);
     [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(nint window, int attribute, ref int value, int size);
     [DllImport("dwmapi.dll")] private static extern int DwmGetWindowAttribute(nint window, int attribute, out int value, int size);
     [DllImport("user32.dll")] private static extern bool GetWindowRect(nint window, out Rect rect);

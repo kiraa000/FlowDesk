@@ -30,6 +30,7 @@
     <Compile Include="..\..\src\FlowDesk.App\Tour\TourStateMachine.cs" Link="TourStateMachine.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\LaunchTimeoutValue.cs" Link="LaunchTimeoutValue.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\AppSettings.cs" Link="AppSettings.cs" />
+    <Compile Include="..\..\src\FlowDesk.App\Services\PaletteWindowStyle.cs" Link="PaletteWindowStyle.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\BrowserRestoreHelp.cs" Link="BrowserRestoreHelp.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\RestoreReportText.cs" Link="RestoreReportText.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\NewWindowEligibility.cs" Link="NewWindowEligibility.cs" />

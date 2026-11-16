@@ -27,7 +27,7 @@ public sealed class PaletteSurfaceMarkupTests
         var document = PaletteMarkupFixture.Load();
         var root = document.Descendants(PaletteMarkupFixture.Xaml + "Grid")
             .Single(e => (string?)e.Attribute(PaletteMarkupFixture.X + "Name") == "Root");
-        Assert.Equal("{ThemeResource SurfaceStrokeColorDefaultBrush}", (string?)root.Attribute("BorderBrush"));
+        Assert.Equal("{ThemeResource SurfaceStrokeColorFlyoutBrush}", (string?)root.Attribute("BorderBrush"));
         Assert.Equal("1", (string?)root.Attribute("BorderThickness"));
         var results = root.Elements(PaletteMarkupFixture.Xaml + "Border").Single();
         Assert.Equal("Transparent", (string?)results.Attribute("Background"));

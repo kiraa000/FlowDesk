@@ -5,7 +5,7 @@
          At 640 x 540 this is 44 search + up to 416 results + footer, on the 4 px grid. -->
     <Grid x:Name="Root" Padding="12" RowSpacing="8"
           Background="{ThemeResource PaletteSurfaceBackgroundBrush}"
-          BorderBrush="{ThemeResource SurfaceStrokeColorDefaultBrush}"
+          BorderBrush="{ThemeResource SurfaceStrokeColorFlyoutBrush}"
           BorderThickness="1"
           CornerRadius="{ThemeResource OverlayCornerRadius}"
           KeyDown="Root_KeyDown">
