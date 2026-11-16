@@ -126,6 +126,14 @@ public sealed class HotCornerTests
         Assert.False(HotCornerGeometry.CoversMonitor(new(0, 0, 1920, 1040), Single));
         Assert.False(HotCornerGeometry.CoversMonitor(default, Single));
     }
+    [Theory]
+    [InlineData(true, false, false, true)]   // caption-less, not maximized, covers: real full-screen (game, video, F11)
+    [InlineData(true, true, true, false)]    // maximized captioned window on a monitor without taskbar (live 2026-11-16: Edge)
+    [InlineData(true, true, false, false)]   // maximized without caption
+    [InlineData(true, false, true, false)]   // captioned window sized over the monitor
+    [InlineData(false, false, false, false)] // does not cover
+    public void MaximizedOrCaptionedWindowsAreNotFullScreen(bool covers, bool maximized, bool caption, bool expected) =>
+        Assert.Equal(expected, HotCornerGeometry.IsFullScreen(covers, maximized, caption));
     [Fact] public void MouseSnapshotRetainsTransitionsAndSessionBoundaryInvalidatesPosition()
     {
         var mouse = new HotCornerMouseState(); mouse.SetHookAvailable(true); Assert.False(mouse.Read().HasPosition);

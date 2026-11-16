@@ -23,7 +23,11 @@ internal static class HotCornerNative
         bool buttons = new[] { 1, 2, 4, 5, 6 }.Any(Down) || mouse.Buttons != 0;
         bool modifiers = new[] { 0x10, 0x11, 0x12, 0x5B, 0x5C }.Any(Down);
         int hr = SHQueryUserNotificationState(out int notification);
-        bool covers = HotCornerGeometry.CoversMonitor(new(frame.Left, frame.Top, frame.Right, frame.Bottom), monitors);
+        const int WS_CAPTION = 0x00C00000;
+        bool covers = HotCornerGeometry.IsFullScreen(
+            HotCornerGeometry.CoversMonitor(new(frame.Left, frame.Top, frame.Right, frame.Bottom), monitors),
+            foreground != 0 && IsZoomed(foreground),
+            foreground != 0 && (GetWindowLongW(foreground, -16) & WS_CAPTION) == WS_CAPTION);
         bool consistent = mouse.HasPosition && mouse.Point == new CornerPoint(point.X, point.Y);
         string? blocked = HotCornerGate.BlockReason(enumerated && monitors.Count > 0 && cursor && window && knownClass &&
             frame.Right > frame.Left && frame.Bottom > frame.Top && hr >= 0 && consistent,
@@ -76,6 +80,8 @@ internal static class HotCornerNative
     [DllImport("user32.dll")] private static extern bool GetCursorPos(out Point point);
     [DllImport("user32.dll")] private static extern nint GetForegroundWindow();
     [DllImport("user32.dll")] private static extern bool GetWindowRect(nint hwnd, out Rect rectangle);
+    [DllImport("user32.dll")] private static extern bool IsZoomed(nint hwnd);
+    [DllImport("user32.dll")] private static extern int GetWindowLongW(nint hwnd, int index);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassNameW(nint hwnd, StringBuilder name, int count);
     [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int key);
     [DllImport("shell32.dll")] private static extern int SHQueryUserNotificationState(out int state);

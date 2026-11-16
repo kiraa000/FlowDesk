@@ -66,6 +66,10 @@ public static class HotCornerGeometry
         Math.Abs((long)a.X - b.X) <= radius && Math.Abs((long)a.Y - b.Y) <= radius;
     public static bool CoversMonitor(CornerBounds foreground, IReadOnlyList<CornerBounds> monitors) => foreground.Valid &&
         monitors.Any(m => m.Valid && foreground.Left <= m.Left && foreground.Top <= m.Top && foreground.Right >= m.Right && foreground.Bottom >= m.Bottom);
+    /// <summary>A maximized or captioned window that covers a monitor (monitor without a taskbar, or an
+    /// auto-hide taskbar) is a normal window, not full-screen. Real full-screen apps/games/video/F11 use an
+    /// un-maximized caption-less window; busy/presentation/D3D states are caught by the notification state.</summary>
+    public static bool IsFullScreen(bool coversMonitor, bool maximized, bool hasCaption) => coversMonitor && !maximized && !hasCaption;
 }
 public static class HotCornerGate
 {
