@@ -9,6 +9,8 @@ public partial class SettingsViewModel
     [ObservableProperty] public partial bool PaletteBusy { get; set; }
     [ObservableProperty] public partial string PaletteStatus { get; set; } = "";
     public bool PaletteCanToggle => !PaletteBusy && !owner.Hotkeys.IsBusy;
+    public string PaletteShortcut => HotkeyCatalog.Find(HotkeyCatalog.PaletteId)?.Shortcut ?? "";
+    public string PaletteDescription => $"Search workspaces, apps and actions with {PaletteShortcut}. Works independently of window shortcuts.";
     private bool paletteLoading;
     partial void OnPaletteBusyChanged(bool value) => OnPropertyChanged(nameof(PaletteCanToggle));
     internal void RefreshPaletteSettings()
@@ -18,8 +20,8 @@ public partial class SettingsViewModel
         paletteLoading = false;
         var runtime = owner.Services.Hotkeys.ShortcutRuntime;
         PaletteStatus = !CommandPalette ? "Off" : runtime.Registration.Conflicts.Contains(HotkeyCatalog.PaletteId)
-            ? "Ctrl+Alt+Space is in use by another app." : runtime.Registration.Registered.Contains(HotkeyCatalog.PaletteId)
-            ? "Ctrl+Alt+Space · Ready" : "Ctrl+Alt+Space · Not available";
+            ? $"{PaletteShortcut} is in use by another app." : runtime.Registration.Registered.Contains(HotkeyCatalog.PaletteId)
+            ? $"{PaletteShortcut} · Ready" : $"{PaletteShortcut} · Not available";
         OnPropertyChanged(nameof(PaletteCanToggle));
     }
     partial void OnCommandPaletteChanged(bool value)

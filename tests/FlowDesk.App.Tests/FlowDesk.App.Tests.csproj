@@ -16,6 +16,9 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\FlowDesk.Core\FlowDesk.Core.csproj" />
+    <None Include="..\..\src\FlowDesk.App\**\*.cs;..\..\src\FlowDesk.App\**\*.xaml"
+          Exclude="..\..\src\FlowDesk.App\obj\**;..\..\src\FlowDesk.App\bin\**"
+          Link="AppSources\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\FlowDesk.App\Views\CommandPaletteWindow.xaml"
           Link="Fixtures\CommandPaletteWindow.xaml" TargetPath="Fixtures\CommandPaletteWindow.xaml" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\FlowDesk.App\App.xaml"

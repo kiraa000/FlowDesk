@@ -81,7 +81,7 @@
                 <settings:SettingsCard Header="Command palette">
                     <settings:SettingsCard.Description>
                         <StackPanel Spacing="2">
-                            <TextBlock Text="Search workspaces, apps and actions with Ctrl+Alt+Space. Works independently of window shortcuts."
+                            <TextBlock Text="{Binding PaletteDescription}"
                                        Style="{StaticResource CaptionTextBlockStyle}"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                        TextWrapping="Wrap" />

@@ -304,7 +304,7 @@ public sealed class HotkeyCatalogTests
         var both = alt | HotkeyCatalog.ModShift;
         var expected = new (string Id, uint Modifiers, uint VirtualKey, bool Repeat, bool Pausable)[]
         {
-            (HotkeyCatalog.PaletteId, alt | HotkeyCatalog.ModControl, 0x20, false, false),
+            (HotkeyCatalog.PaletteId, alt | HotkeyCatalog.ModWin, 0x20, false, false),
             ("desktop-switch-1", alt, 0x31, false, false),
             ("desktop-switch-2", alt, 0x32, false, false),
             ("desktop-switch-3", alt, 0x33, false, false),

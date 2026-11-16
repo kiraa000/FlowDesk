@@ -134,7 +134,7 @@ public sealed class PaletteTests
     [Fact] public void PaletteBindingHasIndependentGroupAndStableCornerValues()
     {
         var binding = HotkeyCatalog.Find(HotkeyCatalog.PaletteId)!;
-        Assert.Equal("Ctrl+Alt+Space", binding.Shortcut); Assert.Equal(3u, binding.Modifiers); Assert.False(binding.Pausable);
+        Assert.Equal("Win+Alt+Space", binding.Shortcut); Assert.Equal(HotkeyCatalog.ModWin | HotkeyCatalog.ModAlt, binding.Modifiers); Assert.False(binding.Pausable);
         Assert.Equal(ShortcutGroup.CommandPalette, ShortcutPresentation.Group(binding));
         Assert.Contains(ShortcutPresentation.Groups, g => g.Title == "Command palette");
         Assert.Equal(4, (int)HotCornerAction.Lock); Assert.Equal(5, (int)HotCornerAction.CommandPalette);

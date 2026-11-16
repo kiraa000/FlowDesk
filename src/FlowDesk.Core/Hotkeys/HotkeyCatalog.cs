@@ -60,7 +60,9 @@ public static class HotkeyCatalog
     private static IReadOnlyList<HotkeyBinding> Build()
     {
         var bindings = new List<HotkeyBinding>(32);
-        bindings.Add(new(PaletteId, ModControl | ModAlt, 0x20, false, false, "Ctrl+Alt+Space", "Open command palette"));
+        // PowerToys Command Palette also defaults to Win+Alt+Space. RegisterHotKey reports the collision
+        // as a normal conflict (error 1409), and the status text surfaces it; no special-casing is needed.
+        bindings.Add(new(PaletteId, ModWin | ModAlt, 0x20, false, false, "Win+Alt+Space", "Open command palette"));
         for (int n = 1; n <= 5; n++)
         {
             bindings.Add(new($"desktop-switch-{n}", ModAlt, (uint)('0' + n), Repeat: false, Pausable: false,

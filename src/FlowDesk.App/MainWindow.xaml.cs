@@ -1,6 +1,7 @@
 using FlowDesk.App.Services;
 using FlowDesk.App.ViewModels;
 using FlowDesk.App.Views;
+using FlowDesk.Core.Hotkeys;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -66,6 +67,7 @@ public sealed partial class MainWindow : Window
         TrayExit.Command = new CommunityToolkit.Mvvm.Input.AsyncRelayCommand(ExitFromTrayAsync);
         TrayPalette.Command = new CommunityToolkit.Mvvm.Input.RelayCommand(() => palette?.Open());
         services.HotCorners.OpenPalette = () => palette?.Open();
+        TrayPalette.KeyboardAcceleratorTextOverride = HotkeyCatalog.Find(HotkeyCatalog.PaletteId)?.Shortcut ?? "";
         focusTimer.Tick += async (_, _) => await UpdateFocusAsync();
         autosaveTimer.Tick += (_, _) => App.ViewModels.RefreshAutoSaveAge();
         Closed += (_, _) =>
