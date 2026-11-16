@@ -3,18 +3,12 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <!-- Size, placement, theme and behaviour live in CommandPaletteWindow.xaml.cs.
          At 640 x 540 this is 44 search + up to 416 results + footer, on the 4 px grid. -->
-    <Grid x:Name="Root" Padding="12" RowSpacing="8"
+    <Grid x:Name="Root"
           Background="{ThemeResource PaletteSurfaceBackgroundBrush}"
           BorderBrush="{ThemeResource SurfaceStrokeColorFlyoutBrush}"
           BorderThickness="1"
           CornerRadius="{ThemeResource OverlayCornerRadius}"
           KeyDown="Root_KeyDown">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
-        </Grid.RowDefinitions>
-
         <Grid.Resources>
             <ResourceDictionary>
                 <!-- PaletteSurfaceBackgroundBrush lives in App.xaml: this Grid's own Background attribute is
@@ -37,104 +31,120 @@
             </ResourceDictionary>
         </Grid.Resources>
 
-        <TextBox x:Name="SearchBox"
-                 MaxLength="256"
-                 Grid.Row="0"
-                 Style="{StaticResource PaletteSearchBoxStyle}"
-                 PlaceholderText="Search workspaces, apps, actions…"
-                 AutomationProperties.Name="Command palette search"
-                 TextChanged="SearchBox_TextChanged"
-                 KeyDown="SearchBox_KeyDown" />
+        <!-- Fills the surface when Acrylic is unavailable, transparency is off or High Contrast is on.
+             It sits inside the 1 px root stroke; code toggles Visibility. -->
+        <Border x:Name="SolidFallback"
+                Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
+                CornerRadius="{ThemeResource OverlayCornerRadius}"
+                Visibility="Collapsed"
+                IsHitTestVisible="False" />
 
-        <Border Grid.Row="1" VerticalAlignment="Top"
-                Background="Transparent"
-                BorderThickness="0"
-                CornerRadius="{ThemeResource OverlayCornerRadius}">
-            <ListView x:Name="Results"
-                      MaxHeight="416"
-                      Padding="4"
-                      Background="Transparent"
-                      SelectionMode="Single"
-                      IsItemClickEnabled="True"
-                      ItemContainerStyle="{StaticResource PaletteResultItemStyle}"
-                       ItemClick="Results_ItemClick"
-                       AutomationProperties.Name="Command palette results"
-                      SelectionChanged="Results_SelectionChanged">
-                <ListView.ItemTemplate>
-                    <DataTemplate>
-                        <Grid Height="44" ColumnSpacing="12"
-                              AutomationProperties.Name="{Binding AutomationName}">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="24" />
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <!-- Glyph first so the real app icon, once loaded, covers it. -->
-                            <Grid Grid.Column="0" Width="24" Height="24" VerticalAlignment="Center">
-                                <FontIcon Glyph="{Binding Glyph}"
-                                          Visibility="{Binding IconFallbackVisibility}"
-                                          FontSize="20"
-                                          HorizontalAlignment="Center"
-                                          VerticalAlignment="Center"
-                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                <Image Source="{Binding IconSource}"
-                                       Width="24" Height="24"
-                                       Stretch="Uniform"
-                                       HorizontalAlignment="Center"
-                                       VerticalAlignment="Center" />
-                            </Grid>
-                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                <!-- Regular weight: the Loaded handler bolds the matched characters. -->
-                                 <TextBlock x:Name="ResultTitle"
-                                             Loaded="ResultTitle_Loaded"
-                                             DataContextChanged="ResultTitle_DataContextChanged"
-                                            Style="{StaticResource BodyTextBlockStyle}"
-                                            Foreground="{ThemeResource TextFillColorPrimaryBrush}"
-                                            TextWrapping="NoWrap"
-                                            MaxLines="1"
-                                            TextTrimming="CharacterEllipsis"
-                                            ToolTipService.ToolTip="{Binding Title}" />
-                                <TextBlock Text="{Binding Subtitle}"
+        <Grid x:Name="SurfaceContent" Padding="12" RowSpacing="8">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <TextBox x:Name="SearchBox"
+                     MaxLength="256"
+                     Grid.Row="0"
+                     Style="{StaticResource PaletteSearchBoxStyle}"
+                     PlaceholderText="Search workspaces, apps, actions…"
+                     AutomationProperties.Name="Command palette search"
+                     TextChanged="SearchBox_TextChanged"
+                     KeyDown="SearchBox_KeyDown" />
+
+            <Border Grid.Row="1" VerticalAlignment="Top"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    CornerRadius="{ThemeResource OverlayCornerRadius}">
+                <ListView x:Name="Results"
+                          MaxHeight="416"
+                          Padding="4"
+                          Background="Transparent"
+                          SelectionMode="Single"
+                          IsItemClickEnabled="True"
+                          ItemContainerStyle="{StaticResource PaletteResultItemStyle}"
+                           ItemClick="Results_ItemClick"
+                           AutomationProperties.Name="Command palette results"
+                          SelectionChanged="Results_SelectionChanged">
+                    <ListView.ItemTemplate>
+                        <DataTemplate>
+                            <Grid Height="44" ColumnSpacing="12"
+                                  AutomationProperties.Name="{Binding AutomationName}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="24" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <!-- Glyph first so the real app icon, once loaded, covers it. -->
+                                <Grid Grid.Column="0" Width="24" Height="24" VerticalAlignment="Center">
+                                    <FontIcon Glyph="{Binding Glyph}"
+                                              Visibility="{Binding IconFallbackVisibility}"
+                                              FontSize="20"
+                                              HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"
+                                              Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    <Image Source="{Binding IconSource}"
+                                           Width="24" Height="24"
+                                           Stretch="Uniform"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center" />
+                                </Grid>
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                    <!-- Regular weight: the Loaded handler bolds the matched characters. -->
+                                     <TextBlock x:Name="ResultTitle"
+                                                 Loaded="ResultTitle_Loaded"
+                                                 DataContextChanged="ResultTitle_DataContextChanged"
+                                                Style="{StaticResource BodyTextBlockStyle}"
+                                                Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                                                TextWrapping="NoWrap"
+                                                MaxLines="1"
+                                                TextTrimming="CharacterEllipsis"
+                                                ToolTipService.ToolTip="{Binding Title}" />
+                                    <TextBlock Text="{Binding Subtitle}"
+                                               Style="{StaticResource CaptionTextBlockStyle}"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                               TextWrapping="NoWrap"
+                                               MaxLines="1"
+                                               TextTrimming="CharacterEllipsis"
+                                               ToolTipService.ToolTip="{Binding Subtitle}" />
+                                </StackPanel>
+                                <TextBlock Grid.Column="2"
+                                           Text="{Binding Hint}"
                                            Style="{StaticResource CaptionTextBlockStyle}"
-                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                           Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                           VerticalAlignment="Center"
                                            TextWrapping="NoWrap"
                                            MaxLines="1"
-                                           TextTrimming="CharacterEllipsis"
-                                           ToolTipService.ToolTip="{Binding Subtitle}" />
-                            </StackPanel>
-                            <TextBlock Grid.Column="2"
-                                       Text="{Binding Hint}"
-                                       Style="{StaticResource CaptionTextBlockStyle}"
-                                       Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                       VerticalAlignment="Center"
-                                       TextWrapping="NoWrap"
-                                       MaxLines="1"
-                                       TextTrimming="CharacterEllipsis" />
-                        </Grid>
-                    </DataTemplate>
-                </ListView.ItemTemplate>
-            </ListView>
-        </Border>
+                                           TextTrimming="CharacterEllipsis" />
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+            </Border>
 
-        <Grid Grid.Row="2" ColumnSpacing="12">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
-            <TextBlock x:Name="StatusText"
-                       Text="Recent"
-                       Style="{StaticResource CaptionTextBlockStyle}"
-                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                       AutomationProperties.LiveSetting="Polite"
-                       AutomationProperties.Name="Command palette results"
-                       VerticalAlignment="Center"
-                       TextTrimming="CharacterEllipsis" />
-            <TextBlock Grid.Column="1"
-                       Text="↑ ↓ to select · Enter to open · Ctrl+Enter for more"
-                       Style="{StaticResource CaptionTextBlockStyle}"
-                       Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                       VerticalAlignment="Center"
-                       TextTrimming="CharacterEllipsis" />
+            <Grid Grid.Row="2" ColumnSpacing="12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="StatusText"
+                           Text="Recent"
+                           Style="{StaticResource CaptionTextBlockStyle}"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           AutomationProperties.LiveSetting="Polite"
+                           AutomationProperties.Name="Command palette results"
+                           VerticalAlignment="Center"
+                           TextTrimming="CharacterEllipsis" />
+                <TextBlock Grid.Column="1"
+                           Text="↑ ↓ to select · Enter to open · Ctrl+Enter for more"
+                           Style="{StaticResource CaptionTextBlockStyle}"
+                           Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                           VerticalAlignment="Center"
+                           TextTrimming="CharacterEllipsis" />
+            </Grid>
         </Grid>
     </Grid>
 </Window>

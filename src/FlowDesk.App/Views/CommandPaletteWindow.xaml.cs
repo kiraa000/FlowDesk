@@ -38,6 +38,7 @@ internal sealed partial class CommandPaletteWindow : Window
     private readonly PaletteUsageStore usage;
     private readonly Action<string> notify;
     private readonly QuickLookShell icons = new();
+    private readonly PaletteAcrylicBackdrop acrylic;
     private readonly nint hwnd;
     private readonly Dictionary<string, ImageSource> iconCache = [];
     private PaletteRect workArea = new(0, 0, 640, 540);
@@ -57,13 +58,10 @@ internal sealed partial class CommandPaletteWindow : Window
         this.search = search; this.usage = usage; this.notify = notify;
         InitializeComponent();
         Title = "Command palette — FlowDesk";
-        SystemBackdrop = new DesktopAcrylicBackdrop(); // system handles transparency-off/high-contrast fallback
-#if DEBUG
-        // Observe WinUI's real default configuration, not a replacement controller with different
-        // activation semantics. Only opt-in diagnostics use the derived (otherwise identical) backdrop.
-        if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("FLOWDESK_PALETTE_DIAGNOSTICS_LOG")))
-            SystemBackdrop = new PaletteDiagnosticAcrylicBackdrop();
-#endif
+        acrylic = new PaletteAcrylicBackdrop();
+        acrylic.StateChanged += UpdateBackdropSurface;
+        SystemBackdrop = acrylic;
+        acrylic.Update(false, Root.ActualTheme);
         hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
         TraceSurface("before-presenter");
         if (AppWindow.Presenter is OverlappedPresenter p)
@@ -79,15 +77,17 @@ internal sealed partial class CommandPaletteWindow : Window
         int noNativeBorder = unchecked((int)0xFFFFFFFE); // DWMWA_COLOR_NONE, Windows 11+
         int borderResult = DwmSetWindowAttribute(hwnd, 34, ref noNativeBorder, 4); // DWMWA_BORDER_COLOR
         TraceSurface($"attributes-set roundHR=0x{roundResult:X8} borderHR=0x{borderResult:X8}");
-        Root.ActualThemeChanged += (_, _) => TraceSurface("theme-changed");
+        Root.ActualThemeChanged += (_, _) => { acrylic.Update(IsOpen, Root.ActualTheme); TraceSurface("theme-changed"); };
         AppWindow.Resize(new SizeInt32(640, 540));
         EnsureBorderlessFrame();
         AppWindow.Closing += (_, e) => { if (!shutdown) { e.Cancel = true; HidePalette(); } };
         Activated += (_, e) =>
         {
             TraceSurface($"activated-{e.WindowActivationState}");
+#if DEBUG
             // Configuration updates can run after Window.Activated; capture the settled value too.
             DispatcherQueue.TryEnqueue(() => TraceSurface("activation-settled"));
+#endif
             if (!opening && !activationPending && IsOpen && e.WindowActivationState == WindowActivationState.Deactivated) HidePalette();
         };
         Root.Loaded += (_, _) => TraceSurface("root-loaded");
@@ -121,6 +121,7 @@ internal sealed partial class CommandPaletteWindow : Window
             monitorScale = scale;
             ResizeForResults(0);
             IsOpen = true; SearchBox.Text = ""; Results.ItemsSource = null; SetStatus("Recent");
+            acrylic.Update(true, Root.ActualTheme);
             AppWindow.Show(); Activate();
             EnsureBorderlessFrame();
             TraceSurface("shown");
@@ -136,7 +137,9 @@ internal sealed partial class CommandPaletteWindow : Window
     }
     public void HidePalette()
     {
-        IsOpen = false; activationPending = false; generation++; openEpoch++; query?.Cancel(); AppWindow.Hide();
+        IsOpen = false; activationPending = false; generation++; openEpoch++; query?.Cancel();
+        acrylic.Update(false, Root.ActualTheme);
+        AppWindow.Hide();
         TraceSurface("hidden");
     }
     private async Task RetryFocusAsync(long epoch, nint previous, long started)
@@ -268,7 +271,18 @@ internal sealed partial class CommandPaletteWindow : Window
         }
         if (at < row.Title.Length) block.Inlines.Add(new Run { Text = row.Title[at..] });
     }
-    public void Shutdown() { if (shutdown) return; shutdown = true; HidePalette(); icons.Dispose(); Close(); }
+    public void Shutdown()
+    {
+        if (shutdown) return; shutdown = true; HidePalette();
+        acrylic.StateChanged -= UpdateBackdropSurface;
+        SystemBackdrop = null; // detach/dispose the native controller before closing the HWND
+        icons.Dispose(); Close();
+    }
+    private void UpdateBackdropSurface()
+    {
+        SolidFallback.Visibility = acrylic.UseSolidFallback ? Visibility.Visible : Visibility.Collapsed;
+        TraceSurface("backdrop-state");
+    }
     private static void Log(Exception ex) => new CrashLog().TryWrite(CrashSource.Activation, ex);
     private void EnsureBorderlessFrame()
     {
@@ -291,6 +305,8 @@ internal sealed partial class CommandPaletteWindow : Window
 #if DEBUG
         try
         {
+            string? path = Environment.GetEnvironmentVariable("FLOWDESK_PALETTE_DIAGNOSTICS_LOG");
+            if (string.IsNullOrWhiteSpace(path) || !Path.IsPathFullyQualified(path)) return;
             int borderHr = DwmGetWindowAttribute(hwnd, 34, out int border, 4);
             int cornerHr = DwmGetWindowAttribute(hwnd, 33, out int corner, 4);
             int cloakHr = DwmGetWindowAttribute(hwnd, 14, out int cloaked, 4);
@@ -310,10 +326,10 @@ internal sealed partial class CommandPaletteWindow : Window
                 $"acrylicSupported={Microsoft.UI.Composition.SystemBackdrops.DesktopAcrylicController.IsSupported()} " +
                 $"advancedEffects={ui.AdvancedEffectsEnabled} highContrast={accessibility.HighContrast} batterySaver={power.SystemStatusFlag} " +
                 $"remoteSession={GetSystemMetrics(0x1000)} " +
-                $"configuration=[{(SystemBackdrop as PaletteDiagnosticAcrylicBackdrop)?.Describe() ?? "not observed"}]";
+                $"fallbackLayer={SolidFallback.Visibility}/{(SolidFallback.Background as SolidColorBrush)?.Color} " +
+                $"configuration=[{acrylic.Describe()}]";
             Debug.WriteLine(line);
-            string? path = Environment.GetEnvironmentVariable("FLOWDESK_PALETTE_DIAGNOSTICS_LOG");
-            if (!string.IsNullOrWhiteSpace(path) && Path.IsPathFullyQualified(path)) File.AppendAllText(path, line + Environment.NewLine);
+            File.AppendAllText(path, line + Environment.NewLine);
         }
         catch (Exception) { /* Optional diagnostics must never prevent activation. */ }
 #endif
@@ -348,39 +364,3 @@ internal sealed partial class CommandPaletteWindow : Window
     [DllImport("user32.dll")] private static extern int GetSystemMetrics(int index);
     [DllImport("kernel32.dll")] private static extern bool GetSystemPowerStatus(out PowerStatus status);
 }
-
-#if DEBUG
-// No configuration setters, controllers or custom activation policy: preserve DesktopAcrylicBackdrop's
-// behaviour so diagnostics can distinguish a real inactive fallback from an opaque XAML/native frame.
-internal sealed class PaletteDiagnosticAcrylicBackdrop : DesktopAcrylicBackdrop
-{
-    private Microsoft.UI.Composition.ICompositionSupportsSystemBackdrop? target;
-    private XamlRoot? root;
-    private int configurationChanges;
-
-    protected override void OnTargetConnected(Microsoft.UI.Composition.ICompositionSupportsSystemBackdrop connectedTarget, XamlRoot xamlRoot)
-    {
-        base.OnTargetConnected(connectedTarget, xamlRoot);
-        target = connectedTarget; root = xamlRoot;
-    }
-
-    protected override void OnTargetDisconnected(Microsoft.UI.Composition.ICompositionSupportsSystemBackdrop disconnectedTarget)
-    {
-        target = null; root = null;
-        base.OnTargetDisconnected(disconnectedTarget);
-    }
-
-    protected override void OnDefaultSystemBackdropConfigurationChanged(Microsoft.UI.Composition.ICompositionSupportsSystemBackdrop target, XamlRoot xamlRoot)
-    {
-        base.OnDefaultSystemBackdropConfigurationChanged(target, xamlRoot);
-        configurationChanges++;
-    }
-
-    internal string Describe()
-    {
-        if (target is null || root is null) return "disconnected";
-        var configuration = GetDefaultSystemBackdropConfiguration(target, root);
-        return $"inputActive={configuration.IsInputActive} theme={configuration.Theme} highContrast={configuration.IsHighContrast} changes={configurationChanges}";
-    }
-}
-#endif
