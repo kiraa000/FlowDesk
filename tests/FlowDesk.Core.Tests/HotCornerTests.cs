@@ -195,4 +195,19 @@ public sealed class HotCornerTests
         trigger.Tick(Origin, 3, 10400, Single, On, null);
         Assert.NotNull(trigger.Tick(Origin, 3, 10650, Single, On, null).Fired);
     }
+
+    [Fact]
+    public void HookPointPastTheScreenEdgeMatchesTheClampedCursor()
+    {
+        CornerBounds[] two = [new(-2560, 0, 0, 1440), new(0, 0, 2560, 1440)];
+        // Live values (2026-11-16): real overshoot into the top-right corner.
+        Assert.True(HotCornerGeometry.HookMatchesCursor(new(2615, -56), new(2559, 0), two));
+        Assert.True(HotCornerGeometry.HookMatchesCursor(new(-2600, -5), new(-2560, 0), two));
+        Assert.True(HotCornerGeometry.HookMatchesCursor(new(100, 200), new(100, 200), two));
+        // A stale hook point inside the screen still counts as inconsistent.
+        Assert.False(HotCornerGeometry.HookMatchesCursor(new(2185, 814), new(2559, 0), two));
+        // Clamping only uses the cursor's monitor: a point on the other monitor does not match.
+        Assert.False(HotCornerGeometry.HookMatchesCursor(new(-10, 0), new(0, 0), two));
+        Assert.False(HotCornerGeometry.HookMatchesCursor(new(5, 5), new(9000, 0), two));
+    }
 }

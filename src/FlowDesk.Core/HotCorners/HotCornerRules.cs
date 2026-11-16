@@ -62,6 +62,23 @@ public static class HotCornerGeometry
     }
     public static CornerLocation? At(CornerPoint point, IReadOnlyList<CornerBounds> monitors) =>
         monitors.SelectMany(Corners).Where(c => c.Point == point).Select(c => (CornerLocation?)c).FirstOrDefault();
+    /// <summary>
+    /// The low-level mouse hook reports the unclipped position: a real mouse pushed into a corner gives e.g.
+    /// (2615,-56) while the cursor stops at (2559,0). Clamp the hook point into the cursor's monitor before
+    /// comparing, otherwise every physical corner push fails the consistency check ("checks unavailable").
+    /// </summary>
+    public static bool HookMatchesCursor(CornerPoint hook, CornerPoint cursor, IReadOnlyList<CornerBounds> monitors)
+    {
+        if (hook == cursor) return true;
+        if (monitors.Any(m => m.Contains(hook.X, hook.Y))) return false; // on-screen hook point must match exactly
+        foreach (var m in monitors)
+        {
+            if (!m.Contains(cursor.X, cursor.Y)) continue;
+            var clamped = new CornerPoint(Math.Clamp(hook.X, m.Left, m.Right - 1), Math.Clamp(hook.Y, m.Top, m.Bottom - 1));
+            return clamped == cursor;
+        }
+        return false;
+    }
     public static bool Near(CornerPoint a, CornerPoint b, int radius) =>
         Math.Abs((long)a.X - b.X) <= radius && Math.Abs((long)a.Y - b.Y) <= radius;
     public static bool CoversMonitor(CornerBounds foreground, IReadOnlyList<CornerBounds> monitors) => foreground.Valid &&

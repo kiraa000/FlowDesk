@@ -28,7 +28,7 @@ internal static class HotCornerNative
             HotCornerGeometry.CoversMonitor(new(frame.Left, frame.Top, frame.Right, frame.Bottom), monitors),
             foreground != 0 && IsZoomed(foreground),
             foreground != 0 && (GetWindowLongW(foreground, -16) & WS_CAPTION) == WS_CAPTION);
-        bool consistent = mouse.HasPosition && mouse.Point == new CornerPoint(point.X, point.Y);
+        bool consistent = mouse.HasPosition && HotCornerGeometry.HookMatchesCursor(mouse.Point, new CornerPoint(point.X, point.Y), monitors);
         string? blocked = HotCornerGate.BlockReason(enumerated && monitors.Count > 0 && cursor && window && knownClass &&
             frame.Right > frame.Left && frame.Bottom > frame.Top && hr >= 0 && consistent,
             DefaultInputDesktop(), mouse.SessionBlocked, notification, covers, shell, buttons, modifiers);
