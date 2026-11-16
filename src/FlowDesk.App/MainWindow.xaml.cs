@@ -21,6 +21,7 @@ public sealed partial class MainWindow : Window
     private bool trayReady;
     private bool exitRequested, endingSession;
     private readonly SessionEndHook sessionEnd;
+    private CommandPaletteService? palette;
 #if DEBUG
     private Task002Diagnostics? diagnostics;
 #endif
@@ -63,12 +64,15 @@ public sealed partial class MainWindow : Window
         TrayIcon.LeftClickCommand = TrayOpen.Command;
         TrayPause.Command = App.ViewModels.Focus.PauseCommand;
         TrayExit.Command = new CommunityToolkit.Mvvm.Input.AsyncRelayCommand(ExitFromTrayAsync);
+        TrayPalette.Command = new CommunityToolkit.Mvvm.Input.RelayCommand(() => palette?.Open());
+        services.HotCorners.OpenPalette = () => palette?.Open();
         focusTimer.Tick += async (_, _) => await UpdateFocusAsync();
         autosaveTimer.Tick += (_, _) => App.ViewModels.RefreshAutoSaveAge();
         Closed += (_, _) =>
         {
             services.QuickLook?.Dispose();
             services.HotCorners?.Dispose();
+            palette?.Dispose();
             sessionEnd.Dispose(); focusTimer.Stop(); autosaveTimer.Stop(); notifications.Dispose(); TrayIcon.Dispose();
             if (endingSession)
                 _ = Task.Run(() => { services.Focus.Dispose(); services.Hotkeys.Dispose(); services.Dispose(); });
@@ -107,6 +111,11 @@ public sealed partial class MainWindow : Window
         {
             await App.ViewModels.LoadAsync(); loaded = true;
             notifications.Initialize();
+            palette = new(services, App.ViewModels, DispatcherQueue, BringForward, ExitFromTrayAsync,
+                message => { App.ViewModels.ShowStatus(message, StatusKind.Warning); if (!notifications.ShowMessage(message)) BringForward(); },
+                () => !initializing && !closing && !endingSession && !exitRequested);
+            try { await palette.InitializeAsync(); }
+            catch (Exception ex) { new CrashLog().TryWrite(CrashSource.Activation, ex); App.ViewModels.ShowStatus("Command palette shortcut could not start. Check Settings.", StatusKind.Warning); }
             if (services.Settings.QuickLookEnabled)
                 await App.ViewModels.Settings.ApplyQuickLookAsync(true);
             if (services.Settings.HotCornersEnabled)
@@ -129,6 +138,7 @@ public sealed partial class MainWindow : Window
 #if DEBUG
             if (Task002Diagnostics.Enabled) diagnostics = new(services, notifications, () => App.ViewModels.Focus.RefreshAsync());
 #endif
+            App.ViewModels.Settings.RefreshPaletteSettings();
             try { TrayIcon.ForceCreate(enablesEfficiencyMode: false); trayReady = true; }
             catch (Exception) { App.ViewModels.ShowStatus("The tray icon could not be created. Keep this window open during focus.", StatusKind.Warning); }
             focusTimer.Start();
@@ -268,6 +278,7 @@ public sealed partial class MainWindow : Window
             focusTimer.Start(); autosaveTimer.Start(); App.ViewModels.AutoSave.Start(); return;
         }
         services.HotCorners?.Dispose();
+        palette?.Dispose();
         await Task.Run(() => services.Focus.Dispose());
         services.QuickLook?.Dispose();
         await services.Hotkeys.StopAllAsync();
@@ -283,6 +294,7 @@ public sealed partial class MainWindow : Window
     private void OnSessionEnd()
     {
         services.HotCorners?.Dispose();
+        palette?.Dispose();
         endingSession = true; allowClose = true;
         focusTimer.Stop(); autosaveTimer.Stop();
         // StopAsync invalidates the generation synchronously before its first await.

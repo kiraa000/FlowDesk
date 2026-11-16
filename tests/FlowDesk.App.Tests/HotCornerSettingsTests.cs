@@ -21,6 +21,6 @@ public sealed class HotCornerSettingsTests
         Assert.True(result.HotCornersEnabled); Assert.False(result.WindowShortcutsEnabled); Assert.False(result.QuickLookEnabled);
         Assert.Equal(value.HotCornerTopLeft, result.HotCornerTopLeft); Assert.Equal(value.HotCornerTopRight, result.HotCornerTopRight);
         Assert.Equal(value.HotCornerBottomLeft, result.HotCornerBottomLeft); Assert.Equal(value.HotCornerBottomRight, result.HotCornerBottomRight);
-        Assert.Equal(new[] { "None", "Task View", "Show desktop", "Start Focus", "Lock" }, HotCornerConfiguration.Actions.Select(x => x.Label));
+        Assert.Equal(new[] { "None", "Task View", "Show desktop", "Start Focus", "Lock", "Open command palette" }, HotCornerConfiguration.Actions.Select(x => x.Label));
     }
 }

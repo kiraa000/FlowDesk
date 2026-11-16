@@ -31,7 +31,9 @@ internal sealed class QuickLookShell : IDisposable
         queries.ReadAsync(() => Read(owner), TimeSpan.FromMilliseconds(700), token);
     public Task<byte[]?> ThumbnailAsync(string path, CancellationToken token) =>
         queries.ThumbnailAsync(() => Thumbnail(path), TimeSpan.FromMilliseconds(700), token);
-    private static byte[]? Thumbnail(string path)
+    public Task<byte[]?> PaletteIconAsync(string path, CancellationToken token) =>
+        queries.ThumbnailAsync(() => Thumbnail(path, 32), TimeSpan.FromMilliseconds(700), token);
+    private static byte[]? Thumbnail(string path, int size = 512)
     {
         var deadline = System.Diagnostics.Stopwatch.StartNew();
         Guid iid = typeof(IShellItemImageFactory).GUID;
@@ -41,7 +43,7 @@ internal sealed class QuickLookShell : IDisposable
         {
             if (SHCreateItemFromParsingName(path, 0, ref iid, out factory) < 0 || factory is null) return null;
             if (deadline.ElapsedMilliseconds >= 650) return null;
-            ((IShellItemImageFactory)factory).GetImage(new Size { Width = 512, Height = 512 }, 1, out bitmap);
+            ((IShellItemImageFactory)factory).GetImage(new Size { Width = size, Height = size }, size == 32 ? 4u : 1u, out bitmap); // ICONONLY for palette, BIGGERSIZEOK for previews
             if (bitmap == 0) return null;
             using var image = AlphaBitmap(bitmap) ?? System.Drawing.Image.FromHbitmap(bitmap);
             using var stream = new MemoryStream();

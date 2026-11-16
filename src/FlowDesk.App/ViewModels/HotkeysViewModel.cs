@@ -56,7 +56,7 @@ public sealed partial class HotkeysViewModel : ObservableObject
     {
         RefreshCommand.NotifyCanExecuteChanged(); TurnAllOnCommand.NotifyCanExecuteChanged(); RefreshStatus();
     }
-    private bool CanApply => !IsBusy && owner.Services.Settings.WindowShortcutsEnabled && !owner.Settings.WindowShortcutsBusy;
+    private bool CanApply => !IsBusy && !owner.Settings.PaletteBusy && owner.Services.Settings.WindowShortcutsEnabled && !owner.Settings.WindowShortcutsBusy;
     private void RebuildGroups()
     {
         Groups.Clear();
@@ -78,6 +78,7 @@ public sealed partial class HotkeysViewModel : ObservableObject
         Summary = $"{enabled} of {rows.Count} on · {conflicts} {(conflicts == 1 ? "conflict" : "conflicts")}" + (runtime.Paused ? " · paused" : "");
         RefreshCommand.NotifyCanExecuteChanged(); TurnAllOnCommand.NotifyCanExecuteChanged();
         RefreshOtherInput();
+        owner.Settings.RefreshPaletteSettings();
     }
     internal void RefreshOtherInput()
     {

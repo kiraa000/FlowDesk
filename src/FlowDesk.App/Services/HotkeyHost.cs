@@ -71,6 +71,7 @@ public sealed class HotkeyHost : IDisposable
 #endif
     private readonly Action? _openTerminal;
     private readonly Action? _reload;
+    private readonly Action? _palette;
     private Thread? _messageThread;
     private Thread? _workerThread;
     private uint _threadId;
@@ -82,7 +83,7 @@ public sealed class HotkeyHost : IDisposable
 
     public HotkeyHost(IWindowOps windows, IVirtualDesktops? desktops, Action<string>? notify,
         Action? openTerminal = null, Action? reload = null, bool windowShortcuts = true, IQuickLookInput? quickLook = null,
-        IHotCornerInput? hotCorners = null, IEnumerable<string>? disabledShortcutIds = null)
+        IHotCornerInput? hotCorners = null, IEnumerable<string>? disabledShortcutIds = null, Action? palette = null)
     {
         _desktops = desktops;
         _notify = notify;
@@ -91,6 +92,7 @@ public sealed class HotkeyHost : IDisposable
         _keyboardProc = KeyboardHookProc;
         _openTerminal = openTerminal;
         _reload = reload;
+        _palette = palette;
         _windowShortcuts = windowShortcuts;
         _quickLook = quickLook;
         _hotCorners = hotCorners;
@@ -277,7 +279,7 @@ public sealed class HotkeyHost : IDisposable
             // In that case PostThreadMessage may fail, so cancellation is also checked here.
             if (Volatile.Read(ref _stopping) != 0) return;
 
-            if (_windowShortcuts) RegisterBindings();
+            RegisterBindings();
             _sessionNotificationsRegistered = HotkeyNativeMethods.WTSRegisterSessionNotification(_hwnd, 0); // this session
             TraceWinInput($"session-notifications registered={_sessionNotificationsRegistered} error={(_sessionNotificationsRegistered ? 0 : Marshal.GetLastWin32Error())}");
             _keyboard.Seed(IsDown);
@@ -350,7 +352,8 @@ public sealed class HotkeyHost : IDisposable
         var policy = Volatile.Read(ref _policy);
         bool desktopAvailable = _desktops?.IsAvailable == true;
         Volatile.Write(ref _desktopBindingsAvailable, desktopAvailable);
-        var snapshot = _registered.Apply(_windowShortcuts ? policy : ShortcutPolicy.AllOff,
+        var effective = policy.ForModules(_windowShortcuts, _palette is not null);
+        var snapshot = _registered.Apply(effective,
             desktopAvailable, new NativeRegistrar(this));
         Volatile.Write(ref _bindingStatus, snapshot);
         lock (_conflicts)
@@ -375,11 +378,14 @@ public sealed class HotkeyHost : IDisposable
         if (!_registered.TryGet(id, out var binding)) return;
         var policy = Volatile.Read(ref _policy);
         if (!policy.Enabled(binding.Id)) return;
+        // Do not queue behind slow window actions; WM_HOTKEY grants this process foreground rights.
+        if (binding.Id == HotkeyCatalog.PaletteId) { _palette?.Invoke(); return; }
         SendAltMenuMask();
         Enqueue(() => HandleBinding(binding, policy));
     }
 
     internal bool IsPaused => _actions.IsPaused;
+    public void TogglePause() => Enqueue(() => { if (!_windowShortcuts) return; _actions.SetPaused(!_actions.IsPaused); _multiPress.Reset(); });
 
     internal void HandleBinding(HotkeyBinding binding) => HandleBinding(binding, Volatile.Read(ref _policy));
     private void HandleBinding(HotkeyBinding binding, ShortcutPolicy policy)

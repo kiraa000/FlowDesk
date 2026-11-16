@@ -31,6 +31,17 @@ public sealed class AppSettings
     /// <summary>Optional global Alt window shortcuts. Off by default, also for files written before this existed.</summary>
     public bool WindowShortcutsEnabled { get; set; }
     public List<string> DisabledShortcuts { get; set; } = [];
+    // One preference shared with the Hotkeys tab; no independent switch that can drift out of sync.
+    public bool CommandPaletteEnabled
+    {
+        get => !(DisabledShortcuts ?? []).Contains(FlowDesk.Core.Hotkeys.HotkeyCatalog.PaletteId);
+        set
+        {
+            DisabledShortcuts ??= [];
+            DisabledShortcuts.RemoveAll(id => id == FlowDesk.Core.Hotkeys.HotkeyCatalog.PaletteId);
+            if (!value) DisabledShortcuts.Add(FlowDesk.Core.Hotkeys.HotkeyCatalog.PaletteId);
+        }
+    }
     /// <summary>Plain Space previews in Explorer/desktop; opt-in, including for older settings files.</summary>
     public bool QuickLookEnabled { get; set; }
     public bool HotCornersEnabled { get; set; }

@@ -9,6 +9,7 @@ public sealed class HotCornerService : IDisposable
     private readonly HotkeyService hotkeys;
     private readonly DispatcherQueue dispatcher;
     private readonly Func<Func<bool>, Task<bool>> startFocus;
+    public Action? OpenPalette { get; set; }
     private readonly HotCornerMouseState mouse = new();
     private readonly CancellationTokenSource lifetime = new();
     private HotCornerConfiguration configuration = new();
@@ -66,7 +67,14 @@ public sealed class HotCornerService : IDisposable
                     if (decision.Fired is not CornerLocation corner) continue;
                     long firedAt = Environment.TickCount64;
                     long epoch = Volatile.Read(ref contextEpoch);
-                    if (decision.Action == HotCornerAction.StartFocus)
+                    if (decision.Action == HotCornerAction.CommandPalette)
+                    {
+                        dispatcher.TryEnqueue(() =>
+                        {
+                            if (StillSafe(current, input.Revision, corner.Point, firedAt, sample.Foreground, epoch)) OpenPalette?.Invoke();
+                        });
+                    }
+                    else if (decision.Action == HotCornerAction.StartFocus)
                     {
                         dispatcher.TryEnqueue(async () =>
                         {

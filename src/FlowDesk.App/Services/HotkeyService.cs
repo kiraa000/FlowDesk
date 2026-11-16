@@ -27,6 +27,22 @@ public sealed class HotkeyService(string dataDirectory, VirtualDesktopService? s
     private bool _shortcutsRequested;
     private IQuickLookInput? _quickLook;
     private IHotCornerInput? _hotCorners;
+    private Action? _palette;
+    public void TogglePause() => _host?.TogglePause();
+    public async Task SetPaletteAsync(Action? callback)
+    {
+        await _gate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (_disposed) return;
+            _palette = callback;
+            // Installed once at startup, removed only at shutdown. Other modules retain in-place policy updates.
+            await StopCoreAsync().ConfigureAwait(false);
+            if (_palette is not null || _shortcutsRequested || _quickLook is not null || _hotCorners is not null)
+                await StartCoreAsync().ConfigureAwait(false);
+        }
+        finally { _gate.Release(); }
+    }
     private IReadOnlyList<string> _disabledShortcuts = [];
     public Func<string?>? TerminalProgram { get; set; }
 
@@ -86,7 +102,7 @@ public sealed class HotkeyService(string dataDirectory, VirtualDesktopService? s
             catch
             {
                 // Restore independently enabled modules without the failed shortcut request.
-                if (_quickLook is not null || _hotCorners is not null)
+                if (_quickLook is not null || _hotCorners is not null || _palette is not null)
                 {
                     try { await StartCoreAsync().ConfigureAwait(false); }
                     catch (Exception) { Notify?.Invoke("Input modules could not be restored. Turn them off and on in Settings to retry."); }
@@ -105,7 +121,7 @@ public sealed class HotkeyService(string dataDirectory, VirtualDesktopService? s
             if (_disposed) return;
             _shortcutsRequested = false;
             await StopCoreAsync().ConfigureAwait(false);
-            if (_quickLook is not null || _hotCorners is not null) await StartCoreAsync().ConfigureAwait(false);
+            if (_quickLook is not null || _hotCorners is not null || _palette is not null) await StartCoreAsync().ConfigureAwait(false);
         }
         finally { _gate.Release(); }
     }
@@ -138,13 +154,13 @@ public sealed class HotkeyService(string dataDirectory, VirtualDesktopService? s
             await StopCoreAsync().ConfigureAwait(false);
             try
             {
-                if (_shortcutsRequested || _quickLook is not null || _hotCorners is not null) await StartCoreAsync().ConfigureAwait(false);
+                if (_shortcutsRequested || _quickLook is not null || _hotCorners is not null || _palette is not null) await StartCoreAsync().ConfigureAwait(false);
             }
             catch
             {
                 // A failed module must not silently disable the unrelated window shortcuts.
                 _quickLook = previous;
-                if (_shortcutsRequested || _quickLook is not null || _hotCorners is not null) await StartCoreAsync().ConfigureAwait(false);
+                if (_shortcutsRequested || _quickLook is not null || _hotCorners is not null || _palette is not null) await StartCoreAsync().ConfigureAwait(false);
                 throw;
             }
         }
@@ -162,7 +178,7 @@ public sealed class HotkeyService(string dataDirectory, VirtualDesktopService? s
             {
                 await _host.ConfigureHotCornersAsync(input).ConfigureAwait(false);
                 _hotCorners = input;
-                if (input is null && !_shortcutsRequested && _quickLook is null) await StopCoreAsync().ConfigureAwait(false);
+                if (input is null && !_shortcutsRequested && _quickLook is null && _palette is null) await StopCoreAsync().ConfigureAwait(false);
                 return;
             }
             var previous = _hotCorners; _hotCorners = input;
@@ -179,7 +195,7 @@ public sealed class HotkeyService(string dataDirectory, VirtualDesktopService? s
         try
         {
             if (_disposed) return;
-            _shortcutsRequested = false; _quickLook = null; _hotCorners = null;
+            _shortcutsRequested = false; _quickLook = null; _hotCorners = null; _palette = null;
             await StopCoreAsync().ConfigureAwait(false);
         }
         finally { _gate.Release(); }
@@ -225,7 +241,7 @@ public sealed class HotkeyService(string dataDirectory, VirtualDesktopService? s
         HotkeyHost? host = null;
         host = new HotkeyHost(new Win32WindowOps(), _desktops, Notify,
             () => _terminal.Open(TerminalProgram?.Invoke(), Notify),
-            () => RequestReload(host!), _shortcutsRequested, _quickLook, _hotCorners, _disabledShortcuts);
+            () => RequestReload(host!), _shortcutsRequested, _quickLook, _hotCorners, _disabledShortcuts, _palette);
         try
         {
             await host.StartAsync().ConfigureAwait(false);

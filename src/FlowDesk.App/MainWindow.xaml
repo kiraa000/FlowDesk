@@ -44,6 +44,8 @@
             <tray:TaskbarIcon.ContextFlyout>
                 <MenuFlyout>
                     <MenuFlyoutItem x:Name="TrayOpen" Text="Open FlowDesk" />
+                    <MenuFlyoutItem x:Name="TrayPalette" Text="Command palette"
+                                    KeyboardAcceleratorTextOverride="Ctrl+Alt+Space" />
                     <MenuFlyoutItem x:Name="TrayPause" Text="Pause" />
                     <MenuFlyoutSeparator />
                     <MenuFlyoutItem x:Name="TrayExit" Text="Exit" />

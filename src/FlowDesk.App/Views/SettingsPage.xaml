@@ -78,6 +78,25 @@
                 </StackPanel>
             </StackPanel>
             <StackPanel Spacing="4">
+                <settings:SettingsCard Header="Command palette">
+                    <settings:SettingsCard.Description>
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="Search workspaces, apps and actions with Ctrl+Alt+Space. Works independently of window shortcuts."
+                                       Style="{StaticResource CaptionTextBlockStyle}"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding PaletteStatus}"
+                                       Style="{StaticResource CaptionTextBlockStyle}"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       TextWrapping="Wrap" />
+                        </StackPanel>
+                    </settings:SettingsCard.Description>
+                    <ToggleSwitch IsOn="{Binding CommandPalette, Mode=TwoWay}"
+                                  IsEnabled="{Binding PaletteCanToggle}"
+                                  AutomationProperties.Name="Command palette" />
+                </settings:SettingsCard>
+            </StackPanel>
+            <StackPanel Spacing="4">
                 <settings:SettingsCard Header="Quick Look"
                     Description="Preview the file selected in File Explorer or on the desktop with Space.">
                     <ToggleSwitch IsOn="{Binding QuickLook, Mode=TwoWay}"
