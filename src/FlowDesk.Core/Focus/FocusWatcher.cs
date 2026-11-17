@@ -189,10 +189,16 @@ public sealed class FocusWatcher : IDisposable
     {
         rule = null;
         if (w.ProcessId == _windows.OwnProcessId || w.Unresolved) return false;
-        if (string.IsNullOrEmpty(w.ExePath) && string.IsNullOrEmpty(w.Aumid)) return false; // can't identify -> never touch
-        if (SystemExes.Contains(w.ExeName) && string.IsNullOrEmpty(w.Aumid)) return false;
-        if (s.Allowed.Any(r => r.Matches(w.ExePath, w.Aumid))) return false;
-        rule = s.Blocked.FirstOrDefault(r => r.Matches(w.ExePath, w.Aumid));
+        return WouldBlockApp(w.ExePath, w.Aumid, s, out rule);
+    }
+
+    public static bool WouldBlockApp(string? exePath, string? aumid, FocusSettings s, out FocusAppRule? rule)
+    {
+        rule = null;
+        if (string.IsNullOrEmpty(exePath) && string.IsNullOrEmpty(aumid)) return false;
+        if (SystemExes.Contains(AppKeys.ExeName(exePath)) && string.IsNullOrEmpty(aumid)) return false;
+        if (s.Allowed.Any(r => r.Matches(exePath, aumid))) return false;
+        rule = s.Blocked.FirstOrDefault(r => r.Matches(exePath, aumid));
         return rule is not null || s.BlockAllExceptAllowed;
     }
 

@@ -27,6 +27,7 @@ public sealed record ItemResult(string ItemId, string Name, ItemOutcome Outcome,
 
 public sealed record RestoreReport(IReadOnlyList<ItemResult> Items, TimeSpan Elapsed)
 {
+    public IReadOnlyList<FlowDesk.Core.Contexts.ContextNote> Context { get; init; } = [];
     public int Placed => Items.Count(i => i.Outcome is ItemOutcome.Reused or ItemOutcome.Launched);
     public bool AllPlaced => Placed == Items.Count;
 }

@@ -127,6 +127,8 @@ public sealed class Workspace
     /// <summary>Tag colour key chosen by the user (UI maps it to a brush + label).</summary>
     public string Color { get; set; } = "blue";
     public List<WorkspaceItem> Items { get; set; } = [];
+    private WorkspaceContext context = new();
+    public WorkspaceContext Context { get => context; set => context = value ?? new(); }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
     public DateTimeOffset? LastUsed { get; set; }
     public DateTimeOffset? LayoutSavedAt { get; set; }
@@ -135,6 +137,7 @@ public sealed class Workspace
     {
         Id = Id, Name = Name, Description = Description, Glyph = Glyph, Color = Color,
         Items = Items.Select(i => i.Clone()).ToList(),
+        Context = Context.Clone(),
         CreatedAt = CreatedAt, LastUsed = LastUsed, LayoutSavedAt = LayoutSavedAt,
     };
 }
