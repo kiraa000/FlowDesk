@@ -1,9 +1,10 @@
 namespace FlowDesk.Core.Palette;
 
-public enum CommandKind { Workspace, Action, App, Settings, File }
+public enum CommandKind { Workspace, Action, App, Settings, File, Clipboard }
 public sealed record MatchRange(int Start, int Length);
 public sealed record CommandItem(string Id, string Title, string Subtitle, CommandKind Kind,
-    string Icon, Func<Task> Primary, Func<Task>? Secondary = null, string Synonyms = "", string ActionHint = "Open");
+    string Icon, Func<Task> Primary, Func<Task>? Secondary = null, string Synonyms = "", string ActionHint = "Open",
+    bool KeepsPaletteOpen = false, bool RecordUsage = true);
 public sealed record CommandMatch(CommandItem Item, double Score, IReadOnlyList<MatchRange> Highlights);
 
 /// <summary>Providers query immutable snapshots; no source may touch dispatcher-owned state here.</summary>
