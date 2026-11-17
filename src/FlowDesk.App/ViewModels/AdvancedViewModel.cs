@@ -64,7 +64,8 @@ public sealed partial class AdvancedViewModel : ObservableObject
     public Func<Task<bool>>? ConfirmEnable { get; set; }
     public Func<AdvancedTool, Task<bool>>? ConfirmInstall { get; set; }
     public Func<Task<bool>>? ConfirmWinUtil { get; set; }
-    [ObservableProperty] public partial string WinUtilStatus { get; set; } = "";
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(HasWinUtilStatus))] public partial string WinUtilStatus { get; set; } = "";
+    public bool HasWinUtilStatus => !string.IsNullOrEmpty(WinUtilStatus);
     public async Task WaitForInstallAsync()
     {
         try { if (activeInstall is { } task) await task; }

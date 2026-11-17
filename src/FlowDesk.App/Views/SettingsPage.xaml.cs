@@ -29,6 +29,7 @@ public sealed partial class SettingsPage : Page
     private async void AdvancedMode_Toggled(object sender, RoutedEventArgs e)
     {
         if (!ready || changing) return;
+        var focusState = AdvancedModeSwitch.FocusState == FocusState.Keyboard ? FocusState.Keyboard : FocusState.Programmatic;
         changing = true;
         bool requested = AdvancedModeSwitch.IsOn;
         // Never publish the optimistic switch value to settings/navigation before agreement.
@@ -40,6 +41,10 @@ public sealed partial class SettingsPage : Page
         {
             AdvancedModeSwitch.IsOn = App.ViewModels.Advanced.Enabled;
             AdvancedModeSwitch.IsEnabled = true; changing = false;
+            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+            {
+                if (IsLoaded && AdvancedModeSwitch.IsEnabled) AdvancedModeSwitch.Focus(focusState);
+            });
         }
     }
 }

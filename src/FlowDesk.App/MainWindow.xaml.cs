@@ -41,6 +41,7 @@ public sealed partial class MainWindow : Window
         catch (Exception) { }
         App.ViewModels = new(services, new UserInteraction(this, Root));
         advancedDialogs = new(Root);
+        advancedDialogs.TakeReturnFocus = () => (PageFrame.Content as AdvancedPage)?.TakeDialogFocusReturn();
         App.ViewModels.Advanced.ConfirmEnable = advancedDialogs.EnableAsync;
         App.ViewModels.Advanced.ConfirmInstall = advancedDialogs.InstallAsync;
         App.ViewModels.Advanced.ConfirmWinUtil = advancedDialogs.WinUtilAsync;

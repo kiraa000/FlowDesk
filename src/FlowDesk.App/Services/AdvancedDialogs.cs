@@ -7,15 +7,21 @@ namespace FlowDesk.App.Services;
 
 public sealed class AdvancedDialogs(FrameworkElement root)
 {
+    internal Func<DialogFocusReturn?>? TakeReturnFocus { get; set; }
     private async Task<bool> ConfirmAsync(string title, UIElement content, string primary)
     {
+        var returnFocus = TakeReturnFocus?.Invoke();
         var dialog = new ContentDialog
         {
             XamlRoot = root.XamlRoot, RequestedTheme = root.RequestedTheme,
             Title = title, Content = content, PrimaryButtonText = primary, CloseButtonText = "Cancel",
             DefaultButton = ContentDialogButton.Close
         };
-        return await dialog.ShowAsync() == ContentDialogResult.Primary;
+        // DefaultButton controls Enter, but focusable content can still win initial focus. Explicitly
+        // focus the native template's CloseButton once it exists; links stay in the normal Tab order.
+        dialog.Opened += (_, _) => DialogFocusReturn.FindNamed<Button>(dialog, "CloseButton")?.Focus(FocusState.Keyboard);
+        try { return await dialog.ShowAsync() == ContentDialogResult.Primary; }
+        finally { returnFocus?.RestoreAfterDialog(); }
     }
     public Task<bool> EnableAsync() => ConfirmAsync("Turn on Advanced mode?", Ui.Text(
         "Tools here can change Windows itself. Some need administrator rights.\n\n" +
