@@ -67,7 +67,12 @@ public sealed partial class MainWindow : Window
         TrayExit.Command = new CommunityToolkit.Mvvm.Input.AsyncRelayCommand(ExitFromTrayAsync);
         TrayPalette.Command = new CommunityToolkit.Mvvm.Input.RelayCommand(() => palette?.Open());
         services.HotCorners.OpenPalette = () => palette?.Open();
-        TrayPalette.KeyboardAcceleratorTextOverride = HotkeyCatalog.Find(HotkeyCatalog.PaletteId)?.Shortcut ?? "";
+        TrayPalette.KeyboardAcceleratorTextOverride = services.Settings.EffectiveShortcut(HotkeyCatalog.PaletteId).Shortcut;
+        App.ViewModels.Settings.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(SettingsViewModel.PaletteShortcut))
+                TrayPalette.KeyboardAcceleratorTextOverride = services.Settings.EffectiveShortcut(HotkeyCatalog.PaletteId).Shortcut;
+        };
         focusTimer.Tick += async (_, _) => await UpdateFocusAsync();
         autosaveTimer.Tick += (_, _) => App.ViewModels.RefreshAutoSaveAge();
         Closed += (_, _) =>

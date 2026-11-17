@@ -49,6 +49,7 @@ public sealed class HotkeyHost : IDisposable
     private readonly ShortcutRegistrations _registered = new();
     private readonly object _policyGate = new();
     private ShortcutPolicy _policy;
+    private IReadOnlyList<HotkeyBinding> _bindings;
     private bool _desktopBindingsAvailable;
     private ShortcutRegistrationSnapshot _bindingStatus = ShortcutRegistrationSnapshot.Empty;
     private BindingChange? _bindingChange;
@@ -56,6 +57,8 @@ public sealed class HotkeyHost : IDisposable
     private readonly HookProc _keyboardProc;
     private readonly WheelGestures _wheel = new();
     private readonly ShortcutKeyboardState _keyboard = new();
+    private readonly ShortcutRepeatGate _repeatGate = new();
+    private bool SoftwareRepeat => _windowShortcuts && _keyboardHook != 0;
     private readonly QuickLookTrigger _quickLookTrigger = new();
     private IQuickLookInput? _quickLook;
     private IHotCornerInput? _hotCorners;
@@ -84,7 +87,8 @@ public sealed class HotkeyHost : IDisposable
 
     public HotkeyHost(IWindowOps windows, IVirtualDesktops? desktops, Action<string>? notify,
         Action? openTerminal = null, Action? reload = null, bool windowShortcuts = true, IQuickLookInput? quickLook = null,
-        IHotCornerInput? hotCorners = null, IEnumerable<string>? disabledShortcutIds = null, Action? palette = null, Action? clipboard = null)
+        IHotCornerInput? hotCorners = null, IEnumerable<string>? disabledShortcutIds = null, Action? palette = null, Action? clipboard = null,
+        IReadOnlyDictionary<string, string>? shortcutOverrides = null)
     {
         _desktops = desktops;
         _notify = notify;
@@ -99,6 +103,7 @@ public sealed class HotkeyHost : IDisposable
         _quickLook = quickLook;
         _hotCorners = hotCorners;
         _policy = new(disabledShortcutIds);
+        _bindings = ShortcutRebinding.Effective(shortcutOverrides);
     }
 
     public bool IsRunning { get; private set; }
@@ -114,13 +119,13 @@ public sealed class HotkeyHost : IDisposable
     public bool KeyboardHookAvailable => _keyboardHook != 0;
     public void SetQuickLook(IQuickLookInput? input) => Volatile.Write(ref _quickLook, input);
     public ShortcutRegistrationSnapshot BindingStatus => Volatile.Read(ref _bindingStatus);
-    private sealed record BindingChange(ShortcutPolicy Policy)
+    private sealed record BindingChange(ShortcutPolicy Policy, IReadOnlyList<HotkeyBinding> Bindings, bool Atomic)
     {
         public TaskCompletionSource<bool> Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
-    public async Task ConfigureBindingsAsync(IEnumerable<string> disabledIds)
+    public async Task ConfigureBindingsAsync(IEnumerable<string> disabledIds, IReadOnlyDictionary<string, string>? overrides = null, bool atomic = false)
     {
-        var change = new BindingChange(new(disabledIds));
+        var change = new BindingChange(new(disabledIds), ShortcutRebinding.Effective(overrides), atomic);
         lock (_hotCornerGate)
         {
             if (Volatile.Read(ref _stopping) != 0 || _bindingChange is not null) throw new InvalidOperationException("Input host is stopping or changing.");
@@ -145,13 +150,27 @@ public sealed class HotkeyHost : IDisposable
             try
             {
                 if (Volatile.Read(ref _stopping) != 0) throw new InvalidOperationException("Input host stopped.");
-                lock (_policyGate) { Volatile.Write(ref _policy, change.Policy); _multiPress.Reset(); }
+                var effective = change.Policy.ForModules(_windowShortcuts, _palette is not null, _clipboard is not null);
+                if (!SoftwareRepeat && change.Bindings.Where(b => effective.CanRegister(b, _desktops?.IsAvailable == true)).Any(b => _registered.NativeIds.Any(id => _registered.TryGet(id, out var held) &&
+                    KeyChord.From(held) == KeyChord.From(b) && held.Repeat != b.Repeat)))
+                    throw new InvalidOperationException("This swap needs the keyboard hook, which is unavailable. Your shortcuts were kept.");
+                var required = change.Bindings.Where(b => KeyChord.From(b) != KeyChord.From(_bindings.Single(old => old.Id == b.Id)) ||
+                    (change.Policy.Enabled(b.Id) && !_policy.Enabled(b.Id))).Select(b => b.Id).ToHashSet(StringComparer.Ordinal);
+                var snapshot = _registered.Apply(effective, _desktops?.IsAvailable == true, new NativeRegistrar(this), change.Bindings, change.Atomic, required);
+                while (HotkeyNativeMethods.PeekMessageW(out _, _hwnd, WM_HOTKEY, WM_HOTKEY, 1)) { }
+                lock (_policyGate) { Volatile.Write(ref _policy, change.Policy); _bindings = change.Bindings; _multiPress.Reset(); }
+                Volatile.Write(ref _bindingStatus, snapshot);
+                Volatile.Write(ref _desktopBindingsAvailable, _desktops?.IsAvailable == true);
+                UpdateConflictText(snapshot);
                 _wheel.Reset();
                 Enqueue(() => _actions.Search.Reset());
-                RegisterBindings();
                 change.Completion.TrySetResult(true);
             }
-            catch (Exception ex) { change.Completion.TrySetException(ex); }
+            catch (Exception ex)
+            {
+                Volatile.Write(ref _bindingStatus, BindingStatus with { Registered = _registered.RegisteredIds });
+                change.Completion.TrySetException(ex);
+            }
         }
     }
 
@@ -281,7 +300,6 @@ public sealed class HotkeyHost : IDisposable
             // In that case PostThreadMessage may fail, so cancellation is also checked here.
             if (Volatile.Read(ref _stopping) != 0) return;
 
-            RegisterBindings();
             _sessionNotificationsRegistered = HotkeyNativeMethods.WTSRegisterSessionNotification(_hwnd, 0); // this session
             TraceWinInput($"session-notifications registered={_sessionNotificationsRegistered} error={(_sessionNotificationsRegistered ? 0 : Marshal.GetLastWin32Error())}");
             _keyboard.Seed(IsDown);
@@ -294,6 +312,7 @@ public sealed class HotkeyHost : IDisposable
             _hotCorners?.SetHookAvailable(true);
             WheelHookAvailable = _hook != 0;
             WinWheelHookAvailable = _hook != 0 && _keyboardHook != 0;
+            RegisterBindings();
             _ready.TrySetResult(true);
 
             while (Volatile.Read(ref _stopping) == 0 &&
@@ -356,19 +375,23 @@ public sealed class HotkeyHost : IDisposable
         Volatile.Write(ref _desktopBindingsAvailable, desktopAvailable);
         var effective = policy.ForModules(_windowShortcuts, _palette is not null, _clipboard is not null);
         var snapshot = _registered.Apply(effective,
-            desktopAvailable, new NativeRegistrar(this));
+            desktopAvailable, new NativeRegistrar(this), _bindings);
         Volatile.Write(ref _bindingStatus, snapshot);
+        UpdateConflictText(snapshot);
+    }
+    private void UpdateConflictText(ShortcutRegistrationSnapshot snapshot)
+    {
         lock (_conflicts)
         {
             _conflicts.Clear();
-            _conflicts.AddRange(HotkeyCatalog.All.Where(b => snapshot.Conflicts.Contains(b.Id)).Select(b => b.Shortcut));
+            _conflicts.AddRange(_bindings.Where(b => snapshot.Conflicts.Contains(b.Id)).Select(b => b.Shortcut));
         }
     }
     private sealed class NativeRegistrar(HotkeyHost host) : IShortcutRegistrar
     {
         public ShortcutRegistrationResult Register(int id, HotkeyBinding binding)
         {
-            uint modifiers = binding.Modifiers | (binding.Repeat ? 0u : ModNoRepeat);
+            uint modifiers = binding.Modifiers | (binding.Repeat || host.SoftwareRepeat ? 0u : ModNoRepeat);
             if (HotkeyNativeMethods.RegisterHotKey(host._hwnd, id, modifiers, binding.VirtualKey)) return ShortcutRegistrationResult.Active;
             return Marshal.GetLastWin32Error() == 1409 ? ShortcutRegistrationResult.Conflict : ShortcutRegistrationResult.Unavailable;
         }
@@ -380,6 +403,7 @@ public sealed class HotkeyHost : IDisposable
         if (!_registered.TryGet(id, out var binding)) return;
         var policy = Volatile.Read(ref _policy);
         if (!policy.Enabled(binding.Id)) return;
+        if (SoftwareRepeat && !_repeatGate.Accept(binding)) return;
         // Do not queue behind slow window actions; WM_HOTKEY grants this process foreground rights.
         if (binding.Id == HotkeyCatalog.PaletteId) { _palette?.Invoke(); return; }
         if (binding.Id == HotkeyCatalog.ClipboardId) { _clipboard?.Invoke(); return; }
@@ -504,6 +528,7 @@ public sealed class HotkeyHost : IDisposable
             {
                 var info = Marshal.PtrToStructure<KBDLLHOOKSTRUCT>(lParam);
                 bool down = wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN;
+                _repeatGate.Observe(info.VirtualKey, down);
                 var observed = _keyboard.Observe((int)info.VirtualKey, down, info.ExtraInfo, info.ScanCode, (info.Flags & 1) != 0);
                 if (QuickLookTrigger.IsCandidate((int)info.VirtualKey))
                 {
@@ -562,6 +587,7 @@ public sealed class HotkeyHost : IDisposable
 
     private void OnSessionChange(uint reason)
     {
+        _repeatGate.Reset();
         if (reason is 2 or 4 or 6 or 7) { _sessionBlocked = true; _hotCorners?.SetSessionBlocked(true); }
         else if (reason is 1 or 3 or 5 or 8 or 0xF) { _sessionBlocked = false; _hotCorners?.SetSessionBlocked(false); }
         if (Volatile.Read(ref _stopping) != 0 || !_keyboard.ReseedForSessionChange(reason, IsDown)) return;
@@ -764,6 +790,7 @@ public sealed class HotkeyHost : IDisposable
         [DllImport("user32.dll")] public static extern bool DestroyWindow(nint hwnd);
         [DllImport("user32.dll")] public static extern nint DefWindowProcW(nint hwnd, uint message, nint wParam, nint lParam);
         [DllImport("user32.dll")] public static extern int GetMessageW(out MSG message, nint hwnd, uint filterMin, uint filterMax);
+        [DllImport("user32.dll")] public static extern bool PeekMessageW(out MSG message, nint hwnd, uint filterMin, uint filterMax, uint remove);
         [DllImport("user32.dll")] public static extern bool TranslateMessage(ref MSG message);
         [DllImport("user32.dll")] public static extern nint DispatchMessageW(ref MSG message);
         [DllImport("user32.dll")] public static extern bool PostThreadMessageW(uint threadId, uint message, nint wParam, nint lParam);

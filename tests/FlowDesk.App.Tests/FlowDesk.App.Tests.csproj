@@ -57,6 +57,7 @@
     <Compile Include="..\..\src\FlowDesk.App\Autosave\AutoSaveText.cs" Link="AutoSaveText.cs" />
     <!-- Hotkey service lifetime is headless: Dispose/guard tests never start threads or hooks. -->
     <Compile Include="..\..\src\FlowDesk.App\Services\HotkeyService.cs" Link="HotkeyService.cs" />
+    <Compile Include="..\..\src\FlowDesk.App\Services\ShortcutProbe.cs" Link="ShortcutProbe.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\HotkeyHost.cs" Link="HotkeyHost.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\QuickLookNative.cs" Link="QuickLookNative.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\QuickLookPdfStream.cs" Link="QuickLookPdfStream.cs" />

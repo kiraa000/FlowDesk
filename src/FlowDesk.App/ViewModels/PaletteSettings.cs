@@ -15,7 +15,7 @@ public partial class SettingsViewModel
     internal Action? ClearClipboardHistory { get; set; }
     [RelayCommand] private void ClearClipboard() => ClearClipboardHistory?.Invoke();
     public bool PaletteCanToggle => !PaletteBusy && !owner.Hotkeys.IsBusy;
-    public string PaletteShortcut => HotkeyCatalog.Find(HotkeyCatalog.PaletteId)?.Shortcut ?? "";
+    public string PaletteShortcut => owner.Services.Settings.EffectiveShortcut(HotkeyCatalog.PaletteId).Shortcut;
     public string PaletteDescription => $"Search workspaces, apps and actions with {PaletteShortcut}. Works independently of window shortcuts.";
     private bool paletteLoading;
     partial void OnPaletteBusyChanged(bool value) => OnPropertyChanged(nameof(PaletteCanToggle));
@@ -26,7 +26,7 @@ public partial class SettingsViewModel
         ClipboardHistory = owner.Services.Settings.ClipboardHistoryEnabled;
         paletteLoading = false;
         var runtime = owner.Services.Hotkeys.ShortcutRuntime;
-        string clipboardShortcut = HotkeyCatalog.Find(HotkeyCatalog.ClipboardId)!.Shortcut;
+        string clipboardShortcut = owner.Services.Settings.EffectiveShortcut(HotkeyCatalog.ClipboardId).Shortcut;
         ClipboardStatus = !ClipboardHistory ? "Off · Nothing is captured" : runtime.Registration.Conflicts.Contains(HotkeyCatalog.ClipboardId)
             ? $"{clipboardShortcut} is in use by another app." : runtime.Registration.Registered.Contains(HotkeyCatalog.ClipboardId)
             ? $"{clipboardShortcut} · Memory only" : $"{clipboardShortcut} · Shortcut not available";
@@ -34,6 +34,7 @@ public partial class SettingsViewModel
             ? $"{PaletteShortcut} is in use by another app." : runtime.Registration.Registered.Contains(HotkeyCatalog.PaletteId)
             ? $"{PaletteShortcut} · Ready" : $"{PaletteShortcut} · Not available";
         OnPropertyChanged(nameof(PaletteCanToggle));
+        OnPropertyChanged(nameof(PaletteShortcut)); OnPropertyChanged(nameof(PaletteDescription));
     }
     partial void OnClipboardHistoryChanged(bool value)
     {

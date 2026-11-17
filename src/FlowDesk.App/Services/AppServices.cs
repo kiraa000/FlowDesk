@@ -78,7 +78,12 @@ public sealed class AppServices : ObservableObject, IDisposable
         });
         Data = loaded.data; Settings = loaded.settings; RecoveryMessage = loaded.warning;
         Settings.DisabledShortcuts = new FlowDesk.Core.Hotkeys.ShortcutPolicy(Settings.DisabledShortcuts).DisabledIds.ToList();
-        await Hotkeys.SetDisabledShortcutsAsync(Settings.DisabledShortcuts);
+        Settings.ShortcutOverrides = FlowDesk.Core.Hotkeys.ShortcutRebinding.Normalize(Settings.ShortcutOverrides, message =>
+        {
+            try { File.AppendAllText(Path.Combine(Store.Folder, "shortcut-settings.log"), DateTimeOffset.UtcNow.ToString("O") + " " + message + Environment.NewLine); }
+            catch (Exception) { /* diagnostics must never prevent startup */ }
+        });
+        await Hotkeys.SetBindingsAsync(Settings.DisabledShortcuts, Settings.ShortcutOverrides);
         // Load the shared backend before the first capture/restore. A missing or older DLL is not an
         // error: the service stays available for status text and capture falls back to the COM read.
         await ReloadDesktopsAsync();

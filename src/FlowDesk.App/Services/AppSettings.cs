@@ -31,6 +31,10 @@ public sealed class AppSettings
     /// <summary>Optional global Alt window shortcuts. Off by default, also for files written before this existed.</summary>
     public bool WindowShortcutsEnabled { get; set; }
     public List<string> DisabledShortcuts { get; set; } = [];
+    [System.Text.Json.Serialization.JsonConverter(typeof(ShortcutOverridesConverter))]
+    public Dictionary<string, string> ShortcutOverrides { get; set; } = [];
+    public FlowDesk.Core.Hotkeys.HotkeyBinding EffectiveShortcut(string id) =>
+        FlowDesk.Core.Hotkeys.ShortcutRebinding.Effective(ShortcutOverrides).Single(b => b.Id == id);
     // One preference shared with the Hotkeys tab; no independent switch that can drift out of sync.
     [System.Text.Json.Serialization.JsonIgnore]
     public bool CommandPaletteEnabled
@@ -106,5 +110,26 @@ public sealed class AppSettings
         BrowserRestoreNoticesSeen ??= [];
         if (string.IsNullOrEmpty(key) || BrowserRestoreNoticesSeen.Contains(key, StringComparer.Ordinal)) return;
         BrowserRestoreNoticesSeen.Add(key);
+    }
+}
+
+/// <summary>Bad override values must not invalidate unrelated settings in an otherwise valid file.</summary>
+public sealed class ShortcutOverridesConverter : System.Text.Json.Serialization.JsonConverter<Dictionary<string, string>>
+{
+    public override bool HandleNull => true;
+    public override Dictionary<string, string> Read(ref System.Text.Json.Utf8JsonReader reader, Type type, System.Text.Json.JsonSerializerOptions options)
+    {
+        using var doc = System.Text.Json.JsonDocument.ParseValue(ref reader);
+        var values = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (doc.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object) { values["invalid-override-container"] = ""; return values; }
+        foreach (var p in doc.RootElement.EnumerateObject())
+            values[p.Name] = p.Value.ValueKind == System.Text.Json.JsonValueKind.String ? p.Value.GetString() ?? "" : "";
+        return values;
+    }
+    public override void Write(System.Text.Json.Utf8JsonWriter writer, Dictionary<string, string> value, System.Text.Json.JsonSerializerOptions options)
+    {
+        writer.WriteStartObject();
+        foreach (var p in FlowDesk.Core.Hotkeys.ShortcutRebinding.Normalize(value)) writer.WriteString(p.Key, p.Value);
+        writer.WriteEndObject();
     }
 }

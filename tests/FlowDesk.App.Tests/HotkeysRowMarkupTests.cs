@@ -7,7 +7,7 @@ public sealed class HotkeysRowMarkupTests
     [Fact] public void LabelAndKeyCapsShareTheFirstRowWithToggleAtTheRightEdge()
     {
         var row = RowGrid();
-        Assert.Equal(new[] { "*", "Auto", "40" }, row.Element(PaletteMarkupFixture.Xaml + "Grid.ColumnDefinitions")!
+        Assert.Equal(new[] { "*", "Auto", "Auto", "40" }, row.Element(PaletteMarkupFixture.Xaml + "Grid.ColumnDefinitions")!
             .Elements().Select(e => (string?)e.Attribute("Width")));
         var label = row.Elements(PaletteMarkupFixture.Xaml + "TextBlock").Single();
         Assert.Equal("NoWrap", (string?)label.Attribute("TextWrapping"));
@@ -16,7 +16,7 @@ public sealed class HotkeysRowMarkupTests
         var caps = row.Element(PaletteMarkupFixture.Xaml + "ItemsControl")!;
         Assert.Equal("1", (string?)caps.Attribute("Grid.Column"));
         var toggle = row.Element(PaletteMarkupFixture.Xaml + "ToggleSwitch")!;
-        Assert.Equal("2", (string?)toggle.Attribute("Grid.Column"));
+        Assert.Equal("3", (string?)toggle.Attribute("Grid.Column"));
         Assert.Equal("40", (string?)toggle.Attribute("Width"));
         Assert.Equal("0", (string?)toggle.Attribute("MinWidth")); // native default 154 leaves a large blank tail
         Assert.Equal("Right", (string?)toggle.Attribute("HorizontalAlignment"));

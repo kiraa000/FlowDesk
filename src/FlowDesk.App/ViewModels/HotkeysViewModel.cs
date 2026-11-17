@@ -11,10 +11,22 @@ public sealed record HotkeyGroupViewModel(string Title, IReadOnlyList<HotkeyRowV
 public sealed partial class HotkeyRowViewModel : ObservableObject
 {
     private readonly HotkeysViewModel owner;
-    public HotkeyBinding Binding { get; }
+    public HotkeyBinding Binding { get; private set; }
     public string Label => Binding.Label;
     public string AutomationName => Label + " shortcut";
-    public IReadOnlyList<ShortcutKeyCap> Keys { get; }
+    public IReadOnlyList<ShortcutKeyCap> Keys { get; private set; } = [];
+    public bool CanEdit => !Binding.IsMouseWheel && !owner.IsBusy;
+    public string EditHint => Binding.IsMouseWheel ? "Mouse-wheel gestures use fixed modifiers and cannot be reassigned." : "Change this shortcut";
+    public string EditAutomationName => "Edit " + Label + " shortcut";
+    public bool IsCustom => KeyChord.From(Binding) != KeyChord.From(HotkeyCatalog.Find(Binding.Id)!);
+    internal void UpdateBinding(HotkeyBinding binding)
+    {
+        Binding = binding;
+        var parts = binding.Shortcut.Split('+');
+        Keys = parts.Select((key, index) => new ShortcutKeyCap(key, index == parts.Length - 1 ? "" : "+")).ToArray();
+        OnPropertyChanged(nameof(Binding)); OnPropertyChanged(nameof(Keys)); OnPropertyChanged(nameof(IsCustom)); OnPropertyChanged(nameof(CanEdit));
+        OnPropertyChanged(nameof(Label)); OnPropertyChanged(nameof(AutomationName)); OnPropertyChanged(nameof(EditAutomationName));
+    }
     [ObservableProperty] public partial bool IsOn { get; set; } = true;
     [ObservableProperty] public partial bool CanToggle { get; set; }
     [ObservableProperty] public partial string StatusText { get; set; } = "Not available";
@@ -26,8 +38,7 @@ public sealed partial class HotkeyRowViewModel : ObservableObject
     public HotkeyRowViewModel(HotkeyBinding binding, HotkeysViewModel owner)
     {
         Binding = binding; this.owner = owner;
-        var parts = binding.Shortcut.Split('+');
-        Keys = parts.Select((key, index) => new ShortcutKeyCap(key, index == parts.Length - 1 ? "" : "+")).ToArray();
+        UpdateBinding(binding);
     }
     partial void OnIsOnChanged(bool value) { if (!applying) owner.Change(this, value); }
     internal void Apply(bool enabled, bool canToggle, ShortcutStatus status)
@@ -85,8 +96,10 @@ public sealed partial class HotkeysViewModel : ObservableObject
         var settings = owner.Services.Settings;
         var policy = new ShortcutPolicy(settings.DisabledShortcuts);
         var runtime = owner.Services.Hotkeys.ShortcutRuntime;
+        var effective = ShortcutRebinding.Effective(settings.ShortcutOverrides).ToDictionary(b => b.Id);
         foreach (var row in rows)
         {
+            row.UpdateBinding(effective[row.Binding.Id]);
             bool clipboard = row.Binding.Id == HotkeyCatalog.ClipboardId;
             bool module = row.Binding.Id == HotkeyCatalog.PaletteId || (clipboard ? settings.ClipboardHistoryEnabled : settings.WindowShortcutsEnabled);
             var moduleRuntime = runtime with { Running = row.Binding.Id is HotkeyCatalog.PaletteId or HotkeyCatalog.ClipboardId || runtime.Running };
@@ -121,6 +134,42 @@ public sealed partial class HotkeysViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanApply))]
     private Task TurnAllOnAsync() => ApplyAsync([], persist: true);
     [RelayCommand] private void OpenSettings() => owner.Navigate(AppPage.Settings);
+    public async Task<string?> SaveEditAsync(string id, KeyChord candidate, ShortcutResolution resolution)
+    {
+        if (!CanEditBindings) return "Another shortcut change is in progress.";
+        var settings = owner.Services.Settings;
+        try
+        {
+            var fixedCheck = CheckCandidate(id, candidate);
+            if (fixedCheck.Blocked) return fixedCheck.Error ?? "This shortcut is reserved by Windows.";
+            var plan = ShortcutRebinding.Plan(settings.ShortcutOverrides, settings.DisabledShortcuts, id, candidate, resolution);
+            return await SavePlanAsync(plan);
+        }
+        catch (Exception ex) { return ex.Message; }
+    }
+    public ShortcutConflictResult CheckCandidate(string id, KeyChord candidate)
+    {
+        var settings = owner.Services.Settings;
+        var actions = new[] { settings.HotCornerTopLeft, settings.HotCornerTopRight, settings.HotCornerBottomLeft, settings.HotCornerBottomRight };
+        return ShortcutRebinding.Evaluate(ShortcutRebinding.Effective(settings.ShortcutOverrides), id, candidate, settings.QuickLookEnabled,
+            settings.HotCornersEnabled && actions.Contains(HotCornerAction.ShowDesktop), settings.HotCornersEnabled && actions.Contains(HotCornerAction.TaskView));
+    }
+    public Task<string?> ResetAllAsync() => SavePlanAsync(new(new(), new ShortcutPolicy(owner.Services.Settings.DisabledShortcuts).DisabledIds));
+    private async Task<string?> SavePlanAsync(ShortcutEditPlan plan)
+    {
+        if (!CanEditBindings) return "Another shortcut change is in progress.";
+        IsBusy = true;
+        try
+        {
+            await owner.Services.Hotkeys.SetBindingsAsync(plan.DisabledIds, plan.Overrides);
+            owner.Services.Settings.ShortcutOverrides = plan.Overrides;
+            owner.Services.Settings.DisabledShortcuts = plan.DisabledIds.ToList();
+            owner.Services.Changed();
+            return null;
+        }
+        catch (Exception ex) { return ex.Message; }
+        finally { IsBusy = false; RefreshStatus(); owner.Settings.RefreshWindowShortcutsState(); }
+    }
     private async Task ApplyAsync(IEnumerable<string>? disabledIds, bool persist, bool independent = false)
     {
         if (!CanEditBindings || (!independent && !owner.Services.Settings.WindowShortcutsEnabled)) return;

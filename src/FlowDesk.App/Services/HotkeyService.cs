@@ -47,6 +47,7 @@ public sealed class HotkeyService(string dataDirectory, VirtualDesktopService? s
         finally { _gate.Release(); }
     }
     private IReadOnlyList<string> _disabledShortcuts = [];
+    private IReadOnlyDictionary<string, string> _overrides = new Dictionary<string, string>();
     public Func<string?>? TerminalProgram { get; set; }
 
     /// <summary>Toast callback; set by the window once notifications are initialized.</summary>
@@ -65,6 +66,8 @@ public sealed class HotkeyService(string dataDirectory, VirtualDesktopService? s
         }
     }
     public async Task SetDisabledShortcutsAsync(IEnumerable<string>? ids, bool? clipboardEnabled = null)
+        => await SetBindingsAsync(ids, null, clipboardEnabled).ConfigureAwait(false);
+    public async Task SetBindingsAsync(IEnumerable<string>? ids, IReadOnlyDictionary<string, string>? overrides, bool? clipboardEnabled = null)
     {
         var normalized = new ShortcutPolicy(ids).DisabledIds;
         await _gate.WaitAsync().ConfigureAwait(false);
@@ -72,15 +75,18 @@ public sealed class HotkeyService(string dataDirectory, VirtualDesktopService? s
         {
             if (_disposed) return;
             var previous = _disabledShortcuts;
+            var previousOverrides = _overrides;
             bool previousClipboard = _clipboardEnabled;
             _clipboardEnabled = clipboardEnabled ?? _clipboardEnabled;
             _disabledShortcuts = normalized;
-            try { if (_host?.IsRunning == true) await _host.ConfigureBindingsAsync(EffectiveDisabled()).ConfigureAwait(false); }
+            _overrides = overrides is null ? _overrides : ShortcutRebinding.Normalize(overrides);
+            try { if (_host?.IsRunning == true) await _host.ConfigureBindingsAsync(EffectiveDisabled(), _overrides, atomic: overrides is not null).ConfigureAwait(false); }
             catch
             {
                 _disabledShortcuts = previous;
+                _overrides = previousOverrides;
                 _clipboardEnabled = previousClipboard;
-                try { if (_host?.IsRunning == true) await _host.ConfigureBindingsAsync(EffectiveDisabled()).ConfigureAwait(false); }
+                try { if (_host?.IsRunning == true) await _host.ConfigureBindingsAsync(EffectiveDisabled(), _overrides).ConfigureAwait(false); }
                 catch (Exception) { Notify?.Invoke("Some shortcuts could not be restored. Turn window shortcuts off and on to retry."); }
                 throw;
             }
@@ -248,7 +254,7 @@ public sealed class HotkeyService(string dataDirectory, VirtualDesktopService? s
         HotkeyHost? host = null;
         host = new HotkeyHost(new Win32WindowOps(), _desktops, Notify,
             () => _terminal.Open(TerminalProgram?.Invoke(), Notify),
-            () => RequestReload(host!), _shortcutsRequested, _quickLook, _hotCorners, EffectiveDisabled(), _palette, _clipboard);
+            () => RequestReload(host!), _shortcutsRequested, _quickLook, _hotCorners, EffectiveDisabled(), _palette, _clipboard, _overrides);
         try
         {
             await host.StartAsync().ConfigureAwait(false);

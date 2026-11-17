@@ -172,7 +172,7 @@ internal sealed partial class CommandPaletteWindow : Window
                 { activationPending = false; TraceOpen(started, true); return; }
             }
             HidePalette();
-            notify($"Command palette could not take focus. Leave the full-screen or administrator window and try {FlowDesk.Core.Hotkeys.HotkeyCatalog.Find(FlowDesk.Core.Hotkeys.HotkeyCatalog.PaletteId)!.Shortcut} again.");
+            notify($"Command palette could not take focus. Leave the full-screen or administrator window and try {App.ViewModels.Services.Settings.EffectiveShortcut(FlowDesk.Core.Hotkeys.HotkeyCatalog.PaletteId).Shortcut} again.");
         }
         catch (Exception ex) { Log(ex); if (IsOpen && openEpoch == epoch) { HidePalette(); notify("Command palette could not take focus. Try again."); } }
     }
