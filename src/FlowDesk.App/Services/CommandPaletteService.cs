@@ -17,6 +17,7 @@ internal sealed class CommandPaletteService : IDisposable
     private readonly PaletteShellIndex index = new();
     private readonly PaletteUsageStore usage;
     private readonly CommandPaletteWindow window;
+    private readonly ClipboardHistoryService clipboard;
     private CommandItem[] workspaces = [], actions = [];
     private nint capturedTarget;
     private uint capturedProcess;
@@ -32,6 +33,12 @@ internal sealed class CommandPaletteService : IDisposable
             new AppCommandSource(index.Apps), new SettingsCommandSource(PaletteShellIndex.LaunchAsync), new RecentFileCommandSource(index.Recent)
         ], usage, (_, ex) => Log(ex));
         window = new(search, usage, notify);
+        clipboard = new(window.Handle, () => window.RefreshResults());
+        window.ClipboardEnabled = () => clipboard.History.Enabled;
+        window.ClipboardQuery = QueryClipboard;
+        window.ClearClipboard = clipboard.Clear;
+        vm.Settings.ApplyClipboardHistory = SetClipboardAsync;
+        vm.Settings.ClearClipboardHistory = clipboard.Clear;
         window.BeforeQuery = () => Snapshot(capturedTarget, capturedProcess);
         index.Apps.Changed += IndexChanged; index.Recent.Changed += IndexChanged;
     }
@@ -45,16 +52,80 @@ internal sealed class CommandPaletteService : IDisposable
             nint target = CommandPaletteWindow.Foreground;
             long started = System.Diagnostics.Stopwatch.GetTimestamp();
             dispatcher.TryEnqueue(() => Toggle(target, started));
+        }, () =>
+        {
+            nint target = CommandPaletteWindow.Foreground;
+            long started = System.Diagnostics.Stopwatch.GetTimestamp();
+            dispatcher.TryEnqueue(() => Toggle(target, started, mode: PaletteMode.Clipboard));
         });
+        if (services.Settings.ClipboardHistoryEnabled)
+        {
+            try { await SetClipboardAsync(true); }
+            catch { services.Settings.ClipboardHistoryEnabled = false; notify("Clipboard history could not start. Turn it on in Settings to retry."); }
+        }
+    }
+    private async Task SetClipboardAsync(bool enabled)
+    {
+        if (disposed) return;
+        if (!enabled)
+        {
+            // Privacy takes precedence over registration failures: off clears immediately and is never rolled back.
+            clipboard.SetEnabled(false); services.Settings.ClipboardHistoryEnabled = false;
+            window.SetMode(PaletteMode.Commands);
+            services.Changed();
+            await services.Hotkeys.SetDisabledShortcutsAsync(services.Settings.DisabledShortcuts, false);
+            return;
+        }
+        clipboard.SetEnabled(true);
+        try
+        {
+            await services.Hotkeys.SetDisabledShortcutsAsync(services.Settings.DisabledShortcuts, true);
+            services.Settings.ClipboardHistoryEnabled = true;
+        }
+        catch { clipboard.SetEnabled(false); services.Settings.ClipboardHistoryEnabled = false; throw; }
+    }
+    private Task<IReadOnlyList<CommandMatch>> QueryClipboard(string query, CancellationToken token)
+    {
+        // Snapshot on the UI thread; matching long copied text never blocks typing or capture.
+        var entries = clipboard.History.Enabled ? clipboard.History.Snapshot() : [];
+        return Task.Run<IReadOnlyList<CommandMatch>>(() =>
+        {
+            var matches = new List<CommandMatch>();
+            foreach (var e in entries)
+            {
+                token.ThrowIfCancellationRequested();
+                if (!ClipboardHistory.Matches(e, query)) continue;
+                string title = e.Display.Length > 512 ? e.Display[..512] + "…" : e.Display;
+                var item = new CommandItem("clipboard:" + e.Id, title, e.Subtitle(DateTimeOffset.UtcNow), CommandKind.Clipboard, "\uE8A5",
+                    () => UseClipboardAsync(e, paste: true), () => UseClipboardAsync(e, paste: false), ActionHint: "Paste", RecordUsage: false);
+                matches.Add(new(item, 1, CommandMatcher.Match(item.Title, query, allowFuzzy: false).Highlights));
+            }
+            return matches;
+        }, token);
+    }
+    private async Task UseClipboardAsync(ClipboardEntry entry, bool paste)
+    {
+        if (disposed || !clipboard.History.Enabled || !clipboard.History.Snapshot().Any(e => e.Id == entry.Id)) return;
+        nint target = capturedTarget; uint process = capturedProcess;
+        try { clipboard.Copy(entry.Text); }
+        catch { notify("Clipboard is busy. Try again."); return; }
+        if (!paste) { notify("Copied to clipboard."); return; }
+        if (!await ClipboardPaste.TryPasteAsync(target, process, window.Handle)) notify("Copied. Press Ctrl+V to paste.");
     }
     public void Open() => Toggle(CommandPaletteWindow.Foreground, System.Diagnostics.Stopwatch.GetTimestamp(), onlyOpen: true);
-    private void Toggle(nint target, long started, bool onlyOpen = false)
+    private void Toggle(nint target, long started, bool onlyOpen = false, PaletteMode mode = PaletteMode.Commands)
     {
         if (disposed || !available()) return;
-        if (window.IsOpen) { if (!onlyOpen) window.HidePalette(); return; }
+        if (mode == PaletteMode.Clipboard && !clipboard.History.Enabled) return;
+        if (window.IsOpen)
+        {
+            if (mode == PaletteMode.Clipboard && window.Mode != mode) window.SetMode(mode);
+            else if (!onlyOpen) window.HidePalette();
+            return;
+        }
         capturedTarget = target; capturedProcess = CommandPaletteWindow.ProcessOf(target);
         Snapshot(capturedTarget, capturedProcess);
-        window.Open(target, services.Settings.Theme, started);
+        window.Open(target, services.Settings.Theme, started, mode);
     }
     private void Snapshot(nint target, uint targetProcess)
     {
@@ -66,6 +137,9 @@ internal sealed class CommandPaletteService : IDisposable
             () => { EnsureIdle(); showMain(); vm.Edit(w); return Task.CompletedTask; }, w.Name, "Switch")).ToArray();
         Volatile.Write(ref workspaces, workspaceItems);
         var list = new List<CommandItem>();
+        if (clipboard.History.Enabled)
+            list.Add(new("action:clipboard-history", "Clipboard history", "Search text copied during this session", CommandKind.Action, "\uE8A5",
+                () => { window.SetMode(PaletteMode.Clipboard); return Task.CompletedTask; }, ActionHint: "Open", KeepsPaletteOpen: true));
         var state = new PaletteActionState(vm.IsBusy, vm.Focus.IsRunning, vm.Focus.CanStart, services.Settings.WindowShortcutsEnabled, hasTarget);
         void Add(string id, string title, Func<Task> run, string glyph = "\uE8A7", string hint = "Run") =>
             list.Add(new("action:" + id, title, "FlowDesk action", CommandKind.Action, glyph, run, ActionHint: hint));
@@ -128,6 +202,7 @@ internal sealed class CommandPaletteService : IDisposable
     {
         if (disposed) return; disposed = true;
         index.Apps.Changed -= IndexChanged; index.Recent.Changed -= IndexChanged;
-        window.Shutdown(); index.Dispose();
+        vm.Settings.ApplyClipboardHistory = null; vm.Settings.ClearClipboardHistory = null;
+        clipboard.Dispose(); window.Shutdown(); index.Dispose();
     }
 }

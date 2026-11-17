@@ -68,7 +68,8 @@ public sealed partial class HotkeysViewModel : ObservableObject
     {
         RefreshCommand.NotifyCanExecuteChanged(); TurnAllOnCommand.NotifyCanExecuteChanged(); RefreshStatus();
     }
-    private bool CanApply => !IsBusy && !owner.Settings.PaletteBusy && owner.Services.Settings.WindowShortcutsEnabled && !owner.Settings.WindowShortcutsBusy;
+    private bool CanEditBindings => !IsBusy && !owner.Settings.PaletteBusy && !owner.Settings.WindowShortcutsBusy;
+    private bool CanApply => CanEditBindings && owner.Services.Settings.WindowShortcutsEnabled;
     private void RebuildGroups()
     {
         Groups.Clear();
@@ -84,9 +85,16 @@ public sealed partial class HotkeysViewModel : ObservableObject
         var settings = owner.Services.Settings;
         var policy = new ShortcutPolicy(settings.DisabledShortcuts);
         var runtime = owner.Services.Hotkeys.ShortcutRuntime;
-        foreach (var row in rows) row.Apply(policy.Enabled(row.Binding.Id), CanApply, ShortcutPresentation.Status(row.Binding, settings.WindowShortcutsEnabled, policy, runtime));
-        int enabled = rows.Count(r => policy.Enabled(r.Binding.Id));
-        int conflicts = rows.Count(r => ShortcutPresentation.Status(r.Binding, settings.WindowShortcutsEnabled, policy, runtime) == ShortcutStatus.Conflict);
+        foreach (var row in rows)
+        {
+            bool clipboard = row.Binding.Id == HotkeyCatalog.ClipboardId;
+            bool module = row.Binding.Id == HotkeyCatalog.PaletteId || (clipboard ? settings.ClipboardHistoryEnabled : settings.WindowShortcutsEnabled);
+            var moduleRuntime = runtime with { Running = row.Binding.Id is HotkeyCatalog.PaletteId or HotkeyCatalog.ClipboardId || runtime.Running };
+            bool canToggle = CanEditBindings && module && (!clipboard || settings.ClipboardHistoryEnabled);
+            row.Apply(policy.Enabled(row.Binding.Id) && (!clipboard || settings.ClipboardHistoryEnabled), canToggle, ShortcutPresentation.Status(row.Binding, module, policy, moduleRuntime));
+        }
+        int enabled = rows.Count(r => r.IsOn);
+        int conflicts = rows.Count(r => r.IsConflict);
         Summary = $"{enabled} of {rows.Count} on · {conflicts} {(conflicts == 1 ? "conflict" : "conflicts")}" + (runtime.Paused ? " · paused" : "");
         RefreshCommand.NotifyCanExecuteChanged(); TurnAllOnCommand.NotifyCanExecuteChanged();
         RefreshOtherInput();
@@ -101,19 +109,21 @@ public sealed partial class HotkeysViewModel : ObservableObject
     }
     internal void Change(HotkeyRowViewModel row, bool enabled)
     {
-        if (!CanApply) { RefreshStatus(); return; }
+        bool independent = row.Binding.Id is HotkeyCatalog.PaletteId or HotkeyCatalog.ClipboardId;
+        if (!CanEditBindings || (!independent && !owner.Services.Settings.WindowShortcutsEnabled) ||
+            (row.Binding.Id == HotkeyCatalog.ClipboardId && !owner.Services.Settings.ClipboardHistoryEnabled)) { RefreshStatus(); return; }
         var ids = new HashSet<string>(new ShortcutPolicy(owner.Services.Settings.DisabledShortcuts).DisabledIds, StringComparer.Ordinal);
         if (enabled) ids.Remove(row.Binding.Id); else ids.Add(row.Binding.Id);
-        _ = ApplyAsync(ids, persist: true);
+        _ = ApplyAsync(ids, persist: true, independent: independent);
     }
     [RelayCommand(CanExecute = nameof(CanApply))]
     private Task RefreshAsync() => ApplyAsync(owner.Services.Settings.DisabledShortcuts, persist: false);
     [RelayCommand(CanExecute = nameof(CanApply))]
     private Task TurnAllOnAsync() => ApplyAsync([], persist: true);
     [RelayCommand] private void OpenSettings() => owner.Navigate(AppPage.Settings);
-    private async Task ApplyAsync(IEnumerable<string>? disabledIds, bool persist)
+    private async Task ApplyAsync(IEnumerable<string>? disabledIds, bool persist, bool independent = false)
     {
-        if (!CanApply) return;
+        if (!CanEditBindings || (!independent && !owner.Services.Settings.WindowShortcutsEnabled)) return;
         var previous = new ShortcutPolicy(owner.Services.Settings.DisabledShortcuts).DisabledIds.ToList();
         var next = new ShortcutPolicy(disabledIds).DisabledIds.ToList();
         // Publish desired state before disabling controls; the native acknowledgement follows.

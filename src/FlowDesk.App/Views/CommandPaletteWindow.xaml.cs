@@ -50,6 +50,11 @@ internal sealed partial class CommandPaletteWindow : Window
     private bool shutdown, opening, running, activationPending;
     public bool IsOpen { get; private set; }
     public Action? BeforeQuery { get; set; }
+    public nint Handle => hwnd;
+    public PaletteMode Mode { get; private set; }
+    public Func<bool>? ClipboardEnabled { get; set; }
+    public Func<string, CancellationToken, Task<IReadOnlyList<CommandMatch>>>? ClipboardQuery { get; set; }
+    public Action? ClearClipboard { get; set; }
     public static nint Foreground => GetForegroundWindow();
     public static uint ProcessOf(nint window) { GetWindowThreadProcessId(window, out uint process); return process; }
     public static string ClassOf(nint window) { var text = new StringBuilder(256); GetClassNameW(window, text, text.Capacity); return text.ToString(); }
@@ -95,6 +100,11 @@ internal sealed partial class CommandPaletteWindow : Window
         {
             if (IsOpen && GetForegroundWindow() == hwnd && SearchBox.Focus(FocusState.Programmatic)) TraceOpen(openStarted, true);
         };
+        SearchBox.PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == VirtualKey.Back && ClipboardModeRules.Backspace(Mode, SearchBox.Text) != Mode)
+            { e.Handled = true; SetMode(PaletteMode.Commands); }
+        };
         Results.ContainerContentChanging += (_, e) =>
         {
             if (!e.InRecycleQueue && e.Item is PaletteResultRow row) AutomationProperties.SetName(e.ItemContainer, row.AutomationName);
@@ -102,7 +112,7 @@ internal sealed partial class CommandPaletteWindow : Window
         AppWindow.Hide();
         TraceSurface("constructed-hidden");
     }
-    public void Open(nint previous, string theme, long started)
+    public void Open(nint previous, string theme, long started, PaletteMode mode = PaletteMode.Commands)
     {
         if (shutdown || running) return;
         opening = true;
@@ -120,7 +130,7 @@ internal sealed partial class CommandPaletteWindow : Window
             workArea = new(info.Work.Left, info.Work.Top, info.Work.Right - info.Work.Left, info.Work.Bottom - info.Work.Top);
             monitorScale = scale;
             ResizeForResults(0);
-            IsOpen = true; SearchBox.Text = ""; Results.ItemsSource = null; SetStatus("Recent");
+            IsOpen = true; SetMode(mode); SearchBox.Text = ""; Results.ItemsSource = null; SetStatus(mode == PaletteMode.Clipboard ? "Clipboard" : "Recent");
             acrylic.Update(true, Root.ActualTheme);
             AppWindow.Show(); Activate();
             EnsureBorderlessFrame();
@@ -140,6 +150,7 @@ internal sealed partial class CommandPaletteWindow : Window
         IsOpen = false; activationPending = false; generation++; openEpoch++; query?.Cancel();
         acrylic.Update(false, Root.ActualTheme);
         AppWindow.Hide();
+        Results.ItemsSource = null;
         TraceSurface("hidden");
     }
     private async Task RetryFocusAsync(long epoch, nint previous, long started)
@@ -171,7 +182,18 @@ internal sealed partial class CommandPaletteWindow : Window
         if (StatusText.IsLoaded) FrameworkElementAutomationPeer.CreatePeerForElement(StatusText)?.RaiseAutomationEvent(AutomationEvents.LiveRegionChanged);
     }
     private void SearchBox_TextChanged(object sender, TextChangedEventArgs e) { if (IsOpen && !opening) QueueQuery(); }
-    public void RefreshResults() { if (IsOpen) QueueQuery(true); }
+    public void SetMode(PaletteMode requested)
+    {
+        Mode = ClipboardModeRules.Resolve(requested, ClipboardEnabled?.Invoke() == true);
+        Results.ItemsSource = null;
+        ClipboardModeLabel.Visibility = ClearClipboardButton.Visibility = Mode == PaletteMode.Clipboard ? Visibility.Visible : Visibility.Collapsed;
+        SearchBox.PlaceholderText = Mode == PaletteMode.Clipboard ? "Search clipboard history…" : "Search workspaces, apps, actions…";
+        KeyboardHint.Text = Mode == PaletteMode.Clipboard ? "Backspace on empty search · Commands" : "↑ ↓ to select · Enter to open · Ctrl+Enter for more";
+        SearchBox.Text = "";
+        if (IsOpen && !opening) QueueQuery();
+    }
+    private void ClearClipboard_Click(object sender, RoutedEventArgs e) { ClearClipboard?.Invoke(); SearchBox.Focus(FocusState.Programmatic); }
+    public void RefreshResults() { if (IsOpen) { if (Mode == PaletteMode.Clipboard) Results.ItemsSource = null; QueueQuery(true); } }
     private async void QueueQuery(bool preserveSelection = false)
     {
         query?.Cancel(); query?.Dispose(); query = new();
@@ -179,8 +201,11 @@ internal sealed partial class CommandPaletteWindow : Window
         try
         {
             BeforeQuery?.Invoke();
+            PaletteMode queryMode = Mode;
             await Task.Delay(20, token);
-            var matches = await Task.Run(() => search.Query(text, token), token);
+            var matches = queryMode == PaletteMode.Clipboard
+                ? ClipboardQuery is null ? [] : await ClipboardQuery(text, token)
+                : await Task.Run(() => search.Query(text, token), token);
             if (!IsOpen || generation != expected || token.IsCancellationRequested) return;
             var rows = matches.Select(m => new PaletteResultRow(m)).ToArray();
             string? selectedId = preserveSelection ? (Results.SelectedItem as PaletteResultRow)?.Match.Item.Id : null;
@@ -188,7 +213,9 @@ internal sealed partial class CommandPaletteWindow : Window
             int selectedIndex = Array.FindIndex(rows, r => r.Match.Item.Id == selectedId);
             Results.SelectedIndex = rows.Length > 0 ? Math.Max(0, selectedIndex) : -1;
             ResizeForResults(rows.Length);
-            SetStatus(rows.Length == 0 ? (string.IsNullOrWhiteSpace(text) ? "Recent · Your recently used commands will appear here" : "No results")
+            SetStatus(queryMode == PaletteMode.Clipboard
+                ? rows.Length == 0 ? (string.IsNullOrWhiteSpace(text) ? "No history yet · Copy text to get started" : "No matching clipboard items") : $"{rows.Length} clipboard items"
+                : rows.Length == 0 ? (string.IsNullOrWhiteSpace(text) ? "Recent · Your recently used commands will appear here" : "No results")
                 : (string.IsNullOrWhiteSpace(text) ? "Recent · " : "") + $"{rows.Length} results");
             foreach (var row in rows)
             {
@@ -231,6 +258,8 @@ internal sealed partial class CommandPaletteWindow : Window
     private void Root_KeyDown(object sender, KeyRoutedEventArgs e)
     {
         if (e.Handled) return;
+        if (e.Key == VirtualKey.Back && ClipboardModeRules.Backspace(Mode, SearchBox.Text) != Mode)
+        { e.Handled = true; SetMode(PaletteMode.Commands); return; }
         if (e.Key == VirtualKey.Escape) { e.Handled = true; HidePalette(); }
         if (e.Key == VirtualKey.Enter && Results.SelectedItem is PaletteResultRow row)
         { e.Handled = true; _ = RunAsync(row, (GetKeyState(0x11) & 0x8000) != 0); }
@@ -239,18 +268,23 @@ internal sealed partial class CommandPaletteWindow : Window
     private void Results_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         foreach (var old in e.RemovedItems.OfType<PaletteResultRow>()) old.Hint = "";
-        foreach (var row in e.AddedItems.OfType<PaletteResultRow>()) row.Hint = "Enter · " + row.Match.Item.ActionHint;
+        foreach (var row in e.AddedItems.OfType<PaletteResultRow>()) row.Hint = row.Match.Item.Kind == CommandKind.Clipboard ? "Enter · Paste   Ctrl+Enter · Copy" : "Enter · " + row.Match.Item.ActionHint;
     }
     private async Task RunAsync(PaletteResultRow row, bool secondary)
     {
         if (running || !IsOpen) return;
         var action = secondary ? row.Match.Item.Secondary : row.Match.Item.Primary;
         if (action is null) { SetStatus("No secondary action for this item"); return; }
-        running = true; HidePalette();
+        running = true;
+        if (!row.Match.Item.KeepsPaletteOpen) HidePalette();
         try
         {
-            await action(); usage.Record(row.Match.Item.Id, DateTimeOffset.UtcNow);
-            try { await Task.Run(usage.SaveAsync); } catch (Exception ex) { Log(ex); }
+            await action();
+            if (row.Match.Item.RecordUsage)
+            {
+                usage.Record(row.Match.Item.Id, DateTimeOffset.UtcNow);
+                try { await Task.Run(usage.SaveAsync); } catch (Exception ex) { Log(ex); }
+            }
         }
         catch (Exception ex) { Log(ex); notify("That command could not run. The app or file may no longer be available."); }
         finally { running = false; }

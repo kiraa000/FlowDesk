@@ -28,14 +28,17 @@ public sealed class HotkeyService(string dataDirectory, VirtualDesktopService? s
     private IQuickLookInput? _quickLook;
     private IHotCornerInput? _hotCorners;
     private Action? _palette;
+    private Action? _clipboard;
+    private bool _clipboardEnabled;
     public void TogglePause() => _host?.TogglePause();
-    public async Task SetPaletteAsync(Action? callback)
+    public async Task SetPaletteAsync(Action? callback, Action? clipboard = null)
     {
         await _gate.WaitAsync().ConfigureAwait(false);
         try
         {
             if (_disposed) return;
             _palette = callback;
+            _clipboard = clipboard;
             // Installed once at startup, removed only at shutdown. Other modules retain in-place policy updates.
             await StopCoreAsync().ConfigureAwait(false);
             if (_palette is not null || _shortcutsRequested || _quickLook is not null || _hotCorners is not null)
@@ -61,7 +64,7 @@ public sealed class HotkeyService(string dataDirectory, VirtualDesktopService? s
                 host?.KeyboardHookAvailable == true, host?.BindingStatus ?? ShortcutRegistrationSnapshot.Empty, host?.IsPaused == true);
         }
     }
-    public async Task SetDisabledShortcutsAsync(IEnumerable<string>? ids)
+    public async Task SetDisabledShortcutsAsync(IEnumerable<string>? ids, bool? clipboardEnabled = null)
     {
         var normalized = new ShortcutPolicy(ids).DisabledIds;
         await _gate.WaitAsync().ConfigureAwait(false);
@@ -69,18 +72,22 @@ public sealed class HotkeyService(string dataDirectory, VirtualDesktopService? s
         {
             if (_disposed) return;
             var previous = _disabledShortcuts;
+            bool previousClipboard = _clipboardEnabled;
+            _clipboardEnabled = clipboardEnabled ?? _clipboardEnabled;
             _disabledShortcuts = normalized;
-            try { if (_host?.IsRunning == true) await _host.ConfigureBindingsAsync(normalized).ConfigureAwait(false); }
+            try { if (_host?.IsRunning == true) await _host.ConfigureBindingsAsync(EffectiveDisabled()).ConfigureAwait(false); }
             catch
             {
                 _disabledShortcuts = previous;
-                try { if (_host?.IsRunning == true) await _host.ConfigureBindingsAsync(previous).ConfigureAwait(false); }
+                _clipboardEnabled = previousClipboard;
+                try { if (_host?.IsRunning == true) await _host.ConfigureBindingsAsync(EffectiveDisabled()).ConfigureAwait(false); }
                 catch (Exception) { Notify?.Invoke("Some shortcuts could not be restored. Turn window shortcuts off and on to retry."); }
                 throw;
             }
         }
         finally { _gate.Release(); }
     }
+    private IEnumerable<string> EffectiveDisabled() => _clipboardEnabled ? _disabledShortcuts : _disabledShortcuts.Append(HotkeyCatalog.ClipboardId);
     public bool DesktopsAvailable => _desktops?.IsAvailable == true;
     public bool WheelAvailable => _host?.WheelHookAvailable == true;
     public bool WinWheelAvailable => _host?.WinWheelHookAvailable == true;
@@ -195,7 +202,7 @@ public sealed class HotkeyService(string dataDirectory, VirtualDesktopService? s
         try
         {
             if (_disposed) return;
-            _shortcutsRequested = false; _quickLook = null; _hotCorners = null; _palette = null;
+            _shortcutsRequested = false; _quickLook = null; _hotCorners = null; _palette = null; _clipboard = null;
             await StopCoreAsync().ConfigureAwait(false);
         }
         finally { _gate.Release(); }
@@ -241,7 +248,7 @@ public sealed class HotkeyService(string dataDirectory, VirtualDesktopService? s
         HotkeyHost? host = null;
         host = new HotkeyHost(new Win32WindowOps(), _desktops, Notify,
             () => _terminal.Open(TerminalProgram?.Invoke(), Notify),
-            () => RequestReload(host!), _shortcutsRequested, _quickLook, _hotCorners, _disabledShortcuts, _palette);
+            () => RequestReload(host!), _shortcutsRequested, _quickLook, _hotCorners, EffectiveDisabled(), _palette, _clipboard);
         try
         {
             await host.StartAsync().ConfigureAwait(false);

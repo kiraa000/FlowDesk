@@ -45,6 +45,8 @@ public sealed class AppSettings
     }
     /// <summary>Plain Space previews in Explorer/desktop; opt-in, including for older settings files.</summary>
     public bool QuickLookEnabled { get; set; }
+    /// <summary>Opt-in, memory-only clipboard history; absent in old files means off.</summary>
+    public bool ClipboardHistoryEnabled { get; set; }
     public bool HotCornersEnabled { get; set; }
     public FlowDesk.Core.HotCorners.HotCornerAction HotCornerTopLeft { get; set; } = FlowDesk.Core.HotCorners.HotCornerAction.TaskView;
     public FlowDesk.Core.HotCorners.HotCornerAction HotCornerTopRight { get; set; }

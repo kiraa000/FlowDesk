@@ -288,12 +288,12 @@ public sealed class HotkeyCatalogTests
     {
         var all = HotkeyCatalog.All;
 
-        Assert.Equal(39, all.Count);
+        Assert.Equal(40, all.Count);
         Assert.Equal(10, all.Count(binding => binding.IsDesktop));
         Assert.Equal(8, all.Count(binding => binding.Id.StartsWith("snap-", StringComparison.Ordinal)));
         Assert.Equal(8, all.Count(binding => binding.Id.StartsWith("focus-", StringComparison.Ordinal)));
         Assert.Equal(4, all.Count(binding => binding.IsMouseWheel));
-        Assert.Equal(35, HotkeyCatalog.Registerable.Count());
+        Assert.Equal(36, HotkeyCatalog.Registerable.Count());
         Assert.Equal(all.Count, all.Select(binding => binding.Id).Distinct().Count());
     }
 

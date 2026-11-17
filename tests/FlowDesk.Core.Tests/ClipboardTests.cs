@@ -42,6 +42,7 @@ public sealed class ClipboardTests
     {
         var entry = new ClipboardEntry(1, "alpha banana gamma", Now);
         Assert.True(ClipboardHistory.Matches(entry, "banana")); Assert.False(ClipboardHistory.Matches(entry, "abgm"));
+        Assert.True(ClipboardHistory.Matches(new(2, "a\r\n\tb", Now), "a b"));
         Assert.Equal(PaletteMode.Commands, ClipboardModeRules.Resolve(PaletteMode.Clipboard, false));
         Assert.Equal(PaletteMode.Commands, ClipboardModeRules.Backspace(PaletteMode.Clipboard, ""));
         Assert.Equal(PaletteMode.Clipboard, ClipboardModeRules.Backspace(PaletteMode.Clipboard, "x"));

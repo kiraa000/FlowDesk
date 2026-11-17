@@ -46,14 +46,36 @@
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
-            <TextBox x:Name="SearchBox"
-                     MaxLength="256"
-                     Grid.Row="0"
-                     Style="{StaticResource PaletteSearchBoxStyle}"
-                     PlaceholderText="Search workspaces, apps, actions…"
-                     AutomationProperties.Name="Command palette search"
-                     TextChanged="SearchBox_TextChanged"
-                     KeyDown="SearchBox_KeyDown" />
+            <Grid Grid.Row="0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="ClipboardModeLabel"
+                           Text="Clipboard"
+                           Style="{StaticResource BodyTextBlockStyle}"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           Margin="0,0,8,0"
+                           VerticalAlignment="Center"
+                           Visibility="Collapsed" />
+                <TextBox x:Name="SearchBox"
+                         MaxLength="256"
+                         Grid.Column="1"
+                         Style="{StaticResource PaletteSearchBoxStyle}"
+                         PlaceholderText="Search workspaces, apps, actions…"
+                         AutomationProperties.Name="Command palette search"
+                         TextChanged="SearchBox_TextChanged"
+                         KeyDown="SearchBox_KeyDown" />
+                <Button x:Name="ClearClipboardButton"
+                        Grid.Column="2"
+                        Content="Clear"
+                        MinHeight="32"
+                        Margin="8,0,0,0"
+                        VerticalAlignment="Center"
+                        Visibility="Collapsed"
+                        Click="ClearClipboard_Click" />
+            </Grid>
 
             <Border Grid.Row="1" VerticalAlignment="Top"
                     Background="Transparent"
@@ -138,7 +160,8 @@
                            AutomationProperties.Name="Command palette results"
                            VerticalAlignment="Center"
                            TextTrimming="CharacterEllipsis" />
-                <TextBlock Grid.Column="1"
+                <TextBlock x:Name="KeyboardHint"
+                           Grid.Column="1"
                            Text="↑ ↓ to select · Enter to open · Ctrl+Enter for more"
                            Style="{StaticResource CaptionTextBlockStyle}"
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"

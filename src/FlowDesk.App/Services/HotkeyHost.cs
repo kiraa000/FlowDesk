@@ -72,6 +72,7 @@ public sealed class HotkeyHost : IDisposable
     private readonly Action? _openTerminal;
     private readonly Action? _reload;
     private readonly Action? _palette;
+    private readonly Action? _clipboard;
     private Thread? _messageThread;
     private Thread? _workerThread;
     private uint _threadId;
@@ -83,7 +84,7 @@ public sealed class HotkeyHost : IDisposable
 
     public HotkeyHost(IWindowOps windows, IVirtualDesktops? desktops, Action<string>? notify,
         Action? openTerminal = null, Action? reload = null, bool windowShortcuts = true, IQuickLookInput? quickLook = null,
-        IHotCornerInput? hotCorners = null, IEnumerable<string>? disabledShortcutIds = null, Action? palette = null)
+        IHotCornerInput? hotCorners = null, IEnumerable<string>? disabledShortcutIds = null, Action? palette = null, Action? clipboard = null)
     {
         _desktops = desktops;
         _notify = notify;
@@ -93,6 +94,7 @@ public sealed class HotkeyHost : IDisposable
         _openTerminal = openTerminal;
         _reload = reload;
         _palette = palette;
+        _clipboard = clipboard;
         _windowShortcuts = windowShortcuts;
         _quickLook = quickLook;
         _hotCorners = hotCorners;
@@ -352,7 +354,7 @@ public sealed class HotkeyHost : IDisposable
         var policy = Volatile.Read(ref _policy);
         bool desktopAvailable = _desktops?.IsAvailable == true;
         Volatile.Write(ref _desktopBindingsAvailable, desktopAvailable);
-        var effective = policy.ForModules(_windowShortcuts, _palette is not null);
+        var effective = policy.ForModules(_windowShortcuts, _palette is not null, _clipboard is not null);
         var snapshot = _registered.Apply(effective,
             desktopAvailable, new NativeRegistrar(this));
         Volatile.Write(ref _bindingStatus, snapshot);
@@ -380,6 +382,7 @@ public sealed class HotkeyHost : IDisposable
         if (!policy.Enabled(binding.Id)) return;
         // Do not queue behind slow window actions; WM_HOTKEY grants this process foreground rights.
         if (binding.Id == HotkeyCatalog.PaletteId) { _palette?.Invoke(); return; }
+        if (binding.Id == HotkeyCatalog.ClipboardId) { _clipboard?.Invoke(); return; }
         SendAltMenuMask();
         Enqueue(() => HandleBinding(binding, policy));
     }

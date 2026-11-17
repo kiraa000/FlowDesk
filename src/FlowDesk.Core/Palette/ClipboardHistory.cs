@@ -8,7 +8,7 @@ public sealed record ClipboardPrivacy(bool Excluded = false, uint? IncludeHistor
 }
 public sealed record ClipboardEntry(long Id, string Text, DateTimeOffset CapturedAt)
 {
-    public string Display => Regex.Replace(Text.Trim(), @"\s+", " ");
+    public string Display { get; } = Regex.Replace(Text.Trim(), @"\s+", " ");
     public string Subtitle(DateTimeOffset now)
     {
         var age = now - CapturedAt;
@@ -35,7 +35,7 @@ public sealed class ClipboardHistory
         if (items.Count > MaxItems) items.RemoveAt(items.Count - 1);
         return true;
     }
-    public static bool Matches(ClipboardEntry entry, string query) => string.IsNullOrWhiteSpace(query) || CommandMatcher.Match(entry.Text, query, allowFuzzy: false).Score > 0;
+    public static bool Matches(ClipboardEntry entry, string query) => string.IsNullOrWhiteSpace(query) || CommandMatcher.Match(entry.Display, query, allowFuzzy: false).Score > 0;
 }
 
 public enum PaletteMode { Commands, Clipboard }
