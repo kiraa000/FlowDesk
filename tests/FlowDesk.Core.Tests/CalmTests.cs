@@ -96,10 +96,11 @@ public class CalmTests
     [Fact] public void ManagedPolicyCannotBeChangedOrCounted()
     {
         var r = new FakeRegistry(); r.Write(new(@"SOFTWARE\Policies\Microsoft\Dsh", "AllowNewsAndInterests", true), RegistryValue.Dword(0));
+        r.Write(new(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion", "EditionID", true), new(1, "\"Professional\""));
         var row = Row("taskbar-widgets");
         Assert.Equal(CalmState.Managed, CalmEvaluator.Scan(r, new(26300, 0)).Single(x => x.Setting.Id == row.Id).State);
         Assert.Throws<InvalidOperationException>(() => new CalmChanges(r, new MemoryJournal()).Apply(row, true));
-        Assert.Single(r.Values);
+        Assert.Equal(2, r.Values.Count);
     }
     [Fact] public void CalmAllExcludesStartupAndCustom()
     {
@@ -138,6 +139,7 @@ public class CalmTests
     {
         var r = new FakeRegistry(); var changes = new CalmChanges(r, new MemoryJournal()); var row = Row("taskbar-widgets");
         changes.Apply(row, true);
+        r.Write(new(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion", "EditionID", true), new(1, "\"Professional\""));
         r.Write(new(@"SOFTWARE\Policies\Microsoft\Dsh", "AllowNewsAndInterests", true), RegistryValue.Dword(0));
         Assert.Throws<InvalidOperationException>(() => changes.Undo(row.Id));
         Assert.True(changes.HasUndo(row.Id)); Assert.Equal(0, r.Read(row.Values[0].Address)?.AsDword());
@@ -152,6 +154,7 @@ public class CalmTests
     {
         var r = new FakeRegistry(); var changes = new CalmChanges(r, new MemoryJournal());
         changes.Apply(Row("taskbar-widgets"), true); changes.Apply(Row("windows-tips"), true);
+        r.Write(new(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion", "EditionID", true), new(1, "\"Professional\""));
         r.Write(new(@"SOFTWARE\Policies\Microsoft\Dsh", "AllowNewsAndInterests", true), RegistryValue.Dword(0));
         Assert.Throws<AggregateException>(() => changes.UndoAll());
         Assert.True(changes.HasUndo("taskbar-widgets")); Assert.False(changes.HasUndo("windows-tips"));
@@ -164,15 +167,93 @@ public class CalmTests
         changes.SetStartup(entry, false); changes.SetStartup(entry, true);
         Assert.Null(r.Read(entry.Approval)); Assert.False(changes.HasAnyUndo);
     }
+    [Theory]
+    [InlineData("Professional", 1, false)] [InlineData("Enterprise", 1, true)] [InlineData("Education", 1, true)]
+    [InlineData("ProfessionalN", 1, false)] [InlineData("EnterpriseS", 1, true)] [InlineData("IoTEnterprise", 1, true)]
+    [InlineData("Enterprise", 0, false)] [InlineData("Enterprise", 9, false)] [InlineData("Core", 1, false)] [InlineData("Unknown", 1, false)]
+    public void ConsumerPolicyRequiresSupportedEditionAndEnforcingValue(string edition, int value, bool expected)
+    {
+        var r = new FakeRegistry(); SetEdition(r, edition);
+        r.Write(new(@"SOFTWARE\Policies\Microsoft\Windows\CloudContent", "DisableWindowsConsumerFeatures", true), RegistryValue.Dword(value));
+        Assert.Equal(expected, CalmEvaluator.IsManaged(Row("start-suggestions"), r));
+        // Consumer experiences alone is NOT a blanket lock over every CloudContent-related row.
+        Assert.False(CalmEvaluator.IsManaged(Row("lock-screen-fun-facts"), r));
+    }
+    [Theory]
+    [InlineData("start-suggestions")] [InlineData("windows-tips")] [InlineData("welcome-experience")]
+    [InlineData("settings-suggested-content")] [InlineData("lock-screen-fun-facts")]
+    public void SpotlightPolicyIsInertOnProButEnforcesOnEnterprise(string id)
+    {
+        var r = new FakeRegistry(); SetEdition(r, "Professional");
+        var address = new RegistryAddress(@"SOFTWARE\Policies\Microsoft\Windows\CloudContent", "DisableWindowsSpotlightFeatures");
+        r.Write(address, RegistryValue.Dword(1));
+        Assert.False(CalmEvaluator.IsManaged(Row(id), r));
+        SetEdition(r, "Enterprise"); Assert.True(CalmEvaluator.IsManaged(Row(id), r));
+        r.Write(address, RegistryValue.Dword(0)); Assert.False(CalmEvaluator.IsManaged(Row(id), r));
+        r.Write(address, new(1, "\"1\"")); Assert.False(CalmEvaluator.IsManaged(Row(id), r));
+    }
+    [Theory] [InlineData(0, true)] [InlineData(1, false)] [InlineData(2, false)]
+    public void AllowWidgetsOnlyLocksWhenDisallowed(int value, bool expected)
+    {
+        var r = new FakeRegistry(); SetEdition(r, "Professional");
+        r.Write(new(@"SOFTWARE\Policies\Microsoft\Dsh", "AllowNewsAndInterests", true), RegistryValue.Dword(value));
+        Assert.Equal(expected, CalmEvaluator.IsManaged(Row("taskbar-widgets"), r));
+    }
+    [Fact] public void UndoRemovesOriginallyMissingKeyButNotAnExistingEmptyKey()
+    {
+        var row = Row("backup-reminder-toasts"); string path = row.Values[0].Address.Path;
+        var r = new FakeRegistry(); var store = new MemoryJournal(); var changes = new CalmChanges(r, store);
+        changes.Apply(row, true); Assert.True(r.KeyExists(path));
+        Assert.True(store.Load().Rows[row.Id][0].KeyWasMissing);
+        new CalmChanges(r, store).Undo(row.Id); Assert.False(r.KeyExists(path));
+        r.Keys.Add(path); changes = new(r, new MemoryJournal());
+        changes.Apply(row, true); changes.Undo(row.Id); Assert.True(r.KeyExists(path));
+    }
+    [Theory] [InlineData(false)] [InlineData(true)]
+    public void UndoNeverRemovesNewForeignValueOrSubkey(bool subkey)
+    {
+        var row = Row("backup-reminder-toasts"); string path = row.Values[0].Address.Path;
+        var r = new FakeRegistry(); var changes = new CalmChanges(r, new MemoryJournal());
+        changes.Apply(row, true);
+        if (subkey) r.Keys.Add(path + "\\Foreign"); else r.Write(new(path, "Foreign"), RegistryValue.Dword(7));
+        changes.Undo(row.Id); Assert.True(r.KeyExists(path));
+        Assert.Null(r.Read(row.Values[0].Address));
+        if (!subkey) Assert.Equal(7, r.Read(new(path, "Foreign"))?.AsDword());
+    }
+    [Fact] public void SharedNewKeyCleanupSurvivesUndoOrderAndRestart()
+    {
+        var r = new FakeRegistry(); var store = new MemoryJournal(); var changes = new CalmChanges(r, store);
+        var first = Row("start-recommendations"); var second = Row("start-account-notifications"); string path = first.Values[0].Address.Path;
+        changes.Apply(first, true); changes.Apply(second, true);
+        changes.Undo(first.Id); Assert.True(r.KeyExists(path));
+        Assert.True(store.Load().Rows[second.Id][0].KeyWasMissing);
+        new CalmChanges(r, store).UndoAll(); Assert.False(r.KeyExists(path));
+    }
+    [Fact] public void OldJournalWithoutKeyMetadataStillReadsAndDoesNotRemoveKey()
+    {
+        var row = Row("backup-reminder-toasts"); var r = new FakeRegistry(); r.Write(row.Values[0].Address, RegistryValue.Dword(0));
+        var old = new CalmJournal { Rows = { [row.Id] = [new(row.Values[0].Address, null)] } };
+        string json = old.ToJson().Replace(",\"KeyWasMissing\":false", "");
+        var store = new MemoryJournal(); store.Save(CalmJournal.FromJson(json));
+        new CalmChanges(r, store).UndoAll();
+        Assert.Null(r.Read(row.Values[0].Address)); Assert.True(r.KeyExists(row.Values[0].Address.Path));
+    }
+    private static void SetEdition(FakeRegistry registry, string edition) => registry.Write(new(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion", "EditionID", true), new(1, System.Text.Json.JsonSerializer.Serialize(edition)));
     private sealed class FakeFolder : IStartupFolder { public IReadOnlyList<StartupFile> Entries() => [new("App.lnk", "X:\\Startup\\App.lnk")]; }
     private sealed class FakeRegistry : IRegistryAccess
     {
         public Dictionary<RegistryAddress, RegistryValue> Values { get; } = [];
+        public HashSet<string> Keys { get; } = new(StringComparer.OrdinalIgnoreCase);
         public int FailWriteNumber; private int writes;
         public RegistryValue? Read(RegistryAddress a) => Values.GetValueOrDefault(a);
-        public void Write(RegistryAddress a, RegistryValue v) { if (++writes == FailWriteNumber) throw new IOException(); Values[a] = v; }
+        public void Write(RegistryAddress a, RegistryValue v) { if (++writes == FailWriteNumber) throw new IOException(); Values[a] = v; Keys.Add(a.Path); }
         public void Delete(RegistryAddress a) => Values.Remove(a);
         public IReadOnlyList<string> ValueNames(string path) => Values.Keys.Where(a => a.Path == path).Select(a => a.Name).ToArray();
+        public bool KeyExists(string path) => Keys.Contains(path);
+        public void DeleteKeyIfEmpty(string path)
+        {
+            if (!Values.Keys.Any(a => a.Path.Equals(path, StringComparison.OrdinalIgnoreCase)) && !Keys.Any(p => p.StartsWith(path + "\\", StringComparison.OrdinalIgnoreCase))) Keys.Remove(path);
+        }
     }
     private sealed class MemoryJournal : ICalmJournalStore
     {

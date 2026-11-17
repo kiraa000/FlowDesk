@@ -13,6 +13,7 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\FlowDesk.Core\FlowDesk.Core.csproj" />
@@ -24,7 +25,9 @@
     <None Include="..\..\src\FlowDesk.App\App.xaml"
           Link="Fixtures\App.xaml" TargetPath="Fixtures\App.xaml" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\FlowDesk.App\Views\HotkeysPage.xaml"
-          Link="Fixtures\HotkeysPage.xaml" TargetPath="Fixtures\HotkeysPage.xaml" CopyToOutputDirectory="PreserveNewest" />
+           Link="Fixtures\HotkeysPage.xaml" TargetPath="Fixtures\HotkeysPage.xaml" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\src\FlowDesk.App\Views\CalmPage.xaml"
+           Link="Fixtures\CalmPage.xaml" TargetPath="Fixtures\CalmPage.xaml" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\..\src\FlowDesk.App\Tour\TourStateMachine.cs" Link="TourStateMachine.cs" />
@@ -44,6 +47,9 @@
     <Compile Include="..\..\src\FlowDesk.App\Services\LayoutSelection.cs" Link="LayoutSelection.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\StartupRegistration.cs" Link="StartupRegistration.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\CalmWindows.cs" Link="CalmWindows.cs" />
+    <Compile Include="..\..\src\FlowDesk.App\Services\ExplorerRestartWait.cs" Link="ExplorerRestartWait.cs" />
+    <Compile Include="..\..\src\FlowDesk.App\ViewModels\CalmRows.cs" Link="CalmRows.cs" />
+    <Compile Include="..\..\src\FlowDesk.App\ViewModels\CalmScanSession.cs" Link="CalmScanSession.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\CrashLog.cs" Link="CrashLog.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\ActivationRouter.cs" Link="ActivationRouter.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Autosave\AutoSaveCoordinator.cs" Link="AutoSaveCoordinator.cs" />

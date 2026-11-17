@@ -2,7 +2,7 @@ using System.Text.Json;
 
 namespace FlowDesk.Core.Calm;
 
-public sealed record CalmOriginal(RegistryAddress Address, RegistryValue? Previous);
+public sealed record CalmOriginal(RegistryAddress Address, RegistryValue? Previous, bool KeyWasMissing = false);
 public sealed class CalmJournal
 {
     public int Version { get; set; } = 1;
@@ -34,7 +34,7 @@ public sealed class CalmChanges(IRegistryAccess registry, ICalmJournalStore stor
     {
         lock (gate)
         {
-            if (CalmEvaluator.IsManaged(setting, registry)) throw new InvalidOperationException("This setting is managed by your organization.");
+            if (CalmEvaluator.IsManaged(setting, registry)) throw new InvalidOperationException("Set by a policy on this PC.");
             if (!calm && searchChoice is null && Journal.Rows.ContainsKey(setting.Id)) { UndoLocked(setting.Id); return; }
             if (setting.SearchChoice && searchChoice is not null && searchChoice is not (0 or 1 or 2)) throw new ArgumentOutOfRangeException(nameof(searchChoice));
             Change(setting.Id, setting.Values.Select(v => (v.Address, RegistryValue.Dword(setting.SearchChoice && searchChoice.HasValue ? searchChoice.Value : calm ? v.Calm : v.On))).ToArray());
@@ -58,7 +58,7 @@ public sealed class CalmChanges(IRegistryAccess registry, ICalmJournalStore stor
         if (!Journal.Rows.ContainsKey(id))
         {
             var next = CalmJournal.FromJson(Journal.ToJson());
-            next.Rows.Add(id, writes.Select(w => new CalmOriginal(w.Address, registry.Read(w.Address))).ToList());
+            next.Rows.Add(id, writes.Select(w => new CalmOriginal(w.Address, registry.Read(w.Address), !registry.KeyExists(w.Address.Path))).ToList());
             store.Save(next); journal = next;
         }
         // If any write fails, leave ALL originals durable, including the partially applied row.
@@ -90,6 +90,18 @@ public sealed class CalmChanges(IRegistryAccess registry, ICalmJournalStore stor
             else registry.Write(original.Address, original.Previous);
         var next = CalmJournal.FromJson(Journal.ToJson());
         next.Rows.Remove(id);
+        foreach (string path in originals.Where(o => o.KeyWasMissing).Select(o => o.Address.Path).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            // Several rows can share a new key. Transfer cleanup ownership until the final row is
+            // undone, so Undo-all order does not strand an empty key. Never delete foreign content.
+            var remaining = next.Rows.Values.FirstOrDefault(row => row.Any(o => o.Address.Path.Equals(path, StringComparison.OrdinalIgnoreCase)));
+            if (remaining is not null)
+            {
+                int index = remaining.FindIndex(o => o.Address.Path.Equals(path, StringComparison.OrdinalIgnoreCase));
+                remaining[index] = remaining[index] with { KeyWasMissing = true };
+            }
+            else registry.DeleteKeyIfEmpty(path);
+        }
         store.Save(next); journal = next;
     }
     private static void ValidateTargets(string id, List<CalmOriginal> originals)

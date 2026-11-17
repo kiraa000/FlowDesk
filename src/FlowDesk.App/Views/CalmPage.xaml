@@ -20,22 +20,21 @@
                            Foreground="{ThemeResource TextFillColorPrimaryBrush}"
                            TextWrapping="Wrap" />
                 <StackPanel Spacing="8">
-                    <Button Content="Run check-up" Command="{Binding RunCheckCommand}"
-                            Style="{StaticResource AccentButtonStyle}" AccessKey="R"
-                            HorizontalAlignment="Left"
-                            AutomationProperties.Name="Run Windows check-up" />
+                    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Left">
+                        <Button Content="Run check-up" Command="{Binding RunCheckCommand}"
+                                Style="{StaticResource AccentButtonStyle}" AccessKey="R"
+                                AutomationProperties.Name="Run Windows check-up" />
+                        <Button Content="Calm all" Command="{Binding CalmAllCommand}"
+                                IsEnabled="{Binding CanInteract}"
+                                AutomationProperties.Name="Calm all suggested Windows settings" />
+                    </StackPanel>
                     <ContentControl IsEnabled="{Binding CanInteract}"
-                                    HorizontalContentAlignment="Stretch">
-                        <StackPanel Spacing="8" HorizontalAlignment="Left">
-                            <Button Content="Calm all" Command="{Binding CalmAllCommand}"
-                                    HorizontalAlignment="Left"
-                                    AutomationProperties.Name="Calm all suggested Windows settings" />
-                            <Button Content="Undo all FlowDesk changes" Command="{Binding UndoAllCommand}"
-                                    IsEnabled="{Binding HasUndo}"
-                                    HorizontalAlignment="Left"
-                                    AutomationProperties.Name="Undo all FlowDesk changes"
-                                    ToolTipService.ToolTip="Restore the values saved before FlowDesk changed Windows" />
-                        </StackPanel>
+                                    HorizontalContentAlignment="Left">
+                        <HyperlinkButton Content="Undo all FlowDesk changes"
+                                         Command="{Binding UndoAllCommand}"
+                                         IsEnabled="{Binding HasUndo}"
+                                         AutomationProperties.Name="Undo all FlowDesk changes"
+                                         ToolTipService.ToolTip="Restore the values saved before FlowDesk changed Windows" />
                     </ContentControl>
                 </StackPanel>
                 <ProgressBar IsIndeterminate="True"
@@ -80,45 +79,47 @@
                                     </ItemsControl.ItemsPanel>
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
-                                            <controls:SettingsCard Header="{Binding Title}"
-                                                                   Description="{Binding Description}"
-                                                                   ContentAlignment="Vertical">
-                                                <StackPanel Spacing="8">
-                                                    <TextBlock Text="{Binding Caption}"
-                                                               Style="{StaticResource CaptionTextBlockStyle}"
-                                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                                               TextWrapping="Wrap" />
-                                                    <StackPanel Orientation="Horizontal" Spacing="8">
-                                                        <ContentControl IsEnabled="{Binding CanChange}"
-                                                                        HorizontalContentAlignment="Stretch">
-                                                        <StackPanel Orientation="Horizontal" Spacing="8">
-                                                            <Button Content="{Binding ActionText}"
-                                                                    Command="{Binding ChangeCommand}"
-                                                                    Visibility="{Binding IsToggle, Converter={StaticResource BoolVisibility}}"
-                                                                    AutomationProperties.Name="{Binding Title}"
-                                                                    ToolTipService.ToolTip="Calm this setting or turn it back on" />
-                                                            <StackPanel Orientation="Horizontal" Spacing="8"
-                                                                        Visibility="{Binding IsSearch, Converter={StaticResource BoolVisibility}}">
-                                                                <ComboBox SelectedIndex="{Binding SelectedSearch, Mode=TwoWay}"
-                                                                          AutomationProperties.Name="{Binding Title}">
-                                                                    <ComboBoxItem Content="Hidden" />
-                                                                    <ComboBoxItem Content="Icon" />
-                                                                    <ComboBoxItem Content="Box" />
-                                                                </ComboBox>
-                                                                 <Button Content="Apply"
-                                                                         IsEnabled="{Binding CanApplySearch}"
-                                                                        Command="{Binding ChangeCommand}"
-                                                                        AutomationProperties.Name="{Binding Title}"
-                                                                        ToolTipService.ToolTip="Apply the selected search setting" />
-                                                            </StackPanel>
-                                                        </StackPanel>
-                                                        </ContentControl>
-                                                        <Button Content="Undo"
-                                                                Command="{Binding UndoCommand}"
-                                                                Visibility="{Binding HasUndo, Converter={StaticResource BoolVisibility}}"
-                                                                AutomationProperties.Name="{Binding Title}"
-                                                                ToolTipService.ToolTip="Restore the value from before FlowDesk changed it" />
+                                            <controls:SettingsCard Header="{Binding Title}">
+                                                <controls:SettingsCard.Description>
+                                                    <StackPanel Spacing="4">
+                                                        <TextBlock Text="{Binding Description}"
+                                                                   Style="{StaticResource BodyTextBlockStyle}"
+                                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                                   TextWrapping="Wrap" />
+                                                        <TextBlock Text="{Binding Caption}"
+                                                                   Style="{StaticResource CaptionTextBlockStyle}"
+                                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                                   TextWrapping="Wrap" />
                                                     </StackPanel>
+                                                </controls:SettingsCard.Description>
+                                                <StackPanel Orientation="Horizontal" Spacing="8"
+                                                            VerticalAlignment="Center">
+                                                    <ToggleSwitch IsOn="{Binding IsOn, Mode=TwoWay}"
+                                                                  IsEnabled="{Binding CanToggle}"
+                                                                  Visibility="{Binding IsToggle, Converter={StaticResource BoolVisibility}}"
+                                                                  OnContent="On" OffContent="Off"
+                                                                  AutomationProperties.Name="{Binding Title}" />
+                                                    <StackPanel Orientation="Horizontal" Spacing="8"
+                                                                VerticalAlignment="Center"
+                                                                Visibility="{Binding IsSearch, Converter={StaticResource BoolVisibility}}">
+                                                        <ComboBox SelectedIndex="{Binding SelectedSearch, Mode=TwoWay}"
+                                                                  IsEnabled="{Binding CanChange}"
+                                                                  AutomationProperties.Name="Search on the taskbar">
+                                                            <ComboBoxItem Content="Hidden" />
+                                                            <ComboBoxItem Content="Icon" />
+                                                            <ComboBoxItem Content="Box" />
+                                                        </ComboBox>
+                                                        <Button Content="Apply"
+                                                                Command="{Binding ChangeCommand}"
+                                                                IsEnabled="{Binding CanApplySearch}"
+                                                                AutomationProperties.Name="Apply search choice"
+                                                                ToolTipService.ToolTip="Apply the selected search setting" />
+                                                    </StackPanel>
+                                                    <HyperlinkButton Content="Undo"
+                                                                     Command="{Binding UndoCommand}"
+                                                                     Visibility="{Binding HasUndo, Converter={StaticResource BoolVisibility}}"
+                                                                     AutomationProperties.Name="{Binding UndoName}"
+                                                                     ToolTipService.ToolTip="Restore the value from before FlowDesk changed it" />
                                                 </StackPanel>
                                             </controls:SettingsCard>
                                         </DataTemplate>
@@ -153,15 +154,16 @@
                                                    TextWrapping="Wrap"
                                                    ToolTipService.ToolTip="{Binding Command}" />
                                     </controls:SettingsCard.Description>
-                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <StackPanel Orientation="Horizontal" Spacing="8"
+                                                VerticalAlignment="Center">
                                         <ToggleSwitch IsOn="{Binding IsOn, Mode=TwoWay}"
                                                       IsEnabled="{Binding CanChange}"
                                                       AutomationProperties.Name="{Binding Name}" />
-                                        <Button Content="Undo"
-                                                Command="{Binding UndoCommand}"
-                                                Visibility="{Binding HasUndo, Converter={StaticResource BoolVisibility}}"
-                                                AutomationProperties.Name="{Binding Name}"
-                                                ToolTipService.ToolTip="Restore this startup app to its previous state" />
+                                        <HyperlinkButton Content="Undo"
+                                                         Command="{Binding UndoCommand}"
+                                                         Visibility="{Binding HasUndo, Converter={StaticResource BoolVisibility}}"
+                                                         AutomationProperties.Name="{Binding UndoName}"
+                                                         ToolTipService.ToolTip="Restore this startup app to its previous state" />
                                     </StackPanel>
                                 </controls:SettingsCard>
                             </DataTemplate>

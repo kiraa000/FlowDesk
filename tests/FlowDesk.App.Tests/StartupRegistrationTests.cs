@@ -31,6 +31,8 @@ public sealed class StartupRegistrationTests
         public void Write(RegistryAddress address, RegistryValue value) => values[address] = value;
         public void Delete(RegistryAddress address) => values.Remove(address);
         public IReadOnlyList<string> ValueNames(string path) => values.Keys.Where(k => k.Path == path).Select(k => k.Name).ToArray();
+        public bool KeyExists(string path) => values.Keys.Any(k => k.Path == path);
+        public void DeleteKeyIfEmpty(string path) { }
     }
     [Fact]
     public void Command_IsTheQuotedRunningExecutable()

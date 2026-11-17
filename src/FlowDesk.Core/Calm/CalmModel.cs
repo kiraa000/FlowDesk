@@ -17,6 +17,8 @@ public interface IRegistryAccess
     void Write(RegistryAddress address, RegistryValue value);
     void Delete(RegistryAddress address);
     IReadOnlyList<string> ValueNames(string path);
+    bool KeyExists(string path);
+    void DeleteKeyIfEmpty(string path);
 }
 public sealed record StartupFile(string Name, string Command);
 public interface IStartupFolder { IReadOnlyList<StartupFile> Entries(); }
@@ -67,17 +69,7 @@ public static class CalmEvaluator
 
     public static bool IsManaged(CalmSetting s, IRegistryAccess registry)
     {
-        // Only documented applicable policy families; do not interpret unrelated policy values.
-        var policies = new List<(string Path, string Name)>();
-        if (s.Values.Any(v => v.Address.Name == "TaskbarDa")) policies.Add((@"SOFTWARE\Policies\Microsoft\Dsh", "AllowNewsAndInterests"));
-        if (s.SearchChoice) policies.Add((@"SOFTWARE\Policies\Microsoft\Windows\Windows Search", "SearchOnTaskbarMode"));
-        if (s.Values.Any(v => v.Address.Name == "Start_IrisRecommendations")) policies.Add((@"SOFTWARE\Policies\Microsoft\Windows\Explorer", "HideRecommendedPersonalizedSites"));
-        if (s.Values.Any(v => v.Address.Path.Contains("ContentDeliveryManager", StringComparison.OrdinalIgnoreCase)))
-        {
-            policies.Add((@"SOFTWARE\Policies\Microsoft\Windows\CloudContent", "DisableWindowsSpotlightFeatures"));
-            policies.Add((@"SOFTWARE\Policies\Microsoft\Windows\CloudContent", "DisableWindowsConsumerFeatures"));
-        }
-        return policies.Any(p => registry.Read(new(p.Path, p.Name)) is not null || registry.Read(new(p.Path, p.Name, true)) is not null);
+        return CalmPolicies.IsEnforced(s, registry);
     }
 }
 public static class StartupApprovedCodec

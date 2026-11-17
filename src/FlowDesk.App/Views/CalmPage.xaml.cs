@@ -8,6 +8,7 @@ public sealed partial class CalmPage : Page
     {
         InitializeComponent();
         DataContext = App.ViewModels.Calm;
-        // Navigation never causes a scan. Only first feature start and the explicit button do.
+        Loaded += async (_, _) => await App.ViewModels.Calm.EnsureScanForVisitAsync();
+        // First visit each run reads current state; subsequent visits reuse it. No writes or offer here.
     }
 }

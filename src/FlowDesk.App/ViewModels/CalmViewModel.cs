@@ -12,6 +12,7 @@ public sealed partial class CalmViewModel : ObservableObject
     private readonly IRegistryAccess registry = new WindowsRegistryAccess();
     private readonly IStartupFolder folder = new WindowsStartupFolder();
     private readonly CalmChanges changes;
+    private readonly CalmScanSession scanSession = new();
     private IReadOnlyList<CalmReading> readings = [];
     private IReadOnlyList<StartupEntry> startup = [];
     public ObservableCollection<CalmGroup> Groups { get; } = [];
@@ -39,7 +40,7 @@ public sealed partial class CalmViewModel : ObservableObject
         try { HasUndo = await Task.Run(() => changes.HasAnyUndo); }
         catch { Error = "The undo journal could not be read. Windows changes are disabled until the journal is recovered."; ErrorOpen = true; return; }
         if (parent.Services.Settings.FirstCalmCheckDone) return;
-        await RunCheckAsync();
+        await EnsureScanForVisitAsync();
         if (!HasScan) return;
         parent.Services.Settings.FirstCalmCheckDone = true;
         parent.Services.Changed();
@@ -48,6 +49,7 @@ public sealed partial class CalmViewModel : ObservableObject
         OfferOpen = count > 0;
     }
     [RelayCommand] private void Review() { OfferOpen = false; parent.Navigate(AppPage.Calm); }
+    internal Task EnsureScanForVisitAsync() => scanSession.EnsureAsync(() => HasScan, RunCheckAsync);
     [RelayCommand] private async Task RunCheckAsync() => await OperateAsync(async () =>
     {
         var result = await Task.Run(() => (Rows: CalmEvaluator.Scan(registry, CalmWindows.Build(registry)), Startup: StartupCatalog.Scan(registry, folder), Hours: CalmWindows.ActiveHours(registry)));
@@ -60,8 +62,8 @@ public sealed partial class CalmViewModel : ObservableObject
         Groups.Clear(); StartupApps.Clear();
         foreach (var group in readings.GroupBy(r => r.Setting.Group))
             Groups.Add(new(group.Key switch { "Start" => "Start menu & suggestions", "Lock" => "Lock screen", "Explorer" => "File Explorer", _ => group.Key },
-                group.Select(r => new CalmRow(r, changes.HasUndo(r.Setting.Id), this)).ToArray()));
-        foreach (var app in startup) StartupApps.Add(new(app, changes.HasUndo(app.Id), this));
+                group.Select(r => new CalmRow(r, changes.HasUndo(r.Setting.Id), ChangeAsync)).ToArray()));
+        foreach (var app in startup) StartupApps.Add(new(app, changes.HasUndo(app.Id), StartupAsync));
         HasUndo = changes.HasAnyUndo;
         RestartSuggested |= readings.Any(r => r.Setting.ExplorerRestart && changes.HasUndo(r.Setting.Id));
         parent.Settings.RefreshStartupState();
@@ -78,7 +80,7 @@ public sealed partial class CalmViewModel : ObservableObject
         await Task.Run(() =>
         {
             if (undo) changes.Undo(row.Reading.Setting.Id);
-            else changes.Apply(row.Reading.Setting, row.Reading.State != CalmState.Calm,
+            else changes.Apply(row.Reading.Setting, !row.IsOn,
                 row.IsSearch ? row.SelectedSearch : null);
         });
         RestartSuggested |= row.Reading.Setting.ExplorerRestart;
@@ -133,49 +135,5 @@ public sealed partial class CalmViewModel : ObservableObject
             if (HasScan) { try { await ReloadAfterChangeAsync(); } catch { } }
         }
         finally { Busy = false; }
-    }
-}
-public sealed record CalmGroup(string Title, IReadOnlyList<CalmRow> Rows);
-public sealed class CalmRow : ObservableObject
-{
-    public CalmReading Reading { get; }
-    public string Title => Reading.Setting.Title;
-    public string Description => Reading.Setting.Description;
-    public string StateText => Reading.State switch { CalmState.Calm => "Off", CalmState.Noisy => "On", CalmState.Custom => "Custom — Windows default is unknown or a custom value is set", CalmState.Managed => "Managed by your organization", _ => "Unavailable — access denied" };
-    public string Caption => StateText + (Reading.UsesDefault ? " · Windows default" : "") + " · Takes effect: " + Reading.Setting.Effect;
-    public bool CanChange => Reading.State is not (CalmState.Managed or CalmState.Unavailable);
-    public bool HasUndo { get; }
-    public bool IsSearch => Reading.Setting.SearchChoice;
-    public bool IsToggle => !IsSearch;
-    public bool CanApplySearch => CanChange && SelectedSearch is >= 0 and <= 2;
-    public string ActionText => Reading.State == CalmState.Calm ? "Turn on" : "Calm it";
-    private int selectedSearch;
-    public int SelectedSearch { get => selectedSearch; set { if (SetProperty(ref selectedSearch, value)) OnPropertyChanged(nameof(CanApplySearch)); } }
-    public IAsyncRelayCommand ChangeCommand { get; }
-    public IAsyncRelayCommand UndoCommand { get; }
-    public CalmRow(CalmReading reading, bool undo, CalmViewModel owner)
-    {
-        Reading = reading; HasUndo = undo; SelectedSearch = reading.Choice ?? -1;
-        ChangeCommand = new AsyncRelayCommand(() => owner.ChangeAsync(this));
-        UndoCommand = new AsyncRelayCommand(() => owner.ChangeAsync(this, true));
-    }
-}
-public sealed class CalmStartupRow : ObservableObject
-{
-    public StartupEntry Entry { get; }
-    public string Name => Entry.Name;
-    public string Command => Entry.Command;
-    public string Caption => Entry.Enabled is null ? "Custom startup state — open Windows Settings" : "Takes effect at next sign-in";
-    public bool CanChange => Entry.Enabled is not null;
-    public bool HasUndo { get; }
-    private bool isOn;
-    public bool IsOn { get => isOn; set { if (SetProperty(ref isOn, value)) ChangeCommand.Execute(null); } }
-    public IAsyncRelayCommand ChangeCommand { get; }
-    public IAsyncRelayCommand UndoCommand { get; }
-    public CalmStartupRow(StartupEntry entry, bool undo, CalmViewModel owner)
-    {
-        Entry = entry; HasUndo = undo; isOn = entry.Enabled == true;
-        ChangeCommand = new AsyncRelayCommand(() => owner.StartupAsync(this));
-        UndoCommand = new AsyncRelayCommand(() => owner.StartupAsync(this, true));
     }
 }

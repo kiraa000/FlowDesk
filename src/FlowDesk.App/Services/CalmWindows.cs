@@ -21,6 +21,24 @@ public sealed class WindowsRegistryAccess : IRegistryAccess
         using var key = Registry.CurrentUser.OpenSubKey(path);
         return key?.GetValueNames() ?? [];
     }
+    public bool KeyExists(string path)
+    {
+        using var key = Registry.CurrentUser.OpenSubKey(path);
+        return key is not null;
+    }
+    public void DeleteKeyIfEmpty(string path)
+    {
+        int separator = path.LastIndexOf('\\');
+        if (separator <= 0) throw new InvalidDataException("A root key cannot be removed.");
+        using var parent = Registry.CurrentUser.OpenSubKey(path[..separator], true);
+        if (parent is null) return;
+        using (var key = parent.OpenSubKey(path[(separator + 1)..]))
+        {
+            if (key is null || key.ValueCount != 0 || key.SubKeyCount != 0) return;
+        }
+        // DeleteSubKey (never DeleteSubKeyTree) also refuses a newly-added child key.
+        parent.DeleteSubKey(path[(separator + 1)..], false);
+    }
     public void Write(RegistryAddress address, RegistryValue value)
     {
         if (address.Machine) throw new InvalidOperationException("Calm only changes per-user settings.");
@@ -88,7 +106,7 @@ internal static class CalmWindows
     {
         foreach (string area in areas.Distinct()) SendMessageTimeout(new nint(0xffff), 0x1a, 0, area, 0x2 | 0x20, 200, out _);
     });
-    internal static Task RestartExplorerAsync() => Task.Run(() =>
+    internal static Task RestartExplorerAsync() => Task.Run(async () =>
     {
         // Target only this session's actual shell, never every explorer.exe (other sessions/folder processes).
         nint shell = GetShellWindow();
@@ -100,9 +118,20 @@ internal static class CalmWindows
             throw new InvalidOperationException("The current shell could not be verified.");
         if (GetShellWindow() != shell) throw new InvalidOperationException("The shell changed. Try again.");
         process.Kill();
-        process.WaitForExit(3000);
+        bool replacement = await ExplorerRestartWait.WaitAsync(pid, ShellProcessId, Task.Delay);
+        if (replacement) return; // AutoRestartShell normally restores it; launching again opens a folder.
+        // Recheck immediately before fallback. If ANY shell is present, never launch another Explorer.
+        if (GetShellWindow() != 0) return;
+        if (!process.HasExited) throw new InvalidOperationException("File Explorer has not exited. Try again.");
         Process.Start(new ProcessStartInfo(explorer) { UseShellExecute = true });
     });
+    private static uint? ShellProcessId()
+    {
+        nint shell = GetShellWindow();
+        if (shell == 0) return null;
+        GetWindowThreadProcessId(shell, out uint pid);
+        return pid == 0 ? null : pid;
+    }
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern nint SendMessageTimeout(nint hwnd, uint msg, nint wparam, string lparam, uint flags, uint timeout, out nint result);
     [DllImport("user32.dll")] private static extern nint GetShellWindow();
     [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(nint hwnd, out uint pid);
