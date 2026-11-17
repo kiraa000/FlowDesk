@@ -3,7 +3,7 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:controls="using:CommunityToolkit.WinUI.Controls">
-    <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+    <ScrollViewer HorizontalScrollBarVisibility="Disabled" IsTabStop="False">
         <StackPanel Margin="32,24" MaxWidth="1000" Spacing="24">
             <StackPanel Spacing="4">
                 <TextBlock Text="Calm" Style="{StaticResource TitleTextBlockStyle}"
@@ -24,14 +24,14 @@
                         <Button Content="Run check-up" Command="{Binding RunCheckCommand}"
                                 Style="{StaticResource AccentButtonStyle}" AccessKey="R"
                                 AutomationProperties.Name="Run Windows check-up" />
-                        <Button Content="Calm all" Command="{Binding CalmAllCommand}"
-                                IsEnabled="{Binding CanInteract}"
+                        <Button x:Name="CalmAllButton" Content="Calm all" Command="{Binding CalmAllCommand}"
                                 AutomationProperties.Name="Calm all suggested Windows settings" />
                     </StackPanel>
-                    <ContentControl IsEnabled="{Binding CanInteract}"
+                    <ContentControl IsTabStop="False"
                                     HorizontalContentAlignment="Left">
                         <HyperlinkButton Content="Undo all FlowDesk changes"
                                          Command="{Binding UndoAllCommand}"
+                                         Click="UndoAll_Click"
                                          IsEnabled="{Binding HasUndo}"
                                          AutomationProperties.Name="Undo all FlowDesk changes"
                                          ToolTipService.ToolTip="Restore the values saved before FlowDesk changed Windows" />
@@ -56,10 +56,10 @@
                 </InfoBar>
             </StackPanel>
 
-            <ContentControl IsEnabled="{Binding CanInteract}"
+            <ContentControl IsTabStop="False"
                             HorizontalContentAlignment="Stretch">
             <StackPanel Spacing="24">
-                <ItemsControl ItemsSource="{Binding Groups}">
+                <ItemsControl IsTabStop="False" ItemsSource="{Binding Groups}">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate>
                             <StackPanel Spacing="24" />
@@ -71,7 +71,7 @@
                                 <TextBlock Text="{Binding Title}"
                                            Style="{StaticResource BodyStrongTextBlockStyle}"
                                            Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
-                                <ItemsControl ItemsSource="{Binding Rows}">
+                                <ItemsControl IsTabStop="False" ItemsSource="{Binding Rows}">
                                     <ItemsControl.ItemsPanel>
                                         <ItemsPanelTemplate>
                                             <StackPanel Spacing="4" />
@@ -79,7 +79,7 @@
                                     </ItemsControl.ItemsPanel>
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
-                                            <controls:SettingsCard Header="{Binding Title}">
+                                            <controls:SettingsCard IsTabStop="False" Header="{Binding Title}">
                                                 <controls:SettingsCard.Description>
                                                     <StackPanel Spacing="4">
                                                         <TextBlock Text="{Binding Description}"
@@ -117,6 +117,7 @@
                                                     </StackPanel>
                                                     <HyperlinkButton Content="Undo"
                                                                      Command="{Binding UndoCommand}"
+                                                                     Click="UndoRow_Click"
                                                                      Visibility="{Binding HasUndo, Converter={StaticResource BoolVisibility}}"
                                                                      AutomationProperties.Name="{Binding UndoName}"
                                                                      ToolTipService.ToolTip="Restore the value from before FlowDesk changed it" />
@@ -138,7 +139,7 @@
                                Style="{StaticResource CaptionTextBlockStyle}"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                TextWrapping="Wrap" />
-                    <ItemsControl ItemsSource="{Binding StartupApps}">
+                    <ItemsControl IsTabStop="False" ItemsSource="{Binding StartupApps}">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>
                                 <StackPanel Spacing="4" />
@@ -146,7 +147,7 @@
                         </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <controls:SettingsCard Header="{Binding Name}">
+                                <controls:SettingsCard IsTabStop="False" Header="{Binding Name}">
                                     <controls:SettingsCard.Description>
                                         <TextBlock Text="{Binding Caption}"
                                                    Style="{StaticResource CaptionTextBlockStyle}"
@@ -161,6 +162,7 @@
                                                       AutomationProperties.Name="{Binding Name}" />
                                         <HyperlinkButton Content="Undo"
                                                          Command="{Binding UndoCommand}"
+                                                         Click="UndoRow_Click"
                                                          Visibility="{Binding HasUndo, Converter={StaticResource BoolVisibility}}"
                                                          AutomationProperties.Name="{Binding UndoName}"
                                                          ToolTipService.ToolTip="Restore this startup app to its previous state" />
@@ -169,7 +171,7 @@
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
-                    <controls:SettingsCard Header="Other startup apps"
+                    <controls:SettingsCard IsTabStop="False" Header="Other startup apps"
                                            Description="Machine-wide and packaged apps are managed by Windows.">
                         <Button Content="Open in Settings"
                                 Command="{Binding OpenStartupSettingsCommand}"
@@ -177,7 +179,7 @@
                     </controls:SettingsCard>
                 </StackPanel>
 
-                <controls:SettingsCard Header="Windows Update"
+                <controls:SettingsCard IsTabStop="False" Header="Windows Update"
                                        Description="{Binding ActiveHours}">
                     <Button Content="Open in Settings"
                             Command="{Binding OpenUpdateSettingsCommand}"

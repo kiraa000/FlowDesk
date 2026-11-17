@@ -14,6 +14,7 @@ internal sealed class CommandPaletteService : IDisposable
     private readonly DispatcherQueue dispatcher;
     private readonly Func<bool> available;
     private readonly Action<string> notify;
+    private readonly Action<PaletteNotice> notifyNotice;
     private readonly PaletteShellIndex index = new();
     private readonly PaletteUsageStore usage;
     private readonly CommandPaletteWindow window;
@@ -22,17 +23,18 @@ internal sealed class CommandPaletteService : IDisposable
     private nint capturedTarget;
     private uint capturedProcess;
     private bool disposed;
-    public CommandPaletteService(AppServices services, AppViewModels vm, DispatcherQueue dispatcher, Action showMain, Func<Task> quit, Action<string> notify, Func<bool> available)
+    public CommandPaletteService(AppServices services, AppViewModels vm, DispatcherQueue dispatcher, Action showMain, Func<Task> quit, Action<PaletteNotice> notify, Func<bool> available)
     {
         this.services = services; this.vm = vm; this.dispatcher = dispatcher; this.showMain = showMain; this.quit = quit;
         this.available = available;
-        this.notify = notify;
+        notifyNotice = notify;
+        this.notify = message => notify(new(message));
         usage = new(Path.Combine(services.Store.Folder, "palette-usage.json"));
         var search = new CommandSearch([
             new WorkspaceCommandSource(() => Volatile.Read(ref workspaces)), new ActionCommandSource(() => Volatile.Read(ref actions)),
             new AppCommandSource(index.Apps), new SettingsCommandSource(PaletteShellIndex.LaunchAsync), new RecentFileCommandSource(index.Recent)
         ], usage, (_, ex) => Log(ex));
-        window = new(search, usage, notify);
+        window = new(search, usage, this.notify);
         clipboard = new(window.Handle, () => window.RefreshResults());
         window.ClipboardEnabled = () => clipboard.History.Enabled;
         window.ClipboardQuery = QueryClipboard;
@@ -109,8 +111,8 @@ internal sealed class CommandPaletteService : IDisposable
         nint target = capturedTarget; uint process = capturedProcess;
         try { clipboard.Copy(entry.Text); }
         catch { notify("Clipboard is busy. Try again."); return; }
-        if (!paste) { notify("Copied to clipboard."); return; }
-        if (!await ClipboardPaste.TryPasteAsync(target, process, window.Handle)) notify("Copied. Press Ctrl+V to paste.");
+        if (!paste) { notifyNotice(PaletteNotice.Copied(pasteFallback: false)); return; }
+        if (!await ClipboardPaste.TryPasteAsync(target, process, window.Handle)) notifyNotice(PaletteNotice.Copied(pasteFallback: true));
     }
     public void Open() => Toggle(CommandPaletteWindow.Foreground, System.Diagnostics.Stopwatch.GetTimestamp(), onlyOpen: true);
     private void Toggle(nint target, long started, bool onlyOpen = false, PaletteMode mode = PaletteMode.Commands)

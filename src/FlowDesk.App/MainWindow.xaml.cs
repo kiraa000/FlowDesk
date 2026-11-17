@@ -114,7 +114,7 @@ public sealed partial class MainWindow : Window
             await App.ViewModels.LoadAsync(); loaded = true;
             notifications.Initialize();
             palette = new(services, App.ViewModels, DispatcherQueue, BringForward, ExitFromTrayAsync,
-                message => { App.ViewModels.ShowStatus(message, StatusKind.Warning); if (!notifications.ShowMessage(message)) BringForward(); },
+                notice => { App.ViewModels.ShowPaletteNotice(notice); if (!notifications.ShowMessage(notice.Message)) BringForward(); },
                 () => !initializing && !closing && !endingSession && !exitRequested);
             try { await palette.InitializeAsync(); }
             catch (Exception ex) { new CrashLog().TryWrite(CrashSource.Activation, ex); App.ViewModels.ShowStatus("Command palette shortcut could not start. Check Settings.", StatusKind.Warning); }
