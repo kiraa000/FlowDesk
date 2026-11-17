@@ -10,7 +10,7 @@ using FlowDesk.Core.Hotkeys;
 
 namespace FlowDesk.App.ViewModels;
 
-public enum AppPage { Workspaces, Details, Capture, Settings, Layouts, Focus, Hotkeys, Calm }
+public enum AppPage { Workspaces, Details, Capture, Settings, Layouts, Focus, Hotkeys, Calm, Advanced }
 public enum StatusKind { Information, Success, Warning, Error }
 
 public partial class AppViewModels : ObservableObject
@@ -26,7 +26,21 @@ public partial class AppViewModels : ObservableObject
     public FocusViewModel Focus { get; }
     public HotkeysViewModel Hotkeys { get; }
     public CalmViewModel Calm { get; }
-    private IReadOnlyDictionary<AppPage, bool> OptionalPages => new Dictionary<AppPage, bool> { [AppPage.Hotkeys] = Services.Settings.WindowShortcutsEnabled };
+    public AdvancedViewModel Advanced { get; }
+    private IReadOnlyDictionary<AppPage, bool> OptionalPages => new Dictionary<AppPage, bool> { [AppPage.Hotkeys] = Services.Settings.WindowShortcutsEnabled, [AppPage.Advanced] = Services.Settings.AdvancedModeEnabled };
+    public bool IsAdvancedVisible => OptionalNavigation.Visible(AppPage.Advanced, OptionalPages);
+    internal bool FocusAdvancedSettingRequested { get; set; }
+    internal void OpenAdvancedFromCalm()
+    {
+        FocusAdvancedSettingRequested = !IsAdvancedVisible;
+        Navigate(IsAdvancedVisible ? AppPage.Advanced : AppPage.Settings);
+    }
+    internal void RefreshAdvancedPages()
+    {
+        if (ResolvePage(currentPage) != currentPage) Navigate(AppPage.Workspaces);
+        OnPropertyChanged(nameof(IsAdvancedVisible));
+        Calm.RefreshAdvancedLink();
+    }
     public bool IsHotkeysVisible => OptionalNavigation.Visible(AppPage.Hotkeys, OptionalPages);
     internal bool IsHotkeysPageOpen => currentPage == AppPage.Hotkeys;
     internal AppPage ResolvePage(AppPage page) => OptionalNavigation.Resolve(page, AppPage.Workspaces, OptionalPages);
@@ -59,7 +73,7 @@ public partial class AppViewModels : ObservableObject
         Services = services; Ui = ui;
         Workspaces = new(this); Details = new(this); Capture = new(this); Settings = new(this);
         Layouts = new(this); Focus = new(this); BrowserNotice = new(this); AutoSave = new(this);
-        Hotkeys = new(this); Calm = new(this);
+        Hotkeys = new(this); Calm = new(this); Advanced = new(this);
         Services.SaveFailed += message => Ui.Enqueue(() => ShowStatus(message, StatusKind.Error));
         Tour.Finished += () =>
         {
@@ -79,6 +93,8 @@ public partial class AppViewModels : ObservableObject
         foreach (var workspace in Services.Data.Workspaces) WorkspacesCollection.Add(new(workspace, this));
         Workspaces.UpdateEmpty(); Settings.Load(); Focus.Load();
         RefreshInputPages();
+        RefreshAdvancedPages();
+        if (IsAdvancedVisible) await Advanced.RefreshAsync();
         if (Services.RecoveryMessage is { } recovery) ShowStatus(recovery, StatusKind.Warning);
     }
 

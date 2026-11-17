@@ -23,6 +23,7 @@ public sealed partial class MainWindow : Window
     private bool exitRequested, endingSession;
     private readonly SessionEndHook sessionEnd;
     private CommandPaletteService? palette;
+    private readonly AdvancedDialogs advancedDialogs;
 #if DEBUG
     private Task002Diagnostics? diagnostics;
 #endif
@@ -39,6 +40,10 @@ public sealed partial class MainWindow : Window
         try { if (File.Exists(iconPath)) TrayIcon.UpdateIcon(new System.Drawing.Icon(iconPath, 32, 32)); }
         catch (Exception) { }
         App.ViewModels = new(services, new UserInteraction(this, Root));
+        advancedDialogs = new(Root);
+        App.ViewModels.Advanced.ConfirmEnable = advancedDialogs.EnableAsync;
+        App.ViewModels.Advanced.ConfirmInstall = advancedDialogs.InstallAsync;
+        App.ViewModels.Advanced.ConfirmWinUtil = advancedDialogs.WinUtilAsync;
         services.HotCorners = new(services.Hotkeys, DispatcherQueue,
             stillAllowed => closing || exitRequested || endingSession || initializing ? Task.FromResult(false) : App.ViewModels.Focus.TryStartFromHotCornerAsync(stillAllowed));
         notifications = new(a => DispatcherQueue.TryEnqueue(() => a()),
@@ -214,9 +219,12 @@ public sealed partial class MainWindow : Window
             {
                 AppPage.Details => typeof(WorkspaceDetailsPage), AppPage.Capture => typeof(SaveOpenWindowsPage),
                 AppPage.Settings => typeof(SettingsPage), AppPage.Layouts => typeof(LayoutsPage),
+                AppPage.Advanced => typeof(AdvancedPage),
                 AppPage.Focus => typeof(FocusPage), AppPage.Calm => typeof(CalmPage), AppPage.Hotkeys => typeof(HotkeysPage), _ => typeof(WorkspacesPage)
             };
             if (PageFrame.CurrentSourcePageType != type) PageFrame.Navigate(type);
+            if (page == AppPage.Settings && App.ViewModels.FocusAdvancedSettingRequested && PageFrame.Content is SettingsPage settingsPage)
+                settingsPage.FocusAdvancedSetting();
             // Navigation is command-driven, not a browser history of stale editing pages.
             PageFrame.BackStack.Clear();
             Navigation.SelectedItem = page == AppPage.Settings ? Navigation.SettingsItem
@@ -267,12 +275,18 @@ public sealed partial class MainWindow : Window
         PageFrame.IsEnabled = false; Navigation.IsEnabled = false;
         try
         {
+            if (App.ViewModels.Advanced.HasActiveInstall)
+            {
+                if (!await advancedDialogs.WaitBeforeExitAsync())
+                { closing = false; exitRequested = false; PageFrame.IsEnabled = true; Navigation.IsEnabled = true; return; }
+                await App.ViewModels.Advanced.WaitForInstallAsync();
+            }
             if (!exitRequested && !await App.ViewModels.Focus.EndSessionAsync(confirmAnyRunning: true))
             { closing = false; PageFrame.IsEnabled = true; Navigation.IsEnabled = true; return; }
         }
         catch (Exception)
         {
-            closing = false; PageFrame.IsEnabled = true; Navigation.IsEnabled = true;
+            closing = false; exitRequested = false; PageFrame.IsEnabled = true; Navigation.IsEnabled = true;
             App.ViewModels.ShowStatus("Close the open dialog before exiting FlowDesk.", StatusKind.Warning); return;
         }
         // Do not let a new focus session or autosave tick start while the final persistence await is in flight.

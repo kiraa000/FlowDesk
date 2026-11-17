@@ -9,6 +9,9 @@ namespace FlowDesk.App.ViewModels;
 public sealed partial class CalmViewModel : ObservableObject
 {
     private readonly AppViewModels parent;
+    public string AdvancedLinkText => parent.IsAdvancedVisible ? "Open Advanced" : "Turn on in Settings";
+    internal void RefreshAdvancedLink() => OnPropertyChanged(nameof(AdvancedLinkText));
+    [RelayCommand] private void OpenAdvanced() => parent.OpenAdvancedFromCalm();
     private readonly IRegistryAccess registry = new WindowsRegistryAccess();
     private readonly IStartupFolder folder = new WindowsStartupFolder();
     private readonly CalmChanges changes;

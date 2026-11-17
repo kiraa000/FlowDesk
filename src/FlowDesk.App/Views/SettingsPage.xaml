@@ -12,6 +12,11 @@
                           AutomationProperties.Name="Theme"
                           SelectedItem="{Binding Theme, Mode=TwoWay}" MinWidth="160" />
             </settings:SettingsCard>
+            <settings:SettingsCard x:Name="AdvancedModeCard" Header="Advanced mode" IsTabStop="False"
+                Description="Find trusted third-party tools for changes to Windows itself. Review the precautions before turning this on.">
+                <ToggleSwitch x:Name="AdvancedModeSwitch" AutomationProperties.Name="Advanced mode"
+                              Toggled="AdvancedMode_Toggled" />
+            </settings:SettingsCard>
             <settings:SettingsCard Header="When switching workspaces"
                 Description="Minimize the previous workspace's windows.">
                 <ToggleSwitch IsOn="{Binding MinimizePrevious, Mode=TwoWay}"

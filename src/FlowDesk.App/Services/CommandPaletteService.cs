@@ -145,10 +145,24 @@ internal sealed class CommandPaletteService : IDisposable
         var state = new PaletteActionState(vm.IsBusy, vm.Focus.IsRunning, vm.Focus.CanStart, services.Settings.WindowShortcutsEnabled, hasTarget);
         void Add(string id, string title, Func<Task> run, string glyph = "\uE8A7", string hint = "Run") =>
             list.Add(new("action:" + id, title, "FlowDesk action", CommandKind.Action, glyph, run, ActionHint: hint));
-        foreach (var page in new[] { AppPage.Workspaces, AppPage.Layouts, AppPage.Focus, AppPage.Calm, AppPage.Hotkeys, AppPage.Settings })
+        foreach (var page in new[] { AppPage.Workspaces, AppPage.Layouts, AppPage.Focus, AppPage.Calm, AppPage.Hotkeys, AppPage.Advanced, AppPage.Settings })
         {
             if (page == AppPage.Hotkeys && !vm.IsHotkeysVisible) continue;
+            if (page == AppPage.Advanced && !vm.IsAdvancedVisible) continue;
             Add("page-" + page, "Open FlowDesk · " + page, () => { EnsureIdle(); showMain(); vm.Navigate(page); return Task.CompletedTask; }, "\uE80F", "Open");
+        }
+        foreach (var tool in FlowDesk.Core.Advanced.AdvancedTools.PaletteTools(vm.IsAdvancedVisible,
+            vm.Advanced.Tools.Where(t => t.Installed).Select(t => t.Tool.Id)))
+        {
+            var card = vm.Advanced.Tools.Single(t => t.Tool.Id == tool.Id);
+            string title = tool.Id == "Microsoft.PowerToys" ? "PowerToys" : tool.Name;
+            Add("advanced-" + tool.Id, "Open " + title, async () =>
+            {
+                EnsureIdle();
+                if (!vm.IsAdvancedVisible) return; // Snapshot may outlive the setting.
+                await vm.Advanced.OpenAsync(card);
+                if (card.Message is { } message) notify(message);
+            }, "\uE90F", "Open");
         }
         if (!vm.IsBusy)
         {

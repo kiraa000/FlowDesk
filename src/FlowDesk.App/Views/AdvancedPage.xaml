@@ -1,0 +1,106 @@
+<Page
+    x:Class="FlowDesk.App.Views.AdvancedPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:CommunityToolkit.WinUI.Controls">
+    <ScrollViewer HorizontalScrollBarVisibility="Disabled" IsTabStop="False">
+        <StackPanel Margin="32,24" MaxWidth="1000" Spacing="24">
+            <StackPanel Spacing="4">
+                <TextBlock Text="Advanced" Style="{StaticResource TitleTextBlockStyle}"
+                           Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                <TextBlock Text="Trusted third-party tools for system-wide changes. Each install or launch is your action; FlowDesk never runs these silently."
+                           Style="{StaticResource BodyTextBlockStyle}"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           TextWrapping="Wrap" />
+            </StackPanel>
+
+            <controls:SettingsCard IsTabStop="False" Header="Chris Titus WinUtil">
+                <controls:SettingsCard.Description>
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Well-known community toolkit that can remove apps, change services and apply tweaks."
+                                   Style="{StaticResource BodyTextBlockStyle}"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   TextWrapping="Wrap" />
+                        <TextBlock Text="It changes Windows itself, and FlowDesk cannot undo those changes."
+                                   Style="{StaticResource BodyTextBlockStyle}"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   TextWrapping="Wrap" />
+                        <TextBlock Text="Publisher: Chris Titus Tech"
+                                   Style="{StaticResource CaptionTextBlockStyle}"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   TextWrapping="Wrap" />
+                        <HyperlinkButton NavigateUri="https://christitus.com/windows-tool/"
+                                         ToolTipService.ToolTip="Open the WinUtil website"
+                                         AutomationProperties.Name="WinUtil official website">
+                            <TextBlock Text="Official website"
+                                       Style="{StaticResource CaptionTextBlockStyle}" />
+                        </HyperlinkButton>
+                        <TextBlock Text="{Binding WinUtilStatus}"
+                                   Style="{StaticResource CaptionTextBlockStyle}"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   TextWrapping="Wrap"
+                                   AutomationProperties.LiveSetting="Polite" />
+                    </StackPanel>
+                </controls:SettingsCard.Description>
+                <Button Content="Run" Command="{Binding RunWinUtilCommand}"
+                        AutomationProperties.Name="Run Chris Titus WinUtil" />
+            </controls:SettingsCard>
+
+            <ItemsControl IsTabStop="False" ItemsSource="{Binding Tools}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <StackPanel Spacing="4" />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <controls:SettingsCard IsTabStop="False" Header="{Binding Name}">
+                            <controls:SettingsCard.Description>
+                                <StackPanel Spacing="4">
+                                    <TextBlock Text="{Binding Description}"
+                                               Style="{StaticResource BodyTextBlockStyle}"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                               TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding Publisher}"
+                                               Style="{StaticResource CaptionTextBlockStyle}"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                               TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding Status}"
+                                               Style="{StaticResource CaptionTextBlockStyle}"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                               TextWrapping="Wrap"
+                                               AutomationProperties.LiveSetting="Polite" />
+                                    <HyperlinkButton NavigateUri="{Binding Website}"
+                                                     ToolTipService.ToolTip="Open the official website"
+                                                      AutomationProperties.Name="{Binding WebsiteName}">
+                                        <TextBlock Text="Official website"
+                                                   Style="{StaticResource CaptionTextBlockStyle}" />
+                                    </HyperlinkButton>
+                                </StackPanel>
+                            </controls:SettingsCard.Description>
+                            <StackPanel Orientation="Horizontal" Spacing="8"
+                                        VerticalAlignment="Center">
+                                <Button Content="Open" Command="{Binding OpenCommand}"
+                                        IsEnabled="{Binding CanOpen}"
+                                        Visibility="{Binding Installed, Converter={StaticResource BoolVisibility}}"
+                                         AutomationProperties.Name="{Binding OpenName}" />
+                                <Button Content="Install" Command="{Binding InstallCommand}"
+                                        IsEnabled="{Binding CanInstall}"
+                                        Visibility="{Binding ShowInstall, Converter={StaticResource BoolVisibility}}"
+                                        ToolTipService.ToolTip="{Binding InstallHint}"
+                                         AutomationProperties.Name="{Binding InstallName}" />
+                                <Button Content="Get App Installer" Command="{Binding GetWingetCommand}"
+                                        Visibility="{Binding NeedsWinget, Converter={StaticResource BoolVisibility}}"
+                                        AutomationProperties.Name="Get App Installer" />
+                                <ProgressRing Width="16" Height="16"
+                                              IsActive="{Binding IsInstalling}"
+                                              Visibility="{Binding IsInstalling, Converter={StaticResource BoolVisibility}}"
+                                              AutomationProperties.Name="Installing" />
+                            </StackPanel>
+                        </controls:SettingsCard>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

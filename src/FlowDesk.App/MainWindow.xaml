@@ -81,6 +81,10 @@
                     Visibility="{Binding IsHotkeysVisible, Converter={StaticResource BoolVisibility}}">
                     <NavigationViewItem.Icon><FontIcon Glyph="&#xE765;" FontFamily="Segoe Fluent Icons" /></NavigationViewItem.Icon>
                 </NavigationViewItem>
+                <NavigationViewItem Content="Advanced" Tag="Advanced"
+                    Visibility="{Binding IsAdvancedVisible, Converter={StaticResource BoolVisibility}}">
+                    <NavigationViewItem.Icon><FontIcon Glyph="&#xE90F;" FontFamily="Segoe Fluent Icons" /></NavigationViewItem.Icon>
+                </NavigationViewItem>
             </NavigationView.MenuItems>
             <Grid Background="{ThemeResource LayerFillColorDefaultBrush}">
                 <Grid.RowDefinitions>

@@ -187,6 +187,10 @@
                 </controls:SettingsCard>
             </StackPanel>
             </ContentControl>
+            <controls:SettingsCard IsTabStop="False" Header="System-wide changes"
+                Description="Changes that need administrator rights are outside FlowDesk. Use trusted tools in the Advanced tab.">
+                <Button Content="{Binding AdvancedLinkText}" Command="{Binding OpenAdvancedCommand}" />
+            </controls:SettingsCard>
         </StackPanel>
     </ScrollViewer>
 </Page>
