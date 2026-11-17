@@ -63,9 +63,10 @@
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                            TextWrapping="Wrap" />
                 <StackPanel Spacing="4" Margin="0,8,0,0">
-                    <settings:SettingsCard Header="Preset"
+                    <settings:SettingsCard Header="Preset" IsTabStop="False"
                         Description="Fills the settings below. You can change them after.">
                         <ComboBox MinWidth="200"
+                                  PlaceholderText="Custom"
                                   SelectedIndex="{Binding Workspace.ContextEditor.PresetIndex, Mode=TwoWay}"
                                   AutomationProperties.Name="Preset">
                             <ComboBoxItem Content="None" />
@@ -74,7 +75,7 @@
                             <ComboBoxItem Content="Gaming" />
                         </ComboBox>
                     </settings:SettingsCard>
-                    <settings:SettingsCard Header="Focus session">
+                    <settings:SettingsCard Header="Focus session" IsTabStop="False">
                         <settings:SettingsCard.Description>
                             <StackPanel Spacing="2">
                                 <TextBlock Text="Uses the apps on the Focus page."
@@ -130,7 +131,7 @@
                             </StackPanel>
                         </StackPanel>
                     </settings:SettingsCard>
-                    <settings:SettingsCard Header="Do not disturb">
+                    <settings:SettingsCard Header="Do not disturb" IsTabStop="False">
                         <settings:SettingsCard.Description>
                             <TextBlock Text="Silences most notifications. Alarms and priority notifications can still arrive. Uses an experimental Windows interface."
                                        Style="{StaticResource CaptionTextBlockStyle}"
@@ -158,7 +159,7 @@
                             </StackPanel>
                         </StackPanel>
                     </settings:SettingsCard>
-                    <settings:SettingsCard Header="Sound output">
+                    <settings:SettingsCard Header="Sound output" IsTabStop="False">
                         <settings:SettingsCard.Description>
                             <TextBlock Text="Switches the default playback device when this workspace opens. Uses an experimental Windows interface."
                                        Style="{StaticResource CaptionTextBlockStyle}"
@@ -181,6 +182,10 @@
                                 <HyperlinkButton Content="Open sound settings"
                                                  NavigateUri="ms-settings:sound"
                                                  AutomationProperties.Name="Open sound settings" />
+                                <Button Content="Don't change sound output"
+                                        Command="{Binding Workspace.ContextEditor.ClearSoundOutputCommand}"
+                                        IsEnabled="{Binding Workspace.ContextEditor.HasSoundOutput}"
+                                        AutomationProperties.Name="Don't change sound output" />
                             </StackPanel>
                         </StackPanel>
                     </settings:SettingsCard>

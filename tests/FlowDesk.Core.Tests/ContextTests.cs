@@ -92,6 +92,7 @@ public class ContextTests
     {
         var device = new ContextAudioDevice { EndpointId = "id", Name = "Headphones" };
         Assert.Empty(ContextPlanner.Plan(new() { SoundOutput = device }, State(audio: new(true, [device], "id"))));
+        Assert.Empty(ContextPlanner.Plan(new() { SoundOutput = device }, State(audio: new(false, [device], "id"))));
         var step = Assert.Single(ContextPlanner.Plan(new() { SoundOutput = device }, State()));
         Assert.Equal("Headphones is not connected; sound output not changed", step.SkipReason);
     }
@@ -103,7 +104,7 @@ public class ContextTests
         var clone = JsonSerializer.Deserialize<WorkspaceContext>(JsonSerializer.Serialize(context, JsonStore.Options), JsonStore.Options)!;
         Assert.Equal("Stable", clone.SoundOutput!.StableId);
         Assert.Equal(ContextToggle.On, clone.DoNotDisturb);
-        Assert.Equal("Focus 25 min · Do not disturb · Headphones", ContextPlanner.Summary(clone));
+        Assert.Equal("Focus 25 min · Do not disturb · Sound: Headphones", ContextPlanner.Summary(clone));
         Assert.Equal("", ContextPlanner.Summary(new()));
     }
     [Fact] public void Unknown_numeric_modes_do_not_change_the_pc()

@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using FlowDesk.Core.Contexts;
 using FlowDesk.Core.Focus;
 using FlowDesk.Core.Model;
@@ -26,6 +27,7 @@ public sealed class ContextEditorViewModel : ObservableObject
         this.workspace = workspace; this.audio = audio; this.dnd = dnd;
         this.focusSettings = focusSettings; this.changed = changed;
         presetIndex = workspace.Context.IsEmpty ? 0 : -1;
+        ClearSoundOutputCommand = new RelayCommand(() => SelectedAudio = AudioChoices[0]);
         RebuildAudio([]);
     }
     public int[] DurationChoices { get; } = [25, 50, 90];
@@ -49,6 +51,8 @@ public sealed class ContextEditorViewModel : ObservableObject
     public bool DndUnavailable => !DndAvailable;
     public bool AudioAvailable { get; private set; } = true;
     public bool AudioUnavailable => !AudioAvailable;
+    public bool HasSoundOutput => workspace.Context.SoundOutput is not null;
+    public IRelayCommand ClearSoundOutputCommand { get; }
     public ObservableCollection<ContextAudioChoice> AudioChoices { get; } = [];
     private ContextAudioChoice? selectedAudio;
     public ContextAudioChoice? SelectedAudio
@@ -78,7 +82,7 @@ public sealed class ContextEditorViewModel : ObservableObject
     private void NotifyFields()
     {
         foreach (string name in new[] { nameof(PresetIndex), nameof(FocusIndex), nameof(FocusMinutes), nameof(StrictnessIndex),
-            nameof(DndIndex), nameof(FocusStartVisible), nameof(Caution), nameof(HasCaution) }) OnPropertyChanged(name);
+            nameof(DndIndex), nameof(FocusStartVisible), nameof(Caution), nameof(HasCaution), nameof(HasSoundOutput) }) OnPropertyChanged(name);
     }
     internal void RefreshCaution() { OnPropertyChanged(nameof(Caution)); OnPropertyChanged(nameof(HasCaution)); }
     public async Task RefreshAsync()

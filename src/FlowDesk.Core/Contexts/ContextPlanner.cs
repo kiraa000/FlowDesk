@@ -43,9 +43,9 @@ public static class ContextPlanner
             var device = Resolve(saved, state.Audio.Devices);
             if (device is null) steps.Add(new(ContextStepKind.SoundOutput, false,
                 $"{saved.Name} is not connected; sound output not changed"));
-            else if (!state.Audio.CanSetDefault) steps.Add(new(ContextStepKind.SoundOutput, false, "Could not change sound output"));
             else if (!string.Equals(device.EndpointId, state.Audio.DefaultEndpointId, StringComparison.OrdinalIgnoreCase))
-                steps.Add(new(ContextStepKind.SoundOutput, false, EndpointId: device.EndpointId));
+                steps.Add(new(ContextStepKind.SoundOutput, false,
+                    state.Audio.CanSetDefault ? null : "Could not change sound output", device.EndpointId));
         }
         if (context.Focus == ContextFocus.Start)
             steps.Add(new(ContextStepKind.FocusStart, false, state.FocusRunning ? "Focus session already running"
@@ -60,7 +60,7 @@ public static class ContextPlanner
         if (context.Focus == ContextFocus.End) parts.Add("End focus");
         if (context.DoNotDisturb != ContextToggle.Unchanged)
             parts.Add(context.DoNotDisturb == ContextToggle.On ? "Do not disturb" : "Do not disturb off");
-        if (context.SoundOutput is { } device) parts.Add(device.Name);
+        if (context.SoundOutput is { } device) parts.Add("Sound: " + device.Name);
         return string.Join(" · ", parts);
     }
 }

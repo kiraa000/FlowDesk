@@ -98,4 +98,14 @@ public class ContextAppTests
         Assert.Contains("Gentle mode", ContextEditorViewModel.BuildCaution(workspace, settings));
         settings.Allowed.Add(new() { ExeName = "game" }); Assert.Equal("", ContextEditorViewModel.BuildCaution(workspace, settings));
     }
+    [Fact] public async Task Unsupported_audio_can_be_cleared_without_any_native_write()
+    {
+        List<string> calls = []; int saves = 0;
+        var workspace = new Workspace { Context = new() { SoundOutput = new() { EndpointId = "id", Name = "Headphones" } } };
+        var editor = new ContextEditorViewModel(workspace, new Audio(calls) { State = new(false, [], null) }, new Dnd(calls), () => new(), () => saves++);
+        await editor.RefreshAsync(); Assert.True(editor.HasSoundOutput); Assert.True(editor.AudioUnavailable);
+        editor.ClearSoundOutputCommand.Execute(null);
+        Assert.False(editor.HasSoundOutput); Assert.Null(workspace.Context.SoundOutput); Assert.Equal(1, saves);
+        Assert.DoesNotContain(calls, c => c.StartsWith("audio-set:", StringComparison.Ordinal));
+    }
 }
