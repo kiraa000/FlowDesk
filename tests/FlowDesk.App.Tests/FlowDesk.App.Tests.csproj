@@ -43,6 +43,7 @@
     <Compile Include="..\..\src\FlowDesk.App\Services\UxDecisions.cs" Link="UxDecisions.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\LayoutSelection.cs" Link="LayoutSelection.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\StartupRegistration.cs" Link="StartupRegistration.cs" />
+    <Compile Include="..\..\src\FlowDesk.App\Services\CalmWindows.cs" Link="CalmWindows.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\CrashLog.cs" Link="CrashLog.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\ActivationRouter.cs" Link="ActivationRouter.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Autosave\AutoSaveCoordinator.cs" Link="AutoSaveCoordinator.cs" />

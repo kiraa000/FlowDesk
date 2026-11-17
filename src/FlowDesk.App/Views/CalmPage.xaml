@@ -1,0 +1,188 @@
+<Page
+    x:Class="FlowDesk.App.Views.CalmPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:CommunityToolkit.WinUI.Controls">
+    <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="32,24" MaxWidth="1000" Spacing="24">
+            <StackPanel Spacing="4">
+                <TextBlock Text="Calm" Style="{StaticResource TitleTextBlockStyle}"
+                           Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                <TextBlock Text="Choose what Windows shows. Every FlowDesk change can be undone."
+                           Style="{StaticResource BodyTextBlockStyle}"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           TextWrapping="Wrap" />
+            </StackPanel>
+
+            <StackPanel Spacing="8">
+                <TextBlock Text="{Binding Summary}"
+                           Style="{StaticResource SubtitleTextBlockStyle}"
+                           Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                           TextWrapping="Wrap" />
+                <StackPanel Spacing="8">
+                    <Button Content="Run check-up" Command="{Binding RunCheckCommand}"
+                            Style="{StaticResource AccentButtonStyle}" AccessKey="R"
+                            HorizontalAlignment="Left"
+                            AutomationProperties.Name="Run Windows check-up" />
+                    <ContentControl IsEnabled="{Binding CanInteract}"
+                                    HorizontalContentAlignment="Stretch">
+                        <StackPanel Spacing="8" HorizontalAlignment="Left">
+                            <Button Content="Calm all" Command="{Binding CalmAllCommand}"
+                                    HorizontalAlignment="Left"
+                                    AutomationProperties.Name="Calm all suggested Windows settings" />
+                            <Button Content="Undo all FlowDesk changes" Command="{Binding UndoAllCommand}"
+                                    IsEnabled="{Binding HasUndo}"
+                                    HorizontalAlignment="Left"
+                                    AutomationProperties.Name="Undo all FlowDesk changes"
+                                    ToolTipService.ToolTip="Restore the values saved before FlowDesk changed Windows" />
+                        </StackPanel>
+                    </ContentControl>
+                </StackPanel>
+                <ProgressBar IsIndeterminate="True"
+                             Visibility="{Binding Busy, Converter={StaticResource BoolVisibility}}"
+                             AutomationProperties.Name="Running Windows check-up" />
+                <TextBlock Text="{Binding LastChecked}"
+                           Style="{StaticResource CaptionTextBlockStyle}"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           TextWrapping="Wrap" />
+                <InfoBar Severity="Error" IsOpen="{Binding ErrorOpen, Mode=TwoWay}"
+                         Message="{Binding Error}" />
+                <InfoBar Severity="Informational" IsOpen="{Binding RestartSuggested, Mode=TwoWay}"
+                         Title="Some changes need a File Explorer restart"
+                         Message="Some changes apply after you restart File Explorer or sign out.">
+                    <InfoBar.ActionButton>
+                        <Button Content="Restart File Explorer"
+                                Command="{Binding RestartExplorerCommand}" />
+                    </InfoBar.ActionButton>
+                </InfoBar>
+            </StackPanel>
+
+            <ContentControl IsEnabled="{Binding CanInteract}"
+                            HorizontalContentAlignment="Stretch">
+            <StackPanel Spacing="24">
+                <ItemsControl ItemsSource="{Binding Groups}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Spacing="24" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="{Binding Title}"
+                                           Style="{StaticResource BodyStrongTextBlockStyle}"
+                                           Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                                <ItemsControl ItemsSource="{Binding Rows}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <StackPanel Spacing="4" />
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <controls:SettingsCard Header="{Binding Title}"
+                                                                   Description="{Binding Description}"
+                                                                   ContentAlignment="Vertical">
+                                                <StackPanel Spacing="8">
+                                                    <TextBlock Text="{Binding Caption}"
+                                                               Style="{StaticResource CaptionTextBlockStyle}"
+                                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                               TextWrapping="Wrap" />
+                                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                                        <ContentControl IsEnabled="{Binding CanChange}"
+                                                                        HorizontalContentAlignment="Stretch">
+                                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                                            <Button Content="{Binding ActionText}"
+                                                                    Command="{Binding ChangeCommand}"
+                                                                    Visibility="{Binding IsToggle, Converter={StaticResource BoolVisibility}}"
+                                                                    AutomationProperties.Name="{Binding Title}"
+                                                                    ToolTipService.ToolTip="Calm this setting or turn it back on" />
+                                                            <StackPanel Orientation="Horizontal" Spacing="8"
+                                                                        Visibility="{Binding IsSearch, Converter={StaticResource BoolVisibility}}">
+                                                                <ComboBox SelectedIndex="{Binding SelectedSearch, Mode=TwoWay}"
+                                                                          AutomationProperties.Name="{Binding Title}">
+                                                                    <ComboBoxItem Content="Hidden" />
+                                                                    <ComboBoxItem Content="Icon" />
+                                                                    <ComboBoxItem Content="Box" />
+                                                                </ComboBox>
+                                                                 <Button Content="Apply"
+                                                                         IsEnabled="{Binding CanApplySearch}"
+                                                                        Command="{Binding ChangeCommand}"
+                                                                        AutomationProperties.Name="{Binding Title}"
+                                                                        ToolTipService.ToolTip="Apply the selected search setting" />
+                                                            </StackPanel>
+                                                        </StackPanel>
+                                                        </ContentControl>
+                                                        <Button Content="Undo"
+                                                                Command="{Binding UndoCommand}"
+                                                                Visibility="{Binding HasUndo, Converter={StaticResource BoolVisibility}}"
+                                                                AutomationProperties.Name="{Binding Title}"
+                                                                ToolTipService.ToolTip="Restore the value from before FlowDesk changed it" />
+                                                    </StackPanel>
+                                                </StackPanel>
+                                            </controls:SettingsCard>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Startup apps"
+                               Style="{StaticResource BodyStrongTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                    <TextBlock Text="Startup apps are your choice and are never included in Calm all."
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               TextWrapping="Wrap" />
+                    <ItemsControl ItemsSource="{Binding StartupApps}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Spacing="4" />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <controls:SettingsCard Header="{Binding Name}">
+                                    <controls:SettingsCard.Description>
+                                        <TextBlock Text="{Binding Caption}"
+                                                   Style="{StaticResource CaptionTextBlockStyle}"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                   TextWrapping="Wrap"
+                                                   ToolTipService.ToolTip="{Binding Command}" />
+                                    </controls:SettingsCard.Description>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <ToggleSwitch IsOn="{Binding IsOn, Mode=TwoWay}"
+                                                      IsEnabled="{Binding CanChange}"
+                                                      AutomationProperties.Name="{Binding Name}" />
+                                        <Button Content="Undo"
+                                                Command="{Binding UndoCommand}"
+                                                Visibility="{Binding HasUndo, Converter={StaticResource BoolVisibility}}"
+                                                AutomationProperties.Name="{Binding Name}"
+                                                ToolTipService.ToolTip="Restore this startup app to its previous state" />
+                                    </StackPanel>
+                                </controls:SettingsCard>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <controls:SettingsCard Header="Other startup apps"
+                                           Description="Machine-wide and packaged apps are managed by Windows.">
+                        <Button Content="Open in Settings"
+                                Command="{Binding OpenStartupSettingsCommand}"
+                                AutomationProperties.Name="Open startup apps in Windows Settings" />
+                    </controls:SettingsCard>
+                </StackPanel>
+
+                <controls:SettingsCard Header="Windows Update"
+                                       Description="{Binding ActiveHours}">
+                    <Button Content="Open in Settings"
+                            Command="{Binding OpenUpdateSettingsCommand}"
+                            AutomationProperties.Name="Open Windows Update settings" />
+                </controls:SettingsCard>
+            </StackPanel>
+            </ContentControl>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

@@ -10,7 +10,7 @@ using FlowDesk.Core.Hotkeys;
 
 namespace FlowDesk.App.ViewModels;
 
-public enum AppPage { Workspaces, Details, Capture, Settings, Layouts, Focus, Hotkeys }
+public enum AppPage { Workspaces, Details, Capture, Settings, Layouts, Focus, Hotkeys, Calm }
 public enum StatusKind { Information, Success, Warning, Error }
 
 public partial class AppViewModels : ObservableObject
@@ -25,6 +25,7 @@ public partial class AppViewModels : ObservableObject
     public LayoutsViewModel Layouts { get; }
     public FocusViewModel Focus { get; }
     public HotkeysViewModel Hotkeys { get; }
+    public CalmViewModel Calm { get; }
     private IReadOnlyDictionary<AppPage, bool> OptionalPages => new Dictionary<AppPage, bool> { [AppPage.Hotkeys] = Services.Settings.WindowShortcutsEnabled };
     public bool IsHotkeysVisible => OptionalNavigation.Visible(AppPage.Hotkeys, OptionalPages);
     internal bool IsHotkeysPageOpen => currentPage == AppPage.Hotkeys;
@@ -56,7 +57,7 @@ public partial class AppViewModels : ObservableObject
         Services = services; Ui = ui;
         Workspaces = new(this); Details = new(this); Capture = new(this); Settings = new(this);
         Layouts = new(this); Focus = new(this); BrowserNotice = new(this); AutoSave = new(this);
-        Hotkeys = new(this);
+        Hotkeys = new(this); Calm = new(this);
         Services.SaveFailed += message => Ui.Enqueue(() => ShowStatus(message, StatusKind.Error));
         Tour.Finished += () =>
         {

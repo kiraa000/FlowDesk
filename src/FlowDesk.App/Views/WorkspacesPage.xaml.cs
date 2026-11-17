@@ -9,6 +9,7 @@ public sealed partial class WorkspacesPage : Page
     {
         InitializeComponent();
         DataContext = App.ViewModels.Workspaces;
+        CalmOffer.DataContext = App.ViewModels;
     }
 
     private void NewWorkspace_Click(SplitButton sender, SplitButtonClickEventArgs e)

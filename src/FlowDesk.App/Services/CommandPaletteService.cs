@@ -143,13 +143,14 @@ internal sealed class CommandPaletteService : IDisposable
         var state = new PaletteActionState(vm.IsBusy, vm.Focus.IsRunning, vm.Focus.CanStart, services.Settings.WindowShortcutsEnabled, hasTarget);
         void Add(string id, string title, Func<Task> run, string glyph = "\uE8A7", string hint = "Run") =>
             list.Add(new("action:" + id, title, "FlowDesk action", CommandKind.Action, glyph, run, ActionHint: hint));
-        foreach (var page in new[] { AppPage.Workspaces, AppPage.Layouts, AppPage.Focus, AppPage.Hotkeys, AppPage.Settings })
+        foreach (var page in new[] { AppPage.Workspaces, AppPage.Layouts, AppPage.Focus, AppPage.Calm, AppPage.Hotkeys, AppPage.Settings })
         {
             if (page == AppPage.Hotkeys && !vm.IsHotkeysVisible) continue;
             Add("page-" + page, "Open FlowDesk · " + page, () => { EnsureIdle(); showMain(); vm.Navigate(page); return Task.CompletedTask; }, "\uE80F", "Open");
         }
         if (!vm.IsBusy)
         {
+            Add("calm-check", "Run check-up", async () => { EnsureIdle(); showMain(); vm.Navigate(AppPage.Calm); await vm.Calm.RunCheckCommand.ExecuteAsync(null); }, "\uE8BE");
             Task OpenFocusSetup()
             {
                 EnsureIdle(); showMain(); vm.Navigate(AppPage.Focus); return Task.CompletedTask;

@@ -7,6 +7,9 @@
         <StackPanel Margin="32,24" MaxWidth="1000" Spacing="24">
             <TextBlock Text="Workspaces" Style="{StaticResource TitleTextBlockStyle}"
                        Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+            <InfoBar x:Name="CalmOffer" IsOpen="{Binding Calm.OfferOpen, Mode=TwoWay}" Message="{Binding Calm.OfferText}" Severity="Informational">
+                <InfoBar.ActionButton><Button Content="Review" Command="{Binding Calm.ReviewCommand}" /></InfoBar.ActionButton>
+            </InfoBar>
             <SplitButton x:Name="NewWorkspace" Content="New workspace"
                          Click="NewWorkspace_Click" AccessKey="N"
                          Visibility="{Binding HasWorkspaces, Converter={StaticResource BoolVisibility}}"

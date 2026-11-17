@@ -55,6 +55,7 @@ public sealed class AppSettings
     /// <summary>Empty uses Windows Terminal's app execution alias, falling back to Command Prompt.</summary>
     public string TerminalProgram { get; set; } = "";
     public bool TrayCloseNoticeShown { get; set; }
+    public bool FirstCalmCheckDone { get; set; }
 
     public static int ClampLaunchTimeout(int seconds) => LaunchTimeoutValue.Clamp(seconds);
 

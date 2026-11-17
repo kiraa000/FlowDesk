@@ -155,6 +155,7 @@ public sealed partial class MainWindow : Window
             int y = Math.Clamp(s.Y ?? area.Y + 80, area.Y, Math.Max(area.Y, area.Y + area.Height - height));
             AppWindow.MoveAndResize(new RectInt32(x, y, width, height));
             Navigation.IsEnabled = true; Navigate(AppPage.Workspaces);
+            await App.ViewModels.Calm.FirstCheckAsync();
             if (!services.Data.TourCompleted) App.ViewModels.RequestTour();
         }
         catch (Exception ex)
@@ -208,7 +209,7 @@ public sealed partial class MainWindow : Window
             {
                 AppPage.Details => typeof(WorkspaceDetailsPage), AppPage.Capture => typeof(SaveOpenWindowsPage),
                 AppPage.Settings => typeof(SettingsPage), AppPage.Layouts => typeof(LayoutsPage),
-                AppPage.Focus => typeof(FocusPage), AppPage.Hotkeys => typeof(HotkeysPage), _ => typeof(WorkspacesPage)
+                AppPage.Focus => typeof(FocusPage), AppPage.Calm => typeof(CalmPage), AppPage.Hotkeys => typeof(HotkeysPage), _ => typeof(WorkspacesPage)
             };
             if (PageFrame.CurrentSourcePageType != type) PageFrame.Navigate(type);
             // Navigation is command-driven, not a browser history of stale editing pages.

@@ -451,6 +451,13 @@ public partial class SettingsViewModel(AppViewModels owner) : ObservableObject
         owner.ShowStatus("FlowDesk could not change the Windows startup setting. Check access to your user registry.",
             StatusKind.Error);
     }
+    internal void RefreshStartupState()
+    {
+        bool previous = loading;
+        loading = true;
+        try { StartWithWindows = StartupRegistration.IsEnabled(); }
+        finally { loading = previous; }
+    }
     [RelayCommand] private void ReplayTour() => owner.RequestTour();
     [RelayCommand]
     private void OpenDataFolder()
