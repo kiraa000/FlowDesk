@@ -15,7 +15,8 @@ public static class RestoreReportText
             message += " " + string.Join(" ", failures.Select(i => $"{i.Name}: {i.Detail ?? Outcome(i.Outcome)}"));
         if (skipped.Count > 0)
             message += " Skipped: " + string.Join(" ", skipped.Select(i => $"{i.Name}: {i.Detail ?? "left as it was"}"));
-        return (message, failures.Count > 0);
+        if (report.Context.Count > 0) message += " · " + string.Join(" · ", report.Context.Select(n => n.Text));
+        return (message, failures.Count > 0 || report.Context.Any(n => n.IsFailure));
     }
 
     public static string Outcome(ItemOutcome outcome) => outcome switch

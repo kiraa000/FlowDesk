@@ -23,6 +23,8 @@ public sealed class AppServices : ObservableObject, IDisposable
     public WorkspaceSwitcher Switcher { get; }
     public LayoutApplier Layouts { get; }
     public FocusWatcher Focus { get; }
+    public FlowDesk.Core.Contexts.IAudioOutput AudioOutput { get; }
+    public FlowDesk.Core.Contexts.IDoNotDisturb DoNotDisturb { get; }
     public JsonStore Store { get; } = new();
     public HotkeyService Hotkeys { get; }
     public QuickLookService? QuickLook { get; set; }
@@ -47,6 +49,16 @@ public sealed class AppServices : ObservableObject, IDisposable
         Restorer = new(Windows, new ShellLauncher(), Tracker, desktops: Desktops);
         Switcher = new(Windows, Tracker, Capture, Restorer);
         Layouts = new(Windows); Focus = new(Windows);
+        AudioOutput = new AudioOutputService(LogContextFailure);
+        DoNotDisturb = new DoNotDisturbService(LogContextFailure);
+    }
+
+    internal void LogContextFailure(Exception ex)
+    {
+        // No device identifiers, profile contents or exception messages in diagnostics.
+        try { Directory.CreateDirectory(Store.Folder); File.AppendAllText(Path.Combine(Store.Folder, "contexts.log"),
+            $"{DateTimeOffset.UtcNow:O} {ex.GetType().Name} HRESULT=0x{ex.HResult:X8}{Environment.NewLine}"); }
+        catch (Exception) { /* A context diagnostic must never fail the workspace switch. */ }
     }
 
     /// <summary>Loads the desktop backend off the UI thread before anything captures or restores windows.</summary>

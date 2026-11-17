@@ -13,11 +13,14 @@ public sealed class ContextAudioDevice
 
 public sealed class WorkspaceContext
 {
-    public ContextFocus Focus { get; set; }
+    private ContextFocus focus;
+    public ContextFocus Focus { get => focus; set => focus = Enum.IsDefined(value) ? value : ContextFocus.Unchanged; }
     private int minutes = 25;
     public int FocusMinutes { get => minutes; set => minutes = FocusSettings.DurationChoices.Contains(value) ? value : 25; }
-    public FocusStrictness FocusStrictness { get; set; } = FocusStrictness.Normal;
-    public ContextToggle DoNotDisturb { get; set; }
+    private FocusStrictness strictness = FocusStrictness.Normal;
+    public FocusStrictness FocusStrictness { get => strictness; set => strictness = Enum.IsDefined(value) ? value : FocusStrictness.Normal; }
+    private ContextToggle doNotDisturb;
+    public ContextToggle DoNotDisturb { get => doNotDisturb; set => doNotDisturb = Enum.IsDefined(value) ? value : ContextToggle.Unchanged; }
     public ContextAudioDevice? SoundOutput { get; set; }
     [System.Text.Json.Serialization.JsonIgnore]
     public bool IsEmpty => Focus == ContextFocus.Unchanged && DoNotDisturb == ContextToggle.Unchanged && SoundOutput is null;

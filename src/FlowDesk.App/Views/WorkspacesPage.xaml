@@ -66,6 +66,11 @@
                                     <TextBlock Text="{Binding Summary}" Style="{StaticResource CaptionTextBlockStyle}"
                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                                TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding ContextSummary}"
+                                               Visibility="{Binding HasContext, Converter={StaticResource BoolVisibility}}"
+                                               Style="{StaticResource CaptionTextBlockStyle}"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                               TextWrapping="Wrap" />
                                     <TextBlock Text="{Binding OpeningText}"
                                                Visibility="{Binding IsOpening, Converter={StaticResource BoolVisibility}}"
                                                Style="{StaticResource CaptionTextBlockStyle}"

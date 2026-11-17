@@ -17,7 +17,7 @@ public sealed record FocusRuleRow(FocusAppRule Rule, string ExePath)
 }
 
 // UI state is dispatcher-owned. Even watcher state reads run on a worker: its lock covers enumeration.
-public partial class FocusViewModel : ObservableObject
+public partial class FocusViewModel : ObservableObject, IContextFocus
 {
     private readonly AppViewModels owner;
     private readonly SemaphoreSlim operations = new(1, 1);
@@ -201,5 +201,42 @@ public partial class FocusViewModel : ObservableObject
         var seconds = Math.Max(0, (int)Math.Ceiling(sample.remaining.TotalSeconds));
         RemainingText = $"{seconds / 60:00}:{seconds % 60:00}";
         Progress = totalSeconds > 0 ? Math.Clamp(100 * (1 - sample.remaining.TotalSeconds / totalSeconds), 0, 100) : 0;
+    }
+
+    public async Task<ContextFocusState> ReadContextStateAsync()
+    {
+        var state = await Task.Run(() => owner.Services.Focus.State);
+        return new(state is not null, state?.Strictness == FocusStrictness.Strict,
+            UxDecisions.CanStartFocus(false, BlockAll, Blocked.Count));
+    }
+
+    public async Task<FlowDesk.Core.Contexts.ContextNote?> ApplyContextFocusAsync(WorkspaceContext context)
+    {
+        await operations.WaitAsync();
+        try
+        {
+            var current = await ReadContextStateAsync();
+            var step = FlowDesk.Core.Contexts.ContextPlanner.Plan(context, new(current.Running, current.Strict,
+                current.CanStart, new(false, null), new(false, [], null)))
+                .FirstOrDefault(s => s.Kind is FlowDesk.Core.Contexts.ContextStepKind.FocusEnd or FlowDesk.Core.Contexts.ContextStepKind.FocusStart);
+            if (step is null) return null;
+            if (step.SkipReason is { } reason) return new(reason);
+            if (context.Focus == ContextFocus.End)
+            {
+                bool stopped = await Task.Run(() => owner.Services.Focus.Stop()); // never force a Strict session
+                await RefreshAsync(); SessionChanged?.Invoke();
+                return new(stopped ? "Focus session ended" : "Strict focus session kept");
+            }
+            // Copy the Focus page lists, but do not persist the context's duration/strictness as page defaults.
+            var snapshot = JsonSerializer.Deserialize<FocusSettings>(JsonSerializer.Serialize(owner.Services.Data.Focus, JsonStore.Options), JsonStore.Options)!;
+            snapshot.DurationMinutes = context.FocusMinutes;
+            snapshot.Strictness = Enum.IsDefined(context.FocusStrictness) ? context.FocusStrictness : FocusStrictness.Normal;
+            totalSeconds = snapshot.DurationMinutes * 60;
+            SessionChanged?.Invoke();
+            await Task.Run(() => owner.Services.Focus.Start(snapshot));
+            await RefreshAsync();
+            return new($"Focus {snapshot.DurationMinutes} min");
+        }
+        finally { operations.Release(); }
     }
 }

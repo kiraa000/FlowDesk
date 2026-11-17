@@ -14,6 +14,9 @@ public partial class WorkspaceViewModel : ObservableObject
     private bool initializing = true;
     private bool syncingSettings;
     private AutoSaveStatus? autosave;
+    public ContextEditorViewModel ContextEditor { get; }
+    public string ContextSummary => FlowDesk.Core.Contexts.ContextPlanner.Summary(Model.Context);
+    public bool HasContext => !Model.Context.IsEmpty;
     [ObservableProperty] public partial string Name { get; set; }
     [ObservableProperty] public partial string Description { get; set; }
     [ObservableProperty] public partial string Color { get; set; }
@@ -48,6 +51,10 @@ public partial class WorkspaceViewModel : ObservableObject
     public WorkspaceViewModel(Workspace model, AppViewModels owner)
     {
         Model = model; this.owner = owner;
+        ContextEditor = new(model, owner.Services.AudioOutput, owner.Services.DoNotDisturb, () => owner.Services.Data.Focus, () =>
+        {
+            OnPropertyChanged(nameof(ContextSummary)); OnPropertyChanged(nameof(HasContext)); owner.Services.Changed();
+        });
         Name = model.Name; Description = model.Description; Color = model.Color;
         try { Glyph = char.ConvertFromUtf32(Convert.ToInt32(model.Glyph, 16)); }
         catch { Glyph = "\uE8A1"; }
@@ -109,6 +116,7 @@ public partial class WorkspaceViewModel : ObservableObject
         Items.Clear();
         foreach (var item in Model.Items) Items.Add(new(item, this, owner));
         RefreshSummary(); OnPropertyChanged(nameof(IsEmpty));
+        ContextEditor.RefreshCaution();
     }
     internal void RefreshPositions()
     {

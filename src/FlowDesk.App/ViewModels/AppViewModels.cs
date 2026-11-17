@@ -356,7 +356,11 @@ public partial class AppViewModels : ObservableObject
             {
                 LaunchTimeout = TimeSpan.FromSeconds(AppSettings.ClampLaunchTimeout(Services.Settings.LaunchTimeoutSeconds))
             };
+            var contexts = new ContextApplier(Services.AudioOutput, Services.DoNotDisturb, Focus, Services.LogContextFailure);
+            var beforeContext = await contexts.ApplyAsync(target.Context, beforeRestore: true);
             var restoreReport = await Task.Run(() => Services.Switcher.SwitchToAsync(target, previous, leave, progress, default, options));
+            var afterContext = await contexts.ApplyAsync(target.Context, beforeRestore: false);
+            restoreReport = restoreReport with { Context = [.. beforeContext, .. afterContext] };
             report = restoreReport;
             workspace.Model.LastUsed = target.LastUsed;
             // The core switch succeeded: keep startup identity consistent even if reading the baseline below fails.

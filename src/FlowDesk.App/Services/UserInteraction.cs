@@ -94,6 +94,11 @@ public sealed class UserInteraction(Window window, FrameworkElement root) : IUse
             content.Children.Add(Ui.Text(item.Name + " · " + RestoreReportText.Outcome(item.Outcome), "BodyStrongTextBlockStyle"));
             content.Children.Add(Ui.Text(RestoreReportText.Detail(item), secondary: true));
         }
+        if (report.Context.Count > 0)
+        {
+            content.Children.Add(Ui.Text("Context", "BodyStrongTextBlockStyle"));
+            foreach (var note in report.Context) content.Children.Add(Ui.Text(note.Text, secondary: true));
+        }
         await Dialog("Workspace results", Ui.Scroll(content), close: "Close").ShowAsync();
     }
 }

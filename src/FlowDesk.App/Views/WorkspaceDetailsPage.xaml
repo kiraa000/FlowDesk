@@ -3,6 +3,7 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:services="using:FlowDesk.App.Services"
+    xmlns:settings="using:CommunityToolkit.WinUI.Controls"
     xmlns:vm="using:FlowDesk.App.ViewModels">
     <ScrollViewer HorizontalScrollBarVisibility="Disabled">
         <StackPanel Margin="32,24" MaxWidth="1000" Spacing="16">
@@ -52,6 +53,138 @@
                            Style="{StaticResource CaptionTextBlockStyle}"
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                            TextWrapping="Wrap" />
+            </StackPanel>
+            <StackPanel Spacing="4" Margin="0,8,0,0">
+                <TextBlock Text="When this workspace opens"
+                           Style="{StaticResource SubtitleTextBlockStyle}"
+                           Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                <TextBlock Text="FlowDesk can also set your PC's mode. Nothing changes back when you leave."
+                           Style="{StaticResource CaptionTextBlockStyle}"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           TextWrapping="Wrap" />
+                <StackPanel Spacing="4" Margin="0,8,0,0">
+                    <settings:SettingsCard Header="Preset"
+                        Description="Fills the settings below. You can change them after.">
+                        <ComboBox MinWidth="200"
+                                  SelectedIndex="{Binding Workspace.ContextEditor.PresetIndex, Mode=TwoWay}"
+                                  AutomationProperties.Name="Preset">
+                            <ComboBoxItem Content="None" />
+                            <ComboBoxItem Content="Study" />
+                            <ComboBoxItem Content="Coding" />
+                            <ComboBoxItem Content="Gaming" />
+                        </ComboBox>
+                    </settings:SettingsCard>
+                    <settings:SettingsCard Header="Focus session">
+                        <settings:SettingsCard.Description>
+                            <StackPanel Spacing="2">
+                                <TextBlock Text="Uses the apps on the Focus page."
+                                           Style="{StaticResource CaptionTextBlockStyle}"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                           TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding Workspace.ContextEditor.Caution}"
+                                           Visibility="{Binding Workspace.ContextEditor.HasCaution, Converter={StaticResource BoolVisibility}}"
+                                           Style="{StaticResource CaptionTextBlockStyle}"
+                                           Foreground="{ThemeResource SystemFillColorCautionBrush}"
+                                           TextWrapping="Wrap" />
+                            </StackPanel>
+                        </settings:SettingsCard.Description>
+                        <StackPanel Spacing="8" MinWidth="220">
+                            <ComboBox HorizontalAlignment="Stretch"
+                                      SelectedIndex="{Binding Workspace.ContextEditor.FocusIndex, Mode=TwoWay}"
+                                      AutomationProperties.Name="Focus session">
+                                <ComboBoxItem Content="Don't change" />
+                                <ComboBoxItem Content="Start a focus session" />
+                                <ComboBoxItem Content="End a focus session" />
+                            </ComboBox>
+                            <StackPanel Spacing="8"
+                                        Visibility="{Binding Workspace.ContextEditor.FocusStartVisible, Converter={StaticResource BoolVisibility}}">
+                                <Grid ColumnSpacing="8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Duration (minutes)" VerticalAlignment="Center"
+                                               Style="{StaticResource BodyTextBlockStyle}"
+                                               Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                                    <ComboBox Grid.Column="1" MinWidth="120"
+                                              ItemsSource="{Binding Workspace.ContextEditor.DurationChoices}"
+                                              SelectedItem="{Binding Workspace.ContextEditor.FocusMinutes, Mode=TwoWay}"
+                                              AutomationProperties.Name="Focus session duration in minutes" />
+                                </Grid>
+                                <Grid ColumnSpacing="8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Strictness" VerticalAlignment="Center"
+                                               Style="{StaticResource BodyTextBlockStyle}"
+                                               Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                                    <ComboBox Grid.Column="1" MinWidth="120"
+                                              SelectedIndex="{Binding Workspace.ContextEditor.StrictnessIndex, Mode=TwoWay}"
+                                              AutomationProperties.Name="Focus session strictness">
+                                        <ComboBoxItem Content="Gentle" />
+                                        <ComboBoxItem Content="Normal" />
+                                        <ComboBoxItem Content="Strict" />
+                                    </ComboBox>
+                                </Grid>
+                            </StackPanel>
+                        </StackPanel>
+                    </settings:SettingsCard>
+                    <settings:SettingsCard Header="Do not disturb">
+                        <settings:SettingsCard.Description>
+                            <TextBlock Text="Silences most notifications. Alarms and priority notifications can still arrive. Uses an experimental Windows interface."
+                                       Style="{StaticResource CaptionTextBlockStyle}"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       TextWrapping="Wrap" />
+                        </settings:SettingsCard.Description>
+                        <StackPanel Spacing="2">
+                            <ComboBox MinWidth="160"
+                                      Visibility="{Binding Workspace.ContextEditor.DndAvailable, Converter={StaticResource BoolVisibility}}"
+                                      SelectedIndex="{Binding Workspace.ContextEditor.DndIndex, Mode=TwoWay}"
+                                      AutomationProperties.Name="Do not disturb">
+                                <ComboBoxItem Content="Don't change" />
+                                <ComboBoxItem Content="Turn on" />
+                                <ComboBoxItem Content="Turn off" />
+                            </ComboBox>
+                            <StackPanel Spacing="2"
+                                        Visibility="{Binding Workspace.ContextEditor.DndUnavailable, Converter={StaticResource BoolVisibility}}">
+                                <TextBlock Text="Not available on this PC."
+                                           Style="{StaticResource CaptionTextBlockStyle}"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                           TextWrapping="Wrap" />
+                                <HyperlinkButton Content="Open notification settings"
+                                                 NavigateUri="ms-settings:notifications"
+                                                 AutomationProperties.Name="Open notification settings" />
+                            </StackPanel>
+                        </StackPanel>
+                    </settings:SettingsCard>
+                    <settings:SettingsCard Header="Sound output">
+                        <settings:SettingsCard.Description>
+                            <TextBlock Text="Switches the default playback device when this workspace opens. Uses an experimental Windows interface."
+                                       Style="{StaticResource CaptionTextBlockStyle}"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       TextWrapping="Wrap" />
+                        </settings:SettingsCard.Description>
+                        <StackPanel Spacing="2">
+                            <ComboBox MinWidth="200"
+                                      Visibility="{Binding Workspace.ContextEditor.AudioAvailable, Converter={StaticResource BoolVisibility}}"
+                                      ItemsSource="{Binding Workspace.ContextEditor.AudioChoices}"
+                                      DisplayMemberPath="Name"
+                                      SelectedItem="{Binding Workspace.ContextEditor.SelectedAudio, Mode=TwoWay}"
+                                      AutomationProperties.Name="Sound output" />
+                            <StackPanel Spacing="2"
+                                        Visibility="{Binding Workspace.ContextEditor.AudioUnavailable, Converter={StaticResource BoolVisibility}}">
+                                <TextBlock Text="Not available on this PC."
+                                           Style="{StaticResource CaptionTextBlockStyle}"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                           TextWrapping="Wrap" />
+                                <HyperlinkButton Content="Open sound settings"
+                                                 NavigateUri="ms-settings:sound"
+                                                 AutomationProperties.Name="Open sound settings" />
+                            </StackPanel>
+                        </StackPanel>
+                    </settings:SettingsCard>
+                </StackPanel>
             </StackPanel>
             <StackPanel Orientation="Horizontal" Spacing="8">
                 <DropDownButton Content="Add" MinWidth="72">

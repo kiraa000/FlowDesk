@@ -40,6 +40,11 @@
     <Compile Include="..\..\src\FlowDesk.App\Services\PaletteAcrylicAppearance.cs" Link="PaletteAcrylicAppearance.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\BrowserRestoreHelp.cs" Link="BrowserRestoreHelp.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\RestoreReportText.cs" Link="RestoreReportText.cs" />
+    <Compile Include="..\..\src\FlowDesk.App\Services\ContextApplier.cs" Link="ContextApplier.cs" />
+    <Compile Include="..\..\src\FlowDesk.App\Services\ContextNativeCall.cs" Link="ContextNativeCall.cs" />
+    <Compile Include="..\..\src\FlowDesk.App\Services\AudioOutputService.cs" Link="AudioOutputService.cs" />
+    <Compile Include="..\..\src\FlowDesk.App\Services\DoNotDisturbService.cs" Link="DoNotDisturbService.cs" />
+    <Compile Include="..\..\src\FlowDesk.App\ViewModels\ContextEditorViewModel.cs" Link="ContextEditorViewModel.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\NewWindowEligibility.cs" Link="NewWindowEligibility.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\BrowserNoticeSelection.cs" Link="BrowserNoticeSelection.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\SaveOpenWindowsBinding.cs" Link="SaveOpenWindowsBinding.cs" />

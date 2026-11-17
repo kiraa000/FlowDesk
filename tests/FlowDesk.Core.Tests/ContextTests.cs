@@ -106,4 +106,10 @@ public class ContextTests
         Assert.Equal("Focus 25 min · Do not disturb · Headphones", ContextPlanner.Summary(clone));
         Assert.Equal("", ContextPlanner.Summary(new()));
     }
+    [Fact] public void Unknown_numeric_modes_do_not_change_the_pc()
+    {
+        var context = JsonSerializer.Deserialize<WorkspaceContext>("{\"Focus\":999,\"DoNotDisturb\":999,\"FocusStrictness\":999}", JsonStore.Options)!;
+        Assert.True(context.IsEmpty); Assert.Equal(FocusStrictness.Normal, context.FocusStrictness);
+        Assert.Empty(ContextPlanner.Plan(context, State()));
+    }
 }
