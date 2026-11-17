@@ -214,7 +214,7 @@ internal sealed partial class CommandPaletteWindow : Window
             Results.SelectedIndex = rows.Length > 0 ? Math.Max(0, selectedIndex) : -1;
             ResizeForResults(rows.Length);
             SetStatus(queryMode == PaletteMode.Clipboard
-                ? rows.Length == 0 ? (string.IsNullOrWhiteSpace(text) ? "No history yet · Copy text to get started" : "No matching clipboard items") : $"{rows.Length} clipboard items"
+                ? rows.Length == 0 ? (string.IsNullOrWhiteSpace(text) ? "No history yet · Copy text to get started" : "No matching clipboard items") : rows.Length == 1 ? "1 clipboard item" : $"{rows.Length} clipboard items"
                 : rows.Length == 0 ? (string.IsNullOrWhiteSpace(text) ? "Recent · Your recently used commands will appear here" : "No results")
                 : (string.IsNullOrWhiteSpace(text) ? "Recent · " : "") + $"{rows.Length} results");
             foreach (var row in rows)
