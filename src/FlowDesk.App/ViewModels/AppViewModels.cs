@@ -51,6 +51,8 @@ public partial class AppViewModels : ObservableObject
     private WorkspaceViewModel? activeWorkspace;
     private string? lastAutoSaveError;
     private AppPage currentPage = AppPage.Workspaces;
+    private readonly StatusLifetime statusLifetime = new();
+    partial void OnStatusOpenChanged(bool value) { if (!value) statusLifetime.Invalidate(); }
 
     public AppViewModels(AppServices services, IUserInteraction ui)
     {
@@ -226,7 +228,14 @@ public partial class AppViewModels : ObservableObject
     }
     internal void ShowStatus(string message, StatusKind kind = StatusKind.Information)
     {
+        statusLifetime.Invalidate();
         StatusMessage = message; StatusKind = kind; StatusOpen = true;
+    }
+    internal void ShowPaletteNotice(PaletteNotice notice)
+    {
+        ShowStatus(notice.Message, notice.IsCopied ? StatusKind.Information : StatusKind.Warning);
+        if (notice.DismissAfter is { } duration)
+            _ = statusLifetime.DismissAsync(statusLifetime.Generation, () => Task.Delay(duration), Ui.Enqueue, () => StatusOpen = false);
     }
     /// <summary>
     /// Runs a UI command with autosave quiesced: its in-flight poll/save is cancelled and awaited, and no queued

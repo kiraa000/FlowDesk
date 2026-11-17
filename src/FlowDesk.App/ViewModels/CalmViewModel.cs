@@ -50,7 +50,7 @@ public sealed partial class CalmViewModel : ObservableObject
     }
     [RelayCommand] private void Review() { OfferOpen = false; parent.Navigate(AppPage.Calm); }
     internal Task EnsureScanForVisitAsync() => scanSession.EnsureAsync(() => HasScan, RunCheckAsync);
-    [RelayCommand] private async Task RunCheckAsync() => await OperateAsync(async () =>
+    [RelayCommand(AllowConcurrentExecutions = true)] private async Task RunCheckAsync() => await OperateAsync(async () =>
     {
         var result = await Task.Run(() => (Rows: CalmEvaluator.Scan(registry, CalmWindows.Build(registry)), Startup: StartupCatalog.Scan(registry, folder), Hours: CalmWindows.ActiveHours(registry)));
         readings = result.Rows; startup = result.Startup; ActiveHours = result.Hours;
@@ -59,11 +59,8 @@ public sealed partial class CalmViewModel : ObservableObject
     });
     private void RefreshRows()
     {
-        Groups.Clear(); StartupApps.Clear();
-        foreach (var group in readings.GroupBy(r => r.Setting.Group))
-            Groups.Add(new(group.Key switch { "Start" => "Start menu & suggestions", "Lock" => "Lock screen", "Explorer" => "File Explorer", _ => group.Key },
-                group.Select(r => new CalmRow(r, changes.HasUndo(r.Setting.Id), ChangeAsync)).ToArray()));
-        foreach (var app in startup) StartupApps.Add(new(app, changes.HasUndo(app.Id), StartupAsync));
+        CalmRowRefresh.Apply(Groups, StartupApps, readings, startup, changes.HasUndo,
+            ChangeAsync, StartupAsync, () => CanInteract);
         HasUndo = changes.HasAnyUndo;
         RestartSuggested |= readings.Any(r => r.Setting.ExplorerRestart && changes.HasUndo(r.Setting.Id));
         parent.Settings.RefreshStartupState();
@@ -93,7 +90,7 @@ public sealed partial class CalmViewModel : ObservableObject
         await CalmWindows.BroadcastAsync(["Policy"]);
         await ReloadAfterChangeAsync();
     });
-    [RelayCommand] private async Task CalmAllAsync() => await OperateAsync(async () =>
+    [RelayCommand(AllowConcurrentExecutions = true)] private async Task CalmAllAsync() => await OperateAsync(async () =>
     {
         var findings = readings.Where(r => r.IsFinding).ToArray();
         if (findings.Length == 0) return;
@@ -106,7 +103,7 @@ public sealed partial class CalmViewModel : ObservableObject
         await CalmWindows.BroadcastAsync(selected.Where(r => r.IsFinding).Select(r => r.Setting.Broadcast));
         await ReloadAfterChangeAsync();
     });
-    [RelayCommand] private async Task UndoAllAsync() => await OperateAsync(async () =>
+    [RelayCommand(AllowConcurrentExecutions = true)] private async Task UndoAllAsync() => await OperateAsync(async () =>
     {
         if (!await parent.Ui.ConfirmAsync("Undo all FlowDesk changes?", "Restore the exact values saved before FlowDesk changed Windows settings and startup apps. This may replace changes made since then in Windows Settings.", "Undo changes")) return;
         await Task.Run(changes.UndoAll);
@@ -114,16 +111,24 @@ public sealed partial class CalmViewModel : ObservableObject
         await CalmWindows.BroadcastAsync(["Policy", "TraySettings", "ImmersiveColorSet"]);
         await ReloadAfterChangeAsync();
     });
-    [RelayCommand] private async Task RestartExplorerAsync() => await OperateAsync(async () =>
+    [RelayCommand(AllowConcurrentExecutions = true)] private async Task RestartExplorerAsync() => await OperateAsync(async () =>
     {
         if (!await parent.Ui.ConfirmAsync("Restart File Explorer?", "The taskbar and desktop will briefly disappear. File Explorer windows may close. Finish any file operations first.", "Restart File Explorer")) return;
         await CalmWindows.RestartExplorerAsync(); RestartSuggested = false;
     });
-    [RelayCommand] private async Task OpenStartupSettingsAsync() => await Windows.System.Launcher.LaunchUriAsync(new("ms-settings:startupapps"));
-    [RelayCommand] private async Task OpenUpdateSettingsAsync() => await Windows.System.Launcher.LaunchUriAsync(new("ms-settings:windowsupdate-options"));
+    [RelayCommand] private async Task OpenStartupSettingsAsync()
+    {
+        if (!Busy) await Windows.System.Launcher.LaunchUriAsync(new("ms-settings:startupapps"));
+    }
+    [RelayCommand] private async Task OpenUpdateSettingsAsync()
+    {
+        if (!Busy) await Windows.System.Launcher.LaunchUriAsync(new("ms-settings:windowsupdate-options"));
+    }
     private async Task OperateAsync(Func<Task> action)
     {
         if (Busy) return;
+        // Do not disable the focused XAML subtree or command while awaiting I/O. The UI-thread
+        // guard serializes writes; row setters reject input while retaining the current binding.
         Busy = true; ErrorOpen = false;
         try { await action(); }
         catch (Exception)

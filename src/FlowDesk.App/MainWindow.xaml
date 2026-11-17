@@ -90,13 +90,16 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
-                <InfoBar AutomationProperties.AutomationId="AppStatusBar" Margin="32,12,32,0" IsOpen="{Binding StatusOpen, Mode=TwoWay}"
+                <Border Grid.Row="0" Margin="32,12,32,0"
+                    Visibility="{Binding StatusOpen, Converter={StaticResource BoolVisibility}}">
+                <InfoBar AutomationProperties.AutomationId="AppStatusBar" IsOpen="{Binding StatusOpen, Mode=TwoWay}"
                     Message="{Binding StatusMessage}" Severity="{Binding StatusKind, Converter={StaticResource StatusKind}}">
                     <InfoBar.ActionButton>
                         <Button Content="Details" Command="{Binding ShowReportCommand}"
                             Visibility="{Binding HasReport, Converter={StaticResource BoolVisibility}}" />
                     </InfoBar.ActionButton>
                 </InfoBar>
+                </Border>
                 <InfoBar AutomationProperties.AutomationId="NewWindowBar" Grid.Row="1" Margin="32,8,32,0"
                     IsOpen="{Binding AutoSave.OfferOpen}" IsClosable="False" Severity="Informational"
                     Title="New window" Message="{Binding AutoSave.OfferText}">
