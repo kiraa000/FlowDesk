@@ -30,6 +30,8 @@ public sealed class AppSettings
     public List<string> BrowserRestoreNoticesSeen { get; set; } = [];
     /// <summary>Optional global Alt window shortcuts. Off by default, also for files written before this existed.</summary>
     public bool WindowShortcutsEnabled { get; set; }
+    public bool AdvancedModeEnabled { get; set; }
+    public DateTimeOffset? AdvancedModeAgreedAt { get; set; }
     public List<string> DisabledShortcuts { get; set; } = [];
     [System.Text.Json.Serialization.JsonConverter(typeof(ShortcutOverridesConverter))]
     public Dictionary<string, string> ShortcutOverrides { get; set; } = [];
