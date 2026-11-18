@@ -357,6 +357,20 @@ internal sealed class CommandPaletteService : IDisposable
             }, OpenFocusSetup, async () => { EnsureIdle(); showMain(); await vm.Focus.EndSessionAsync(); }));
             Add("save-workspace", "Save open windows as workspace", async () =>
             { EnsureIdle(); showMain(); await vm.Workspaces.NewFromWindowsCommand.ExecuteAsync(null); }, "\uE74E", "Save");
+            Add("export-settings", "Export FlowDesk settings", async () =>
+            {
+                EnsureIdle();
+                if (vm.Settings.ExportTransfer is not { } export) return;
+                showMain();
+                await export();
+            }, "\uE896", "Export");
+            Add("import-settings", "Import FlowDesk settings", async () =>
+            {
+                EnsureIdle();
+                if (vm.Settings.ImportTransfer is not { } import) return;
+                showMain();
+                await import();
+            }, "\uE8E5", "Import");
             if (PaletteActionRules.Applies("layout", state))
                 foreach (var layout in vm.Layouts.Presets)
                     Add("layout-" + layout.Preset, "Apply layout " + layout.Name, async () =>

@@ -40,6 +40,7 @@ public sealed partial class MainWindow : Window
         try { if (File.Exists(iconPath)) TrayIcon.UpdateIcon(new System.Drawing.Icon(iconPath, 32, 32)); }
         catch (Exception) { }
         App.ViewModels = new(services, new UserInteraction(this, Root));
+        InitializeTransfer();
         advancedDialogs = new(Root);
         advancedDialogs.TakeReturnFocus = () => (PageFrame.Content as AdvancedPage)?.TakeDialogFocusReturn();
         App.ViewModels.Advanced.ConfirmEnable = advancedDialogs.EnableAsync;

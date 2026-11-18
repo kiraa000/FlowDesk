@@ -39,6 +39,7 @@ public sealed class AppServices : ObservableObject, IDisposable
     public bool LastSaveSucceeded { get; private set; } = true;
     private string SettingsPath => Path.Combine(Store.Folder, "app-settings.json");
     private bool disposed;
+    private bool transferring;
 
     public AppServices()
     {
@@ -102,6 +103,7 @@ public sealed class AppServices : ObservableObject, IDisposable
     }
     public void Changed(bool immediate = false)
     {
+        if (transferring) return;
         debounce?.Cancel(); debounce = new();
         pending = PersistAsync(SnapshotData(), JsonSerializer.Serialize(Settings, JsonStore.Options), immediate, debounce.Token);
     }
@@ -112,6 +114,7 @@ public sealed class AppServices : ObservableObject, IDisposable
     /// </summary>
     public Task<bool> SaveNowAsync()
     {
+        if (transferring) return Task.FromResult(false);
         // Drop a pending debounced write (its snapshot is older) but never cancel a save already in flight:
         // a later Changed write queues behind it on the same writer, so the newest snapshot still wins.
         debounce?.Cancel(); debounce = null;
@@ -154,6 +157,49 @@ public sealed class AppServices : ObservableObject, IDisposable
         }
     }
     public async Task FlushAsync() { Changed(true); await pending; }
+
+    internal sealed record ImportUndo(ImportBackup Backup, FlowDeskData Data, AppSettings Settings);
+    internal async Task<ImportUndo> ImportAsync(TransferPlan plan)
+    {
+        if (transferring) throw new InvalidOperationException("An import is already in progress.");
+        // Quiesced caller owns UI state; drain earlier snapshots before capturing the backup.
+        if (!await SaveNowAsync()) throw new IOException("Your current data could not be saved. Import was cancelled.");
+        transferring = true; debounce?.Cancel();
+        await writer.WaitAsync();
+        try
+        {
+            var beforeData = SnapshotData(); var beforeSettings = AppSettings.FromJson(Settings.ToJson());
+            var backup = await Task.Run(() => ImportBackup.Create(Store.Folder));
+            try
+            {
+                await Task.Run(async () =>
+                {
+                    await Store.SaveAsync(plan.Data);
+                    ImportBackup.AtomicWrite(SettingsPath, System.Text.Encoding.UTF8.GetBytes(plan.Settings.ToJson()));
+                });
+            }
+            catch
+            {
+                await Task.Run(backup.Restore);
+                throw;
+            }
+            Data = plan.Data; Settings = plan.Settings;
+            return new(backup, beforeData, beforeSettings);
+        }
+        finally { writer.Release(); transferring = false; }
+    }
+    internal async Task UndoImportAsync(ImportUndo undo)
+    {
+        if (transferring) throw new InvalidOperationException("An import is already in progress.");
+        transferring = true; debounce?.Cancel();
+        await writer.WaitAsync();
+        try
+        {
+            await Task.Run(undo.Backup.Restore);
+            Data = undo.Data; Settings = undo.Settings;
+        }
+        finally { writer.Release(); transferring = false; }
+    }
 
     // Snapshot on the UI thread; the shutdown writer must not need that dispatcher to finish.
     // Windows may terminate us after WM_ENDSESSION, so give atomic persistence a bounded opportunity.

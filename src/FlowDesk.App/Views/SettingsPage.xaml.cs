@@ -1,3 +1,4 @@
+using FlowDesk.App.Services;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml;
 
@@ -80,5 +81,21 @@ public sealed partial class SettingsPage : Page
         var dialog = new ContentDialog { XamlRoot = XamlRoot, Title = "Test " + command.Name, Content = query,
             PrimaryButtonText = "Run", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close };
         if (await dialog.ShowAsync() == ContentDialogResult.Primary) await App.ViewModels.Settings.TestCustomCommandAsync(command, query.Text);
+    }
+    private async void ExportTransfer_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button button || App.ViewModels.Settings.ExportTransfer is not { } export) return;
+        var returnFocus = new DialogFocusReturn(this, button);
+        try { await export(); }
+        catch (Exception ex) { App.ViewModels.ShowStatus("Settings could not be exported: " + ex.Message, ViewModels.StatusKind.Warning); }
+        finally { returnFocus.RestoreAfterDialog(); }
+    }
+    private async void ImportTransfer_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button button || App.ViewModels.Settings.ImportTransfer is not { } import) return;
+        var returnFocus = new DialogFocusReturn(this, button);
+        try { await import(); }
+        catch (Exception ex) { App.ViewModels.ShowStatus("Settings could not be imported: " + ex.Message, ViewModels.StatusKind.Warning); }
+        finally { returnFocus.RestoreAfterDialog(); }
     }
 }

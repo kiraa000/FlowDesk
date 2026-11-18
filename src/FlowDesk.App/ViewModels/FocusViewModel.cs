@@ -49,6 +49,7 @@ public partial class FocusViewModel : ObservableObject, IContextFocus
     internal void Load()
     {
         loading = true; var s = owner.Services.Data.Focus;
+        Blocked.Clear(); Allowed.Clear();
         Duration = FocusSettings.DurationChoices.Contains(s.DurationMinutes) ? s.DurationMinutes : 25;
         StrictnessIndex = Math.Clamp((int)s.Strictness, 0, 2); BlockAll = s.BlockAllExceptAllowed;
         foreach (var r in s.Blocked) Blocked.Add(new(r, owner.Services.Settings.FocusIconPaths.GetValueOrDefault(RuleKey(r), "")));

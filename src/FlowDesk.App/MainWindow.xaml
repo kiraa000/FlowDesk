@@ -94,7 +94,8 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
-                <Border Grid.Row="0" Margin="32,12,32,0"
+                <StackPanel Grid.Row="0" Spacing="8" Margin="32,12,32,0">
+                <Border
                     Visibility="{Binding StatusOpen, Converter={StaticResource BoolVisibility}}">
                 <InfoBar AutomationProperties.AutomationId="AppStatusBar" IsOpen="{Binding StatusOpen, Mode=TwoWay}"
                     Message="{Binding StatusMessage}" Severity="{Binding StatusKind, Converter={StaticResource StatusKind}}">
@@ -104,6 +105,8 @@
                     </InfoBar.ActionButton>
                 </InfoBar>
                 </Border>
+                <StackPanel x:Name="TransferStatusHost" />
+                </StackPanel>
                 <InfoBar AutomationProperties.AutomationId="NewWindowBar" Grid.Row="1" Margin="32,8,32,0"
                     IsOpen="{Binding AutoSave.OfferOpen}" IsClosable="False" Severity="Informational"
                     Title="New window" Message="{Binding AutoSave.OfferText}">

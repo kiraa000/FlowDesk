@@ -385,6 +385,15 @@
                 Description="Walk through the main screens again.">
                 <Button Content="Show the tour again" Command="{Binding ReplayTourCommand}" MinHeight="32" />
             </settings:SettingsCard>
+            <settings:SettingsCard Header="Back up or move FlowDesk"
+                Description="Export a backup or import settings from another PC.">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button x:Name="ExportTransferButton" Content="Export…" Click="ExportTransfer_Click" MinHeight="32"
+                            AutomationProperties.Name="Export FlowDesk settings" />
+                    <Button x:Name="ImportTransferButton" Content="Import…" Click="ImportTransfer_Click" MinHeight="32"
+                            AutomationProperties.Name="Import FlowDesk settings" />
+                </StackPanel>
+            </settings:SettingsCard>
             <settings:SettingsCard Header="Data folder"
                 Description="Workspaces, focus sessions and app settings.">
                 <Button Content="Open folder" Command="{Binding OpenDataFolderCommand}" MinHeight="32" />
