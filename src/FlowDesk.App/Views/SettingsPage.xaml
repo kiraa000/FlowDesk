@@ -152,11 +152,11 @@
                                    TextWrapping="Wrap" />
                     </StackPanel>
                 </settings:SettingsCard>
-                <settings:SettingsCard Header="Search the web while typing"
-                    Description="Add a web search row at the bottom of mixed results. Nothing is sent until you open it.">
+                <settings:SettingsCard Header="Show a web search row"
+                    Description="Adds &#x201C;Search the web for &#x2026;&#x201D; at the bottom of results. Nothing is sent until you press Enter.">
                     <ToggleSwitch IsOn="{Binding PaletteWebFallback, Mode=TwoWay}"
                                   IsEnabled="{Binding PaletteCanToggle}"
-                                  AutomationProperties.Name="Show web search while typing" />
+                                  AutomationProperties.Name="Show a web search row" />
                 </settings:SettingsCard>
                 <settings:SettingsCard Header="Clipboard history">
                     <settings:SettingsCard.Description>

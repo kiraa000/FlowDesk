@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using FlowDesk.Core.Capture;
 using FlowDesk.Core.Hotkeys;
 using FlowDesk.Core.Palette;
 using FlowDesk.Core.Windows;
@@ -8,7 +9,11 @@ namespace FlowDesk.App.Services;
 
 internal sealed class PaletteWindowSwitcher(AppServices services, Func<string, Task> copy, Action<string> notify, Action hide)
 {
+    private const int MaxCachedNames = 256;
+
     private readonly Win32WindowOps ops = new();
+    private readonly Dictionary<string, string> cachedNames = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object namesGate = new();
 
     internal CommandItem[] Snapshot(IReadOnlyList<CommandItem> apps)
     {
@@ -24,7 +29,7 @@ internal sealed class PaletteWindowSwitcher(AppServices services, Func<string, T
             GetWindowThreadProcessId(hwnd, out uint owner);
             if (owner == 0 || owner == services.Windows.OwnProcessId || string.IsNullOrWhiteSpace(info.Title)) continue;
             string icon = !string.IsNullOrEmpty(info.Aumid) ? "shell:AppsFolder\\" + info.Aumid : info.ExePath ?? "\uE737";
-            string name = appNames.GetValueOrDefault("app:" + (info.Aumid ?? info.ExePath)) ?? Path.GetFileNameWithoutExtension(info.ExePath) ?? "Window";
+            string name = appNames.GetValueOrDefault("app:" + (info.Aumid ?? info.ExePath)) ?? FriendlyName(info);
             if (string.IsNullOrWhiteSpace(name)) name = "Window";
             string subtitle = desktopCount > 1 && info.DesktopIndex is int index ? $"{name} · Desktop {index + 1}" : name;
             Task Switch() { SwitchTo(info, owner); return Task.CompletedTask; }
@@ -37,6 +42,24 @@ internal sealed class PaletteWindowSwitcher(AppServices services, Func<string, T
         }
         Debug.WriteLine($"FlowDesk palette windows {items.Count} in {Stopwatch.GetElapsedTime(started).TotalMilliseconds:F1} ms");
         return items.ToArray();
+    }
+
+    /// <summary>"Microsoft Edge" instead of "msedge": the exe's display name, cached per exe path.</summary>
+    private string FriendlyName(WindowInfo info)
+    {
+        // AUMID names derive from the window title, so only exe-based names are cacheable.
+        if (!string.IsNullOrEmpty(info.Aumid) || string.IsNullOrEmpty(info.ExePath)) return WorkspaceCapture.DisplayName(info);
+        lock (namesGate)
+        {
+            if (cachedNames.TryGetValue(info.ExePath, out string? cached)) return cached;
+        }
+        string name = WorkspaceCapture.DisplayName(info);
+        lock (namesGate)
+        {
+            if (cachedNames.Count >= MaxCachedNames) cachedNames.Clear();
+            cachedNames[info.ExePath] = name;
+        }
+        return name;
     }
 
     private void SwitchTo(WindowInfo info, uint owner)

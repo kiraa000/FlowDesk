@@ -5,6 +5,13 @@ public enum WebEngine { Google, Bing, DuckDuckGo, Brave, Custom }
 public static class WebSearch
 {
     public const double FallbackScore = -1000;
+    // Deliberately not every ICANN suffix: filenames in mixed search must stay search terms.
+    private static readonly HashSet<string> CommonTlds = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "com", "org", "net", "io", "dev", "app", "ai", "edu", "gov", "co", "uk", "de", "fr", "nl", "eu",
+        "ca", "au", "in", "jp", "me", "tv", "info", "biz", "xyz", "us", "ch", "se", "no", "dk", "fi",
+        "es", "it", "ie", "nz", "za", "br", "mx", "sg", "hk", "kr", "id", "tech", "online", "site", "cloud"
+    };
     public static bool IsValidTemplate(string template)
     {
         const string marker = "flowdeskquerymarker";
@@ -26,12 +33,17 @@ public static class WebSearch
         });
     }
 
-    public static Uri? Address(string input)
+    public static Uri? Address(string input, bool webMode = false)
     {
         input = input.Trim();
         bool explicitScheme = input.StartsWith("https://", StringComparison.OrdinalIgnoreCase) || input.StartsWith("http://", StringComparison.OrdinalIgnoreCase);
         var uri = Parse(explicitScheme ? input : "https://" + input);
-        return uri is not null && (explicitScheme || (uri.HostNameType == UriHostNameType.Dns && uri.Host.Contains('.'))) ? uri : null;
+        if (uri is null) return null;
+        if (explicitScheme) return uri;
+        string host = uri.IdnHost.TrimEnd('.');
+        if (uri.HostNameType != UriHostNameType.Dns || !host.Contains('.')) return null;
+        return webMode || host.StartsWith("www.", StringComparison.OrdinalIgnoreCase) || CommonTlds.Contains(host[(host.LastIndexOf('.') + 1)..])
+            ? uri : null;
     }
 
     private static Uri? Parse(string value) => !value.Any(c => char.IsWhiteSpace(c) || char.IsControl(c) || c == '\\') &&
@@ -51,9 +63,9 @@ public sealed class WebCommandSource(Func<WebOptions> settings, Func<string, Tas
         var options = settings();
         query = query.Trim();
         if (!options.Enabled || query.Length == 0) yield break;
-        if (WebSearch.Address(query) is { } address)
+        if (WebSearch.Address(query, webMode: mode == Mode) is { } address)
         {
-            yield return Row("web:open", "Open " + query, "Open in default browser", address, 9_000);
+            yield return Row("web:open", "Open " + query, "Open in default browser", address, mode == Mode ? 9_000 : 450);
             yield break;
         }
         if (mode != Mode && !options.Fallback) yield break;

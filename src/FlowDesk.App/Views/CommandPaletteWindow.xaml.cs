@@ -60,7 +60,9 @@ internal sealed partial class CommandPaletteWindow : Window
     private PaletteActionPanel<PaletteResultRow>? panel;
     private bool userSelected;
     private bool refreshAfterPanel;
-    private readonly PaletteConfirmation confirmation = new();
+    private readonly PaletteActionExecutor executor = new(() => Stopwatch.GetElapsedTime(ProcessStarted));
+    private static readonly long ProcessStarted = Stopwatch.GetTimestamp();
+    private bool refreshAfterConfirmation;
     private PaletteResultRow? confirmationRow;
     private long confirmationVersion;
     public bool IsOpen { get; private set; }
@@ -229,6 +231,7 @@ internal sealed partial class CommandPaletteWindow : Window
     public void RefreshResults()
     {
         if (!IsOpen) return;
+        if (executor.IsPending) { refreshAfterConfirmation = true; return; }
         if (panel is not null) { refreshAfterPanel = true; return; }
         QueueQuery(true);
     }
@@ -248,6 +251,8 @@ internal sealed partial class CommandPaletteWindow : Window
                 _ => await Task.Run(() => search.Query(text, token, queryMode), token)
             };
             if (!IsOpen || generation != expected || token.IsCancellationRequested) return;
+            // A source finishing must not erase an already visible prompt or change its target.
+            if (executor.IsPending) { refreshAfterConfirmation = true; return; }
             var rows = matches.Select(m => new PaletteResultRow(m)).ToArray();
             string? selectedId = preserveSelection && userSelected ? (Results.SelectedItem as PaletteResultRow)?.Match.Item.Id : null;
             resultsCurrent = true;
@@ -305,6 +310,7 @@ internal sealed partial class CommandPaletteWindow : Window
     private void Root_KeyDown(object sender, KeyRoutedEventArgs e)
     {
         if (e.Handled || !IsOpen) return;
+        if (e.Key == VirtualKey.Enter) TraceSurface($"enter repeat={e.KeyStatus.WasKeyDown} current={resultsCurrent} running={running} panel={panel is not null}");
         bool ctrl = (GetKeyState(0x11) & 0x8000) != 0;
         if (e.Key != VirtualKey.Enter) CancelConfirmation();
         if (ctrl && e.Key == VirtualKey.K)
@@ -321,18 +327,19 @@ internal sealed partial class CommandPaletteWindow : Window
             e.Handled = true;
             if (e.KeyStatus.WasKeyDown) return;
             bool plainEnter = !ctrl && (GetKeyState(0x10) & 0x8000) == 0 && (GetKeyState(0x12) & 0x8000) == 0;
-            if (panel is { } p) _ = RunAsync(p.Target, Results.SelectedIndex, isEnter: plainEnter);
-            else if (Results.SelectedItem is PaletteResultRow row) _ = RunAsync(row, ctrl ? 1 : 0, isEnter: plainEnter);
+            var input = plainEnter ? PaletteInvocation.Enter : PaletteInvocation.ModifiedEnter;
+            if (panel is { } p) _ = RunAsync(p.Target, Results.SelectedIndex, input);
+            else if (Results.SelectedItem is PaletteResultRow row) _ = RunAsync(row, ctrl ? 1 : 0, input);
         }
         else if (panel is not null && e.Key != VirtualKey.Tab) e.Handled = true;
     }
     private void Results_ItemClick(object sender, ItemClickEventArgs e)
     {
         if (e.ClickedItem is not PaletteResultRow row) return;
-        Results.SelectedItem = row;
+        if (!ReferenceEquals(Results.SelectedItem, row)) Results.SelectedItem = row;
         SearchBox.Focus(FocusState.Programmatic);
-        if (panel is { } p) _ = RunAsync(p.Target, Results.Items.IndexOf(row), isEnter: false);
-        else _ = RunAsync(row, 0, isEnter: false);
+        if (panel is { } p) _ = RunAsync(p.Target, Results.Items.IndexOf(row), PaletteInvocation.Pointer);
+        else _ = RunAsync(row, 0, PaletteInvocation.Pointer);
     }
     private void Results_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
@@ -356,7 +363,8 @@ internal sealed partial class CommandPaletteWindow : Window
         panel = new(row, Results.ItemsSource, Results.SelectedIndex, StatusText.Text);
         query?.Cancel(); generation++;
         Results.ItemsSource = row.Match.Item.Actions.Select((action, index) => new PaletteResultRow(new(new(
-            "action-panel:" + index, action.Title, action.Shortcut ?? "", CommandKind.Action, action.Glyph, action.Run), 1, []))).ToArray();
+            "action-panel:" + index, action.Title, action.Shortcut ?? "", CommandKind.Action, action.Glyph,
+            () => Task.CompletedTask, NamedActions: []), 1, []))).ToArray();
         Results.SelectedIndex = 0;
         AutomationProperties.SetName(Results, "Actions for " + row.Title);
         ResizeForResults(Results.Items.Count); SetStatus("Actions · " + row.Title); UpdateHint();
@@ -380,12 +388,19 @@ internal sealed partial class CommandPaletteWindow : Window
     }
     private void CancelConfirmation()
     {
-        confirmation.Cancel(); confirmationVersion++;
+        if (executor.IsPending) TraceSurface("confirmation-cancel");
+        executor.Cancel(); confirmationVersion++;
         if (confirmationRow is { } row) { row.ConfirmationPrompt = null; confirmationRow = null; }
         if (ConfirmationText?.Visibility == Visibility.Visible)
         {
             ConfirmationText.Visibility = Visibility.Collapsed;
             StatusText.Visibility = KeyboardHint.Visibility = Visibility.Visible;
+        }
+        if (refreshAfterConfirmation)
+        {
+            refreshAfterConfirmation = false;
+            // Do not synchronously replace the selection inside the key/click event cancelling the prompt.
+            DispatcherQueue.TryEnqueue(() => { if (IsOpen) RefreshResults(); });
         }
     }
     private async Task ExpireConfirmationAsync(long version)
@@ -393,35 +408,33 @@ internal sealed partial class CommandPaletteWindow : Window
         await Task.Delay(PaletteConfirmation.Duration);
         if (version == confirmationVersion) CancelConfirmation();
     }
-    private async Task RunAsync(PaletteResultRow row, int index, bool isEnter)
+    private async Task RunAsync(PaletteResultRow row, int index, PaletteInvocation input)
     {
         if (running || !IsOpen || !resultsCurrent) return;
-        var actions = row.Match.Item.Actions;
-        if (index < 0 || index >= actions.Count) { CancelConfirmation(); return; }
-        var action = actions[index];
-        if (action.NeedsConfirm)
-        {
-            if (!isEnter) CancelConfirmation();
-            if (!confirmation.Enter(row.Match.Item.Id, index, Stopwatch.GetElapsedTime(0)))
-            {
-                ConfirmationText.Text = action.ConfirmationPrompt ?? "Press Enter again to confirm";
-                confirmationRow = Results.SelectedItem as PaletteResultRow;
-                if (confirmationRow is not null) confirmationRow.ConfirmationPrompt = ConfirmationText.Text;
-                StatusText.Visibility = KeyboardHint.Visibility = Visibility.Collapsed;
-                ConfirmationText.Visibility = Visibility.Visible;
-                FrameworkElementAutomationPeer.CreatePeerForElement(ConfirmationText)?.RaiseAutomationEvent(AutomationEvents.LiveRegionChanged);
-                _ = ExpireConfirmationAsync(++confirmationVersion);
-                return;
-            }
-        }
-        CancelConfirmation();
         running = true;
-        if (!action.KeepsPaletteOpen) HidePalette();
-        else if (panel is not null) CloseActions();
         try
         {
-            await action.Run();
-            if (row.Match.Item.RecordUsage && !action.NeedsConfirm)
+            PaletteAction? executedAction = null;
+            var outcome = await executor.InvokeAsync(row.Match.Item, index, input, action =>
+                {
+                    TraceSurface("confirmation-prompt");
+                    ConfirmationText.Text = action.ConfirmationPrompt ?? "Press Enter again to confirm";
+                    if (confirmationRow is { } prior) prior.ConfirmationPrompt = null;
+                    confirmationRow = Results.SelectedItem as PaletteResultRow;
+                    if (confirmationRow is not null) confirmationRow.ConfirmationPrompt = ConfirmationText.Text;
+                    StatusText.Visibility = KeyboardHint.Visibility = Visibility.Collapsed;
+                    ConfirmationText.Visibility = Visibility.Visible;
+                    _ = ExpireConfirmationAsync(++confirmationVersion);
+                    FrameworkElementAutomationPeer.CreatePeerForElement(ConfirmationText)?.RaiseAutomationEvent(AutomationEvents.LiveRegionChanged);
+                }, action =>
+                {
+                    executedAction = action;
+                    CancelConfirmation();
+                    if (!action.KeepsPaletteOpen) HidePalette();
+                    else if (panel is not null) CloseActions();
+                });
+            if (outcome == PaletteExecution.Invalid) CancelConfirmation();
+            if (outcome == PaletteExecution.Executed && row.Match.Item.RecordUsage && executedAction?.NeedsConfirm == false)
             {
                 usage.Record(row.Match.Item.Id, DateTimeOffset.UtcNow);
                 try { await Task.Run(usage.SaveAsync); } catch (Exception ex) { Log(ex); }

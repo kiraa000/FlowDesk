@@ -35,3 +35,40 @@ public sealed class PaletteConfirmation
     }
     public void Cancel() => pending = null;
 }
+
+public enum PaletteInvocation { Enter, Pointer, ModifiedEnter }
+public enum PaletteExecution { Invalid, Prompted, Executed }
+
+/// <summary>Single UI execution boundary: neither direct results nor action-panel rows bypass confirmation.</summary>
+public sealed class PaletteActionExecutor(Func<TimeSpan> clock)
+{
+    private (string Item, int Index, PaletteAction Action, PaletteInvocation Input, TimeSpan Started)? pending;
+    public bool IsPending => pending is not null;
+    public void Cancel() => pending = null;
+
+    public async Task<PaletteExecution> InvokeAsync(CommandItem item, int index, PaletteInvocation input,
+        Action<PaletteAction> showPrompt, Action<PaletteAction> beforeRun)
+    {
+        var actions = item.Actions;
+        if (index < 0 || index >= actions.Count) { Cancel(); return PaletteExecution.Invalid; }
+        var action = actions[index];
+        if (action.NeedsConfirm)
+        {
+            var now = clock();
+            bool confirmed = input != PaletteInvocation.ModifiedEnter && pending is { } p &&
+                p.Item == item.Id && p.Index == index && p.Action == action && p.Input == input &&
+                now >= p.Started && now - p.Started < PaletteConfirmation.Duration;
+            if (!confirmed)
+            {
+                pending = (item.Id, index, action, input, now);
+                try { showPrompt(action); }
+                catch { Cancel(); throw; } // a failed prompt is never authority for the next activation
+                return PaletteExecution.Prompted;
+            }
+        }
+        Cancel(); // consume before calling user code, including reentrant code
+        beforeRun(action);
+        await action.Run();
+        return PaletteExecution.Executed;
+    }
+}
