@@ -56,7 +56,7 @@ public sealed class PaletteStreamingSearch(CommandSearch synchronous, IEnumerabl
 public static class PaletteResultMerge
 {
     public static int Group(CommandMatch match, PaletteMode mode) => mode != PaletteMode.Commands ? 0 :
-        match.Score == WebSearch.FallbackScore ? 3 : match.Item.Kind == CommandKind.File ? 2 : match.Item.Kind == CommandKind.Bookmark ? 1 : 0;
+        match.Score == WebSearch.FallbackScore ? 3 : match.Item.IsFileSearch ? 2 : match.Item.Kind == CommandKind.Bookmark ? 1 : 0;
     public static IReadOnlyList<CommandMatch> Merge(IEnumerable<CommandMatch> matches, PaletteMode mode)
     {
         var ranked = matches.DistinctBy(m => m.Item.Id)
@@ -65,7 +65,7 @@ public static class PaletteResultMerge
             .ThenBy(m => m.Item.Kind switch { CommandKind.Workspace or CommandKind.Action => 0, CommandKind.App => 1, CommandKind.Settings => 2, _ => 3 })
             .ThenBy(m => m.Item.Title, StringComparer.OrdinalIgnoreCase);
         int files = 0;
-        return ranked.Where(m => mode != PaletteMode.Commands || m.Item.Kind != CommandKind.File || ++files <= 5).Take(80).ToArray();
+        return ranked.Where(m => mode != PaletteMode.Commands || !m.Item.IsFileSearch || ++files <= 5).Take(80).ToArray();
     }
     public static int Selection(IReadOnlyList<CommandMatch> results, string? selectedId)
     {

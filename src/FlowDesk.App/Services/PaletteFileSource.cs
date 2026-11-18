@@ -29,7 +29,7 @@ internal sealed class PaletteFileSource(PaletteUsageStore usage, Func<string, Ta
         {
             var files = await detected.SearchAsync(query.Trim(), mode == PaletteMode.Files ? 80 : 20, token).ConfigureAwait(false);
             token.ThrowIfCancellationRequested();
-            return files.Select(file => new CommandMatch(Item(file), CommandMatcher.Match(file.Name, query, false).Score + usage.Boost(file.Id), [])).ToArray();
+            return files.Select(file => new CommandMatch(Item(file) with { IsFileSearch = true }, CommandMatcher.Match(file.Name, query, false).Score + usage.Boost(file.Id), [])).ToArray();
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
         catch (Exception) { return [Hint("File search is unavailable · Open Advanced to check Everything")]; }

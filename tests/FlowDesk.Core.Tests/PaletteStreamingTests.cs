@@ -5,7 +5,7 @@ namespace FlowDesk.Core.Tests;
 public sealed class PaletteStreamingTests
 {
     private static CommandMatch Match(string id, CommandKind kind = CommandKind.App, double score = 10) =>
-        new(new(id, id, "", kind, "", () => Task.CompletedTask), score, []);
+        new(new(id, id, "", kind, "", () => Task.CompletedTask, IsFileSearch: kind == CommandKind.File), score, []);
     private static CommandSearch Fast(params CommandMatch[] matches) => new([new FastSource(matches)],
         new PaletteUsageStore("not-written.json"), (_, _) => throw new Exception("Unexpected source error"));
     private sealed class FastSource(CommandMatch[] matches) : ICommandSource
@@ -78,6 +78,13 @@ public sealed class PaletteStreamingTests
         var pipeline = new PaletteStreamingSearch(Fast(), [slow], (_, _) => { });
         await foreach (var _ in pipeline.QueryAsync("x", PaletteMode.Calculator)) { }
         Assert.Equal(0, slow.Calls);
+    }
+    [Fact] public void RecentFileRowsKeepTheirUsageRankingAndAreNotSearchCapped()
+    {
+        var recent = Enumerable.Range(0, 8).Select(i => Match("recent" + i, CommandKind.File, 100) with
+            { Item = Match("recent" + i, CommandKind.File).Item with { IsFileSearch = false } });
+        var merged = PaletteResultMerge.Merge([Match("app"), .. recent], PaletteMode.Commands);
+        Assert.Equal(9, merged.Count); Assert.StartsWith("recent", merged[0].Item.Id);
     }
     [Fact] public async Task DisposingEnumerationCancelsStillRunningProviders()
     {

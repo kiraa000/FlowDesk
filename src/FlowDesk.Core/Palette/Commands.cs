@@ -7,7 +7,7 @@ public sealed record PaletteAction(string Title, Func<Task> Run, string Glyph = 
 public sealed record MatchRange(int Start, int Length);
 public sealed record CommandItem(string Id, string Title, string Subtitle, CommandKind Kind,
     string Icon, Func<Task> Primary, Func<Task>? Secondary = null, string Synonyms = "", string ActionHint = "Open",
-    bool KeepsPaletteOpen = false, bool RecordUsage = true, IReadOnlyList<PaletteAction>? NamedActions = null)
+    bool KeepsPaletteOpen = false, bool RecordUsage = true, IReadOnlyList<PaletteAction>? NamedActions = null, bool IsFileSearch = false)
 {
     public IReadOnlyList<PaletteAction> Actions => NamedActions ?? (Secondary is null
         ? [new(ActionHint, Primary, Shortcut: "Enter", KeepsPaletteOpen: KeepsPaletteOpen)]

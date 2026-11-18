@@ -17,12 +17,22 @@ public sealed class PaletteBookmarkReaderTests
             Assert.Equal(0, sqlite3_exec(database, sql, 0, 0, out nint error));
             if (error != 0) sqlite3_free(error);
             Assert.True(File.Exists(live + "-wal"));
-            byte[] original = File.ReadAllBytes(live), wal = File.ReadAllBytes(live + "-wal");
+            byte[] original = ReadShared(live), wal = ReadShared(live + "-wal");
+            string identity = PaletteBookmarkReader.SqliteIdentity(live);
             var bookmark = Assert.Single(PaletteBookmarkReader.ReadFirefoxSnapshot(live, new(BookmarkBrowser.Firefox, "Test", root, "firefox.exe")));
             Assert.Equal("Docs", bookmark.Title); Assert.Equal("https://example.com/docs", bookmark.Url);
-            Assert.Equal(original, File.ReadAllBytes(live)); Assert.Equal(wal, File.ReadAllBytes(live + "-wal"));
+            Assert.Equal(original, ReadShared(live)); Assert.Equal(wal, ReadShared(live + "-wal"));
+            Assert.Equal(0, sqlite3_exec(database, "INSERT INTO moz_places VALUES(2,'https://example.com/after');", 0, 0, out error));
+            if (error != 0) sqlite3_free(error);
+            Assert.NotEqual(identity, PaletteBookmarkReader.SqliteIdentity(live));
         }
         finally { sqlite3_close(database); }
+    }
+    private static byte[] ReadShared(string path)
+    {
+        // The fixture writer is deliberately still open: the observer must share its write access.
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var bytes = new MemoryStream(); stream.CopyTo(bytes); return bytes.ToArray();
     }
     [Fact] public void OlderSettingsEnableAllBookmarkBrowsers()
     {

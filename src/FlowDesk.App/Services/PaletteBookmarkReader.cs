@@ -17,11 +17,11 @@ internal sealed class PaletteBookmarkReader
             string path = System.IO.Path.Combine(profile.Path, profile.Browser == BookmarkBrowser.Firefox ? "places.sqlite" : "Bookmarks");
             try
             {
-                string stamp = Stamp(path) + (profile.Browser == BookmarkBrowser.Firefox ? Stamp(path + "-wal") : "");
+                string stamp = profile.Browser == BookmarkBrowser.Firefox ? SqliteIdentity(path) : Stamp(path);
                 if (cache.TryGetValue(path, out var saved) && saved.Stamp == stamp) { result.AddRange(saved.Items); continue; }
                 if (!File.Exists(path)) continue;
                 var items = profile.Browser == BookmarkBrowser.Firefox ? ReadFirefoxSnapshot(path, profile) : BookmarkParser.Chromium(ReadText(path), profile);
-                string after = Stamp(path) + (profile.Browser == BookmarkBrowser.Firefox ? Stamp(path + "-wal") : "");
+                string after = profile.Browser == BookmarkBrowser.Firefox ? SqliteIdentity(path) : Stamp(path);
                 if (stamp != after) throw new IOException("Bookmark file changed while reading.");
                 cache[path] = (stamp, items); result.AddRange(items);
             }
@@ -32,6 +32,19 @@ internal sealed class PaletteBookmarkReader
     }
     private static string Stamp(string path)
     { var info = new FileInfo(path); return info.Exists ? $"{info.LastWriteTimeUtc.Ticks}:{info.Length};" : "missing;"; }
+    internal static string SqliteIdentity(string path) => Fingerprint(path) + Fingerprint(path + "-wal");
+    private static string Fingerprint(string path)
+    {
+        if (!File.Exists(path)) return "missing;";
+        // Timestamps alone can lag while Firefox keeps handles open. Include database change
+        // counters / WAL salts and its tail, detecting appends, resets and checkpoints at equal size.
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        byte[] bytes = new byte[164];
+        int header = stream.Read(bytes, 0, 100);
+        stream.Position = Math.Max(0, stream.Length - 64);
+        int tail = stream.Read(bytes, 100, 64);
+        return Stamp(path) + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes.AsSpan(0, 100 + tail))) + $":{header};";
+    }
     private static string ReadText(string path)
     {
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
@@ -84,8 +97,10 @@ internal sealed class PaletteBookmarkReader
         nint database = 0, statement = 0;
         try
         {
+            string before = SqliteIdentity(live);
             CopyShared(live, copy);
             if (File.Exists(live + "-wal")) CopyShared(live + "-wal", copy + "-wal");
+            if (before != SqliteIdentity(live)) throw new IOException("Bookmark database changed while copying. Try again on the next open.");
             if (sqlite3_open_v2(copy, out database, 1, 0) != 0) throw new InvalidOperationException("Bookmark snapshot is unavailable.");
             sqlite3_busy_timeout(database, 150);
             const string sql = "SELECT b.guid, b.title, p.url FROM moz_bookmarks b JOIN moz_places p ON b.fk=p.id WHERE b.type=1 LIMIT 10000";
