@@ -15,8 +15,14 @@ public sealed class PolishStructureTests
         var advanced = Assert.Single(elements, e => (string?)e.Attribute(x + "Name") == "AdvancedModeSwitch");
         Assert.DoesNotContain(advanced.Ancestors(), e => e.Name.LocalName == "SettingsExpander");
         var palette = Assert.Single(elements, e => e.Name.LocalName == "SettingsExpander" && (string?)e.Attribute("Header") == "Command palette options");
-        foreach (string header in new[] { "Command palette", "Open with the Windows key", "File search", "Custom commands", "AI answers", "Run history" })
+        foreach (string header in new[] { "Command palette", "Open with the Windows key", "File search", "Run history" })
             Assert.Contains(palette.Descendants(), e => (string?)e.Attribute("Header") == header);
+        // SettingsExpander styles each item as a SettingsCard; a nested SettingsExpander item crashes on expand
+        // (COMException 0x800F1000 in ItemsRepeater_ElementPrepared, live test 2026-11-18).
+        foreach (var items in elements.Where(e => e.Name.LocalName == "SettingsExpander.Items"))
+            Assert.All(items.Elements(), item => Assert.Equal("SettingsCard", item.Name.LocalName));
+        foreach (string header in new[] { "Custom commands", "AI answers" })
+            Assert.Contains(elements, e => e.Name.LocalName == "SettingsExpander" && (string?)e.Attribute("Header") == header);
         Assert.Contains("FocusAdvancedSetting()", Source("Views", "SettingsPage.xaml.cs"));
     }
     [Fact] public void ActiveMarkerUsesStateNotTagColour()

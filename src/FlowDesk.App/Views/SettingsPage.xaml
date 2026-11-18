@@ -89,7 +89,7 @@
             </StackPanel>
             <TextBlock Text="Command palette" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,24,0,8" />
             <settings:SettingsExpander Header="Command palette options"
-                Description="Activation, search sources, custom commands and AI answers.">
+                Description="Activation, search sources, calculator and web search.">
                 <settings:SettingsExpander.Items>
                 <settings:SettingsCard Header="Command palette">
                     <settings:SettingsCard.Description>
@@ -167,59 +167,6 @@
                                   IsEnabled="{Binding PaletteCanToggle}"
                                   AutomationProperties.Name="Firefox bookmarks in the command palette" />
                 </settings:SettingsCard>
-                <settings:SettingsExpander Header="Custom commands"
-                    Description="Run your own links, files, programs and PowerShell scripts from the palette.">
-                    <settings:SettingsExpander.Items>
-                        <settings:SettingsCard HorizontalContentAlignment="Stretch" ContentAlignment="Vertical">
-                            <StackPanel Spacing="8">
-                                <ItemsControl ItemsSource="{Binding CustomCommands}">
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate>
-                                            <Grid Margin="0,4" ColumnSpacing="12">
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="*" />
-                                                    <ColumnDefinition Width="Auto" />
-                                                </Grid.ColumnDefinitions>
-                                                <StackPanel Spacing="2">
-                                                    <TextBlock Text="{Binding Name}"
-                                                               Style="{StaticResource BodyTextBlockStyle}"
-                                                               Foreground="{ThemeResource TextFillColorPrimaryBrush}"
-                                                               TextWrapping="Wrap" />
-                                                    <TextBlock Text="{Binding Keywords}"
-                                                               Style="{StaticResource CaptionTextBlockStyle}"
-                                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                                               TextWrapping="Wrap" />
-                                                </StackPanel>
-                                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8"
-                                                            VerticalAlignment="Center">
-                                                    <Button Content="Edit" Tag="{Binding}"
-                                                            Click="EditCustomCommand_Click" MinHeight="32"
-                                                            AutomationProperties.Name="Edit custom command"
-                                                            ToolTipService.ToolTip="{Binding Name}" />
-                                                    <Button Content="Test" Tag="{Binding}"
-                                                            Click="TestCustomCommand_Click" MinHeight="32"
-                                                            AutomationProperties.Name="Test custom command"
-                                                            ToolTipService.ToolTip="{Binding Name}" />
-                                                    <Button Content="Delete" Tag="{Binding}"
-                                                            Click="DeleteCustomCommand_Click" MinHeight="32"
-                                                            AutomationProperties.Name="Delete custom command"
-                                                            ToolTipService.ToolTip="{Binding Name}" />
-                                                </StackPanel>
-                                            </Grid>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                                <Button Content="Add command" Click="AddCustomCommand_Click" MinHeight="32"
-                                        HorizontalAlignment="Left"
-                                        AutomationProperties.Name="Add custom command" />
-                                <TextBlock Text="{Binding CustomCommandsError}"
-                                           Style="{StaticResource CaptionTextBlockStyle}"
-                                           Foreground="{ThemeResource SystemFillColorCautionBrush}"
-                                           TextWrapping="Wrap" />
-                            </StackPanel>
-                        </settings:SettingsCard>
-                    </settings:SettingsExpander.Items>
-                </settings:SettingsExpander>
                 <settings:SettingsCard Header="Run history" Description="Keep the last 20 command lines used with the &gt; prefix.">
                     <Button Content="Clear history" Command="{Binding ClearPaletteRunHistoryCommand}"
                             AutomationProperties.Name="Clear palette run history" />
@@ -276,6 +223,61 @@
                                   IsEnabled="{Binding PaletteCanToggle}"
                                   AutomationProperties.Name="Show a web search row" />
                 </settings:SettingsCard>
+                </settings:SettingsExpander.Items>
+            </settings:SettingsExpander>
+                <settings:SettingsExpander Header="Custom commands"
+                    Description="Run your own links, files, programs and PowerShell scripts from the palette.">
+                    <settings:SettingsExpander.Items>
+                        <settings:SettingsCard HorizontalContentAlignment="Stretch" ContentAlignment="Vertical">
+                            <StackPanel Spacing="8">
+                                <ItemsControl ItemsSource="{Binding CustomCommands}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid Margin="0,4" ColumnSpacing="12">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <StackPanel Spacing="2">
+                                                    <TextBlock Text="{Binding Name}"
+                                                               Style="{StaticResource BodyTextBlockStyle}"
+                                                               Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                                                               TextWrapping="Wrap" />
+                                                    <TextBlock Text="{Binding Keywords}"
+                                                               Style="{StaticResource CaptionTextBlockStyle}"
+                                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                               TextWrapping="Wrap" />
+                                                </StackPanel>
+                                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8"
+                                                            VerticalAlignment="Center">
+                                                    <Button Content="Edit" Tag="{Binding}"
+                                                            Click="EditCustomCommand_Click" MinHeight="32"
+                                                            AutomationProperties.Name="Edit custom command"
+                                                            ToolTipService.ToolTip="{Binding Name}" />
+                                                    <Button Content="Test" Tag="{Binding}"
+                                                            Click="TestCustomCommand_Click" MinHeight="32"
+                                                            AutomationProperties.Name="Test custom command"
+                                                            ToolTipService.ToolTip="{Binding Name}" />
+                                                    <Button Content="Delete" Tag="{Binding}"
+                                                            Click="DeleteCustomCommand_Click" MinHeight="32"
+                                                            AutomationProperties.Name="Delete custom command"
+                                                            ToolTipService.ToolTip="{Binding Name}" />
+                                                </StackPanel>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <Button Content="Add command" Click="AddCustomCommand_Click" MinHeight="32"
+                                        HorizontalAlignment="Left"
+                                        AutomationProperties.Name="Add custom command" />
+                                <TextBlock Text="{Binding CustomCommandsError}"
+                                           Style="{StaticResource CaptionTextBlockStyle}"
+                                           Foreground="{ThemeResource SystemFillColorCautionBrush}"
+                                           TextWrapping="Wrap" />
+                            </StackPanel>
+                        </settings:SettingsCard>
+                    </settings:SettingsExpander.Items>
+                </settings:SettingsExpander>
                 <settings:SettingsExpander Header="AI answers"
                     Description="Answers from a provider you choose. Off until configured.">
                     <settings:SettingsExpander.Items>
@@ -284,8 +286,6 @@
                         </settings:SettingsCard>
                     </settings:SettingsExpander.Items>
                 </settings:SettingsExpander>
-                </settings:SettingsExpander.Items>
-            </settings:SettingsExpander>
             <TextBlock Text="Quick Look &amp; hot corners" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,24,0,8" />
             <StackPanel Spacing="4">
                 <settings:SettingsCard Header="Quick Look"
