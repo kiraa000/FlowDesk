@@ -1,4 +1,5 @@
 using FlowDesk.App.Views;
+using FlowDesk.Core;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Automation.Peers;
@@ -84,9 +85,9 @@ internal sealed class SettingsTransferDialogs(FrameworkElement root)
             if (caution is null) return;
             bool replace = useWorkspaces && mode?.SelectedIndex == 1;
             if (!replace) { caution.Text = ""; caution.Visibility = Visibility.Collapsed; return; }
-            string text = $"This removes your {existingWorkspaceCount} existing workspace{(existingWorkspaceCount == 1 ? "" : "s")}. Your apps and files are not deleted.";
+            string text = $"This removes your {CountText.Format(existingWorkspaceCount, "existing workspace")}. Your apps and files are not deleted.";
             if (existingCustomCommandCount > 0 && byId.TryGetValue("customCommands", out var commands) && commands.IsChecked == true)
-                text += $" This also replaces your {existingCustomCommandCount} custom command{(existingCustomCommandCount == 1 ? "" : "s")}.";
+                text += $" This also replaces your {CountText.Format(existingCustomCommandCount, "custom command")}.";
             caution.Text = text;
             caution.Visibility = Visibility.Visible;
         }

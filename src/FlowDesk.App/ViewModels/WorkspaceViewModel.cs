@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using FlowDesk.App.Autosave;
 using FlowDesk.App.Services;
+using FlowDesk.Core;
 using FlowDesk.Core.Model;
 
 namespace FlowDesk.App.ViewModels;
@@ -34,14 +35,12 @@ public partial class WorkspaceViewModel : ObservableObject
             var age = DateTimeOffset.Now - Model.LastUsed;
             string used = age is null ? "Never opened" : age.Value.TotalMinutes < 1 ? "Last used just now"
                 : age.Value.TotalHours < 1 ? $"Last used {(int)age.Value.TotalMinutes} min ago"
-                : age.Value.TotalDays < 1 ? $"Last used {(int)age.Value.TotalHours} hours ago"
-                : $"Last used {(int)age.Value.TotalDays} days ago";
+                : age.Value.TotalDays < 1 ? $"Last used {CountText.Format((int)age.Value.TotalHours, "hour")} ago"
+                : $"Last used {CountText.Format((int)age.Value.TotalDays, "day")} ago";
             string active = IsActive ? "Active · " : "";
-            return $"{active}{Items.Count} items · {used} · {ColorLabel}";
+            return $"{active}{CountText.Format(Items.Count, "item")} · {used}";
         }
     }
-    public string ColorLabel => string.IsNullOrEmpty(Color) ? ""
-        : char.ToUpperInvariant(Color[0]) + Color[1..];
     public bool IsEmpty => Items.Count == 0;
     public string AutosaveText { get; private set; } = "";
     /// <summary>Every row carries an autosave state, including inactive workspaces.</summary>
@@ -77,7 +76,7 @@ public partial class WorkspaceViewModel : ObservableObject
     {
         if (initializing) return;
         Model.Color = value; owner.Services.Changed();
-        OnPropertyChanged(nameof(ColorLabel)); RefreshSummary();
+        RefreshSummary();
     }
     partial void OnGlyphChanged(string value)
     {

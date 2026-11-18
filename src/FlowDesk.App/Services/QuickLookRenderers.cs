@@ -1,3 +1,4 @@
+using FlowDesk.Core;
 using FlowDesk.Core.QuickLook;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -148,7 +149,7 @@ internal sealed class PdfQuickLookRenderer : QuickLookRenderer
         var loaded = await PdfDocument.LoadFromFileAsync(file).AsTask(token);
         token.ThrowIfCancellationRequested();
         document = loaded;
-        Details = $" · {loaded.PageCount} {(loaded.PageCount == 1 ? "page" : "pages")}";
+        Details = " · " + CountText.Format(loaded.PageCount, "page");
         QuickLookDiagnostics.Write($"pdf loaded pages={loaded.PageCount}");
         // Round-1 cause (proven headless): an element assigned to ItemContainer.Content inside
         // ContainerContentChanging never reaches the visual tree; the container keeps the template
@@ -280,9 +281,9 @@ internal sealed class FolderQuickLookRenderer : QuickLookRenderer
             foreach (string _ in Directory.EnumerateFileSystemEntries(item.Path!))
             {
                 token.ThrowIfCancellationRequested(); count++;
-                if (watch.ElapsedMilliseconds > 500 || count >= 10000) return $"{count:N0}+ items\nModified {Directory.GetLastWriteTime(item.Path!):g}\nItem count limited; subfolders are not scanned.";
+                if (watch.ElapsedMilliseconds > 500 || count >= 10000) return $"{CountText.Format(count, "item", numberFormat: "N0", suffix: "+")}\nModified {Directory.GetLastWriteTime(item.Path!):g}\nItem count limited; subfolders are not scanned.";
             }
-            return $"{count:N0} items\nModified {Directory.GetLastWriteTime(item.Path!):g}\nSubfolders are not scanned.";
+            return $"{CountText.Format(count, "item", numberFormat: "N0")}\nModified {Directory.GetLastWriteTime(item.Path!):g}\nSubfolders are not scanned.";
         }, token);
         token.ThrowIfCancellationRequested();
         return Label(item.Name + "\n\n" + text);
@@ -303,7 +304,8 @@ internal sealed class FallbackQuickLookRenderer(QuickLookShell shell, string rea
                 var metadata = await Task.Run(() =>
                 {
                     var info = new FileInfo(item.Path);
-                    return $"{info.Length:N0} bytes\nModified {info.LastWriteTime:g}\nCreated {info.CreationTime:g}";
+                    string size = CountText.Format(info.Length, "byte", numberFormat: "N0");
+                    return $"{size}\nModified {info.LastWriteTime:g}\nCreated {info.CreationTime:g}";
                 }, token);
                 token.ThrowIfCancellationRequested(); panel.Children.Add(Label(metadata));
             }

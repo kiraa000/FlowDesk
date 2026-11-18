@@ -115,7 +115,7 @@
                                         <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
-                                    <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}" AutomationProperties.Name="{Binding Name}" VerticalAlignment="Center" />
+                                    <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}" AutomationProperties.Name="{Binding Name}" MinWidth="32" VerticalAlignment="Center" />
                                     <Grid Grid.Column="1" Width="32" Height="32">
                                         <FontIcon Glyph="&#xE71D;" FontSize="16"
                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"

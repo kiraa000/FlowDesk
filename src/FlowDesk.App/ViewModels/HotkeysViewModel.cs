@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using FlowDesk.Core;
 using FlowDesk.Core.Hotkeys;
 using FlowDesk.Core.HotCorners;
 
@@ -31,7 +32,7 @@ public sealed partial class HotkeyRowViewModel : ObservableObject
     [ObservableProperty] public partial bool CanToggle { get; set; }
     [ObservableProperty] public partial string StatusText { get; set; } = "Not available";
     private ShortcutStatus status = ShortcutStatus.Unavailable;
-    public bool ShowStatus => ShortcutPresentation.ShowStatusDetail(status);
+    public bool ShowStatus => status is not (ShortcutStatus.Active or ShortcutStatus.Off);
     public bool IsConflict => ShortcutPresentation.IsConflict(status);
     public bool IsNeutralStatus => ShowStatus && !IsConflict;
     private bool applying;
@@ -46,7 +47,8 @@ public sealed partial class HotkeyRowViewModel : ObservableObject
         applying = true;
         try
         {
-            IsOn = enabled; CanToggle = canToggle; StatusText = ShortcutPresentation.StatusText(status);
+            IsOn = enabled; CanToggle = canToggle;
+            StatusText = status == ShortcutStatus.Off ? "" : ShortcutPresentation.StatusText(status);
             if (this.status != status)
             {
                 this.status = status;
@@ -108,7 +110,7 @@ public sealed partial class HotkeysViewModel : ObservableObject
         }
         int enabled = rows.Count(r => r.IsOn);
         int conflicts = rows.Count(r => r.IsConflict);
-        Summary = $"{enabled} of {rows.Count} on · {conflicts} {(conflicts == 1 ? "conflict" : "conflicts")}" + (runtime.Paused ? " · paused" : "");
+        Summary = $"{enabled} of {rows.Count} on · {CountText.Format(conflicts, "conflict")}" + (runtime.Paused ? " · paused" : "");
         RefreshCommand.NotifyCanExecuteChanged(); TurnAllOnCommand.NotifyCanExecuteChanged();
         RefreshOtherInput();
         owner.Settings.RefreshPaletteSettings();

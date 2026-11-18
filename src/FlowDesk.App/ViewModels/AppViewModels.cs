@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.Input;
 using FlowDesk.App.Autosave;
 using FlowDesk.App.Services;
 using FlowDesk.App.Tour;
+using FlowDesk.Core;
 using FlowDesk.Core.Model;
 using FlowDesk.Core.Restore;
 using FlowDesk.Core.Hotkeys;
@@ -396,7 +397,7 @@ public partial class AppViewModels : ObservableObject
         foreach (var item in workspace.Model.Items) item.Window = clone.Items.First(i => i.Id == item.Id).Window;
         workspace.Model.LayoutSavedAt = clone.LayoutSavedAt;
         workspace.ReloadItems(); workspace.RefreshAutosaveText(); Services.Changed();
-        ShowStatus($"Saved positions for {ids.Count} of {clone.Items.Count} items. Closed windows keep their saved positions.");
+        ShowStatus($"Saved positions for {ids.Count} of {CountText.Format(clone.Items.Count, "item")}. Closed windows keep their saved positions.");
     });
     internal async Task DeleteAsync(WorkspaceViewModel workspace) => await ExecuteAsync(async () =>
     {

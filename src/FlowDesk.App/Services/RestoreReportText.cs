@@ -1,3 +1,4 @@
+using FlowDesk.Core;
 using FlowDesk.Core.Restore;
 
 namespace FlowDesk.App.Services;
@@ -10,7 +11,7 @@ public static class RestoreReportText
         var failures = report.Items.Where(i => i.Outcome is not (ItemOutcome.Reused or ItemOutcome.Launched or ItemOutcome.Skipped)).ToList();
         var skipped = report.Items.Where(i => i.Outcome == ItemOutcome.Skipped).ToList();
 
-        string message = $"{workspaceName}: {report.Placed} of {report.Items.Count} windows in place.";
+        string message = $"{workspaceName}: {report.Placed} of {CountText.Format(report.Items.Count, "window")} in place.";
         if (failures.Count > 0)
             message += " " + string.Join(" ", failures.Select(i => $"{i.Name}: {i.Detail ?? Outcome(i.Outcome)}"));
         if (skipped.Count > 0)

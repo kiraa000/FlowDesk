@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using CommunityToolkit.Mvvm.ComponentModel;
 using FlowDesk.App.Services;
+using FlowDesk.Core;
 using FlowDesk.Core.Palette;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
@@ -297,7 +298,7 @@ internal sealed partial class CommandPaletteWindow : Window
                 UpdateHint();
                 ResizeForResults(rows.Length);
                 SetStatus(queryMode == PaletteMode.Clipboard
-                ? rows.Length == 0 ? (string.IsNullOrWhiteSpace(text) ? "No history yet · Copy text to get started" : "No matching clipboard items") : rows.Length == 1 ? "1 clipboard item" : $"{rows.Length} clipboard items"
+                ? rows.Length == 0 ? (string.IsNullOrWhiteSpace(text) ? "No history yet · Copy text to get started" : "No matching clipboard items") : CountText.Format(rows.Length, "clipboard item")
                 : rows.Length == 0 ? (queryMode == PaletteMode.Commands && string.IsNullOrWhiteSpace(text)
                     ? "Recent · Your recently used commands will appear here" : queryMode switch
                     {
@@ -307,7 +308,7 @@ internal sealed partial class CommandPaletteWindow : Window
                         PaletteMode.Files when text.Length == 0 => "Type a file or folder name",
                         PaletteMode.Help => "Search modes are off in Settings", _ => "No results"
                     }) : (queryMode == PaletteMode.Commands && string.IsNullOrWhiteSpace(text) ? "Recent · " : "") +
-                    (rows.Length == 1 ? "1 result" : $"{rows.Length} results"));
+                    CountText.Format(rows.Length, "result"));
                 _ = LoadIconsAsync(rows, token, expected);
             }
         }

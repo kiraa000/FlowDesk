@@ -93,7 +93,11 @@ internal sealed partial class QuickLookWindow : Window
             {
                 string size = await Task.Run(() =>
                 {
-                    try { return $" · {new FileInfo(item.Path).Length:N0} bytes"; }
+                    try
+                    {
+                        long length = new FileInfo(item.Path).Length;
+                        return " · " + FlowDesk.Core.CountText.Format(length, "byte", numberFormat: "N0");
+                    }
                     catch (Exception) { return ""; }
                 }, token);
                 if (generations.IsCurrent(generation)) Details.Text += size;

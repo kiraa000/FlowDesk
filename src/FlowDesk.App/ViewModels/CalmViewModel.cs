@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using FlowDesk.App.Services;
+using FlowDesk.Core;
 using FlowDesk.Core.Calm;
 
 namespace FlowDesk.App.ViewModels;
@@ -48,7 +49,7 @@ public sealed partial class CalmViewModel : ObservableObject
         parent.Services.Settings.FirstCalmCheckDone = true;
         parent.Services.Changed();
         int count = readings.Count(r => r.IsFinding);
-        OfferText = $"Check-up found {count} {(count == 1 ? "thing" : "things")} you can calm down.";
+        OfferText = $"Check-up found {CountText.Format(count, "thing")} you can calm down.";
         OfferOpen = count > 0;
     }
     [RelayCommand] private void Review() { OfferOpen = false; parent.Navigate(AppPage.Calm); }
@@ -68,7 +69,7 @@ public sealed partial class CalmViewModel : ObservableObject
         RestartSuggested |= readings.Any(r => r.Setting.ExplorerRestart && changes.HasUndo(r.Setting.Id));
         parent.Settings.RefreshStartupState();
         int count = readings.Count(r => r.IsFinding);
-        Summary = count == 0 ? "No suggested changes found" : $"{count} {(count == 1 ? "thing" : "things")} you can calm down";
+        Summary = count == 0 ? "No suggested changes found" : $"{CountText.Format(count, "thing")} you can calm down";
     }
     private async Task ReloadAfterChangeAsync()
     {

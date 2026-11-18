@@ -52,7 +52,7 @@ public sealed class CalmRow : ObservableObject
         CalmState.Custom => "Custom value — not changed by Calm all",
         CalmState.Managed => "Set by a policy on this PC",
         CalmState.Unavailable => "Unavailable — access denied",
-        _ => (Reading.State == CalmState.Calm ? "Off" : "On") + (Reading.UsesDefault ? " · Windows default" : "") + " · " + Reading.Setting.Effect
+        _ => (Reading.UsesDefault ? "Windows default · " : "") + Reading.Setting.Effect
     };
     public bool CanChange => Reading.State is CalmState.Calm or CalmState.Noisy || IsSearch && Reading.State == CalmState.Custom;
     public bool CanToggle => !IsSearch && Reading.State is CalmState.Calm or CalmState.Noisy;

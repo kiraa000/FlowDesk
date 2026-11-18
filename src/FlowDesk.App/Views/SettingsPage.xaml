@@ -8,7 +8,8 @@
         <StackPanel Margin="32,24" MaxWidth="1000" Spacing="4">
             <TextBlock Text="Settings" Style="{StaticResource TitleTextBlockStyle}"
                        Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
-            <settings:SettingsCard Header="Theme" Description="Choose how FlowDesk appears." Margin="0,20,0,0">
+            <TextBlock Text="General" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,24,0,8" />
+            <settings:SettingsCard Header="Theme" Description="Choose how FlowDesk appears.">
                 <ComboBox ItemsSource="{Binding Themes}"
                           AutomationProperties.Name="Theme"
                           SelectedItem="{Binding Theme, Mode=TwoWay}" MinWidth="160" />
@@ -18,6 +19,12 @@
                 <ToggleSwitch x:Name="AdvancedModeSwitch" AutomationProperties.Name="Advanced mode"
                               Toggled="AdvancedMode_Toggled" />
             </settings:SettingsCard>
+            <settings:SettingsCard Header="Start with Windows"
+                Description="Open FlowDesk when you sign in.">
+                <ToggleSwitch IsOn="{Binding StartWithWindows, Mode=TwoWay}"
+                              AutomationProperties.Name="Start FlowDesk when I sign in" />
+            </settings:SettingsCard>
+            <TextBlock Text="Workspaces" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,24,0,8" />
             <settings:SettingsCard Header="When switching workspaces"
                 Description="Minimize the previous workspace's windows.">
                 <ToggleSwitch IsOn="{Binding MinimizePrevious, Mode=TwoWay}"
@@ -29,6 +36,7 @@
                            SmallChange="1" LargeChange="5" SpinButtonPlacementMode="Compact"
                            Width="140" AutomationProperties.Name="Launch timeout in seconds" />
             </settings:SettingsCard>
+            <TextBlock Text="Shortcuts" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,24,0,8" />
             <settings:SettingsCard Header="Window shortcuts">
                 <settings:SettingsCard.Description>
                     <StackPanel Spacing="2">
@@ -63,27 +71,26 @@
                          Message="If it uses the same shortcuts, it handles them before FlowDesk." />
                 <settings:SettingsCard Header="Terminal program"
                     Description="Program that Alt+Enter starts in your profile folder. Leave blank to use Windows Terminal if available, otherwise Command Prompt; FlowDesk adds no arguments.">
-                    <StackPanel Spacing="8" Width="220">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
                         <TextBox Text="{Binding TerminalProgram, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                  MinHeight="32"
-                                 PlaceholderText="Windows Terminal or Command Prompt"
+                                 Width="180" PlaceholderText="Default terminal"
                                  AutomationProperties.Name="Terminal program" />
                         <Button Content="Use default" Command="{Binding UseDefaultTerminalCommand}" MinHeight="32"
                                 HorizontalAlignment="Left"
                                 AutomationProperties.Name="Use the default terminal program" />
                     </StackPanel>
                 </settings:SettingsCard>
-                <StackPanel Spacing="4">
-                    <TextBlock Text="Choose which shortcuts FlowDesk handles."
-                               Style="{StaticResource BodyTextBlockStyle}"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                               TextWrapping="Wrap" />
+                <settings:SettingsCard Header="Manage shortcuts" Description="Choose which shortcuts FlowDesk handles.">
                     <HyperlinkButton Content="Manage shortcuts in the Hotkeys tab"
                                      Command="{Binding ManageShortcutsCommand}"
                                      AutomationProperties.Name="Manage shortcuts in the Hotkeys tab" />
-                </StackPanel>
+                </settings:SettingsCard>
             </StackPanel>
-            <StackPanel Spacing="4">
+            <TextBlock Text="Command palette" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,24,0,8" />
+            <settings:SettingsExpander Header="Command palette options"
+                Description="Activation, search sources, custom commands and AI answers.">
+                <settings:SettingsExpander.Items>
                 <settings:SettingsCard Header="Command palette">
                     <settings:SettingsCard.Description>
                         <StackPanel Spacing="2">
@@ -277,6 +284,9 @@
                         </settings:SettingsCard>
                     </settings:SettingsExpander.Items>
                 </settings:SettingsExpander>
+                </settings:SettingsExpander.Items>
+            </settings:SettingsExpander>
+            <TextBlock Text="Clipboard history" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,24,0,8" />
                 <settings:SettingsCard Header="Clipboard history">
                     <settings:SettingsCard.Description>
                         <StackPanel Spacing="2">
@@ -298,7 +308,7 @@
                                       AutomationProperties.Name="Clipboard history" />
                     </StackPanel>
                 </settings:SettingsCard>
-            </StackPanel>
+            <TextBlock Text="Quick Look &amp; hot corners" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,24,0,8" />
             <StackPanel Spacing="4">
                 <settings:SettingsCard Header="Quick Look"
                     Description="Preview the file selected in File Explorer or on the desktop with Space.">
@@ -376,15 +386,7 @@
                                TextWrapping="Wrap" />
                 </StackPanel>
             </StackPanel>
-            <settings:SettingsCard Header="Start with Windows"
-                Description="Open FlowDesk when you sign in.">
-                <ToggleSwitch IsOn="{Binding StartWithWindows, Mode=TwoWay}"
-                              AutomationProperties.Name="Start FlowDesk when I sign in" />
-            </settings:SettingsCard>
-            <settings:SettingsCard Header="Onboarding tour"
-                Description="Walk through the main screens again.">
-                <Button Content="Show the tour again" Command="{Binding ReplayTourCommand}" MinHeight="32" />
-            </settings:SettingsCard>
+            <TextBlock Text="Data" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,24,0,8" />
             <settings:SettingsCard Header="Back up or move FlowDesk"
                 Description="Export a backup or import settings from another PC.">
                 <StackPanel Orientation="Horizontal" Spacing="8">
@@ -397,6 +399,11 @@
             <settings:SettingsCard Header="Data folder"
                 Description="Workspaces, focus sessions and app settings.">
                 <Button Content="Open folder" Command="{Binding OpenDataFolderCommand}" MinHeight="32" />
+            </settings:SettingsCard>
+            <TextBlock Text="About" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,24,0,8" />
+            <settings:SettingsCard Header="Onboarding tour"
+                Description="Walk through the main screens again.">
+                <Button Content="Show the tour again" Command="{Binding ReplayTourCommand}" MinHeight="32" />
             </settings:SettingsCard>
             <settings:SettingsCard Header="About" Description="{Binding VersionText}">
                 <Button Content="Open log folder" Command="{Binding OpenLogFolderCommand}" MinHeight="32" />

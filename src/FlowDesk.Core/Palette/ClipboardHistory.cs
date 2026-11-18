@@ -12,8 +12,8 @@ public sealed record ClipboardEntry(long Id, string Text, DateTimeOffset Capture
     public string Subtitle(DateTimeOffset now)
     {
         var age = now - CapturedAt;
-        string time = age.TotalMinutes < 1 ? "Just now" : age.TotalHours < 1 ? $"{(int)age.TotalMinutes} min ago" : age.TotalDays < 1 ? $"{(int)age.TotalHours} hr ago" : $"{(int)age.TotalDays} days ago";
-        return $"{time} · {Text.Length} chars";
+        string time = age.TotalMinutes < 1 ? "Just now" : age.TotalHours < 1 ? $"{(int)age.TotalMinutes} min ago" : age.TotalDays < 1 ? $"{(int)age.TotalHours} hr ago" : $"{CountText.Format((int)age.TotalDays, "day")} ago";
+        return $"{time} · {CountText.Format(Text.Length, "char")}";
     }
 }
 
