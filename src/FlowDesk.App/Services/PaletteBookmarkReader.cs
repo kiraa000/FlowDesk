@@ -28,7 +28,7 @@ internal sealed class PaletteBookmarkReader
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or ExternalException or InvalidOperationException or DllNotFoundException or EntryPointNotFoundException)
             { if (cache.TryGetValue(path, out var saved)) result.AddRange(saved.Items); }
         }
-        return result.DistinctBy(b => b.Id).ToArray();
+        return result.DistinctBy(b => b.DedupeKey).ToArray();
     }
     private static string Stamp(string path)
     { var info = new FileInfo(path); return info.Exists ? $"{info.LastWriteTimeUtc.Ticks}:{info.Length};" : "missing;"; }
@@ -112,7 +112,7 @@ internal sealed class PaletteBookmarkReader
                 if (BookmarkParser.Entry(Text(0), Text(1), Text(2), profile) is { } bookmark) result.Add(bookmark);
             }
             if (status != 101) throw new InvalidOperationException("Bookmark snapshot is unavailable.");
-            return result;
+            return result.DistinctBy(b => b.DedupeKey).ToArray();
         }
         finally
         {

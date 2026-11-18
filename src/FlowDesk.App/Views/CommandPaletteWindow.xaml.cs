@@ -83,6 +83,8 @@ internal sealed partial class CommandPaletteWindow : Window
         this.search = search; this.usage = usage; this.notify = notify;
         InitializeComponent();
         answer.Changed += QueueAnswerRender;
+        Root.AddHandler(UIElement.CharacterReceivedEvent,
+            new Windows.Foundation.TypedEventHandler<UIElement, CharacterReceivedRoutedEventArgs>(Answer_CharacterReceived), true);
         answerRenderTimer.Tick += (_, _) => { answerRenderTimer.Stop(); if (!shutdown) RenderAnswer(); };
         Title = "Command palette — FlowDesk";
         acrylic = new PaletteAcrylicBackdrop();
@@ -354,7 +356,14 @@ internal sealed partial class CommandPaletteWindow : Window
     private void ResizeForResults(int count)
     {
         double height = count == 0 ? 152 : Math.Min(564, 144 + Math.Min(8, count) * 52);
+        ResizeForHeight(height);
+    }
+    private PaletteRect? lastPlacement;
+    private void ResizeForHeight(double height)
+    {
         var rect = PalettePlacement.Place(workArea, monitorScale, height);
+        if (rect == lastPlacement) return;
+        lastPlacement = rect;
         AppWindow.MoveAndResize(new RectInt32(rect.X, rect.Y, rect.Width, rect.Height));
         EnsureBorderlessFrame();
         TraceSurface("resized");
@@ -415,7 +424,7 @@ internal sealed partial class CommandPaletteWindow : Window
         if (answer.Visible && panel is null)
         {
             if (StatusText.Text != "AI answer") SetStatus("AI answer");
-            KeyboardHint.Text = answer.Streaming ? "Esc · Cancel" : "Enter · Copy answer   Esc · Results";
+            KeyboardHint.Text = answer.Streaming ? "Esc · Cancel" : answer.Answer.Length > 0 ? "Enter · Copy answer   Esc · Results" : "Esc · Results";
             ActionsButton.IsEnabled = true; HelpButton.Visibility = Visibility.Collapsed; return;
         }
         var row = Results.SelectedItem as PaletteResultRow;
@@ -454,7 +463,8 @@ internal sealed partial class CommandPaletteWindow : Window
             Results.ItemsSource = previous.Results;
             Results.SelectedIndex = previous.Selection;
             if (Results.SelectedItem is { } selected) Results.ScrollIntoView(selected);
-            ResizeForResults(answer.Visible ? 8 : Results.Items.Count); SetStatus(previous.Status); UpdateHint();
+            if (!answer.Visible) ResizeForResults(Results.Items.Count);
+            SetStatus(previous.Status); UpdateHint();
             SearchBox.Focus(FocusState.Programmatic);
             if (answer.Visible) RenderAnswer();
             if (refreshAfterPanel && !answer.Visible) QueueQuery(true);

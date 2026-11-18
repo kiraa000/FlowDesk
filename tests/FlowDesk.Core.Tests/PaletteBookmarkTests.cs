@@ -36,6 +36,21 @@ public sealed class PaletteBookmarkTests
         var all = new BookmarkOptions(); Assert.All(Enum.GetValues<BookmarkBrowser>(), b => Assert.True(all.Enabled(b)));
         Assert.False((all with { Chrome = false }).Enabled(BookmarkBrowser.Chrome));
     }
+    [Fact] public void DuplicateFolderEntriesDeduplicateByBrowserProfileAndUrlNotBookmarkIdOrTitle()
+    {
+        const string json = """
+        {"roots":{"bar":{"children":[{"type":"url","id":"one","name":"First","url":"https://EXAMPLE.com/docs"}]},
+          "other":{"children":[{"type":"url","id":"two","name":"Second","url":"https://example.com/docs"},
+          {"type":"url","id":"three","name":"Third","url":"https://example.com/docs"}]}}}
+        """;
+        var bookmark = Assert.Single(BookmarkParser.Chromium(json, Chrome)); Assert.Equal("First", bookmark.Title);
+        var differentProfile = bookmark with { Profile = Chrome with { Path = @"D:\Chrome\Default" } };
+        var differentBrowser = bookmark with { Profile = Chrome with { Browser = BookmarkBrowser.Edge } };
+        Assert.Equal(3, new[] { bookmark, differentProfile, differentBrowser }.DistinctBy(b => b.DedupeKey).Count());
+        Assert.NotEqual(bookmark.DedupeKey, (bookmark with { Url = "https://example.com/Docs" }).DedupeKey); // URL paths are case-sensitive
+        Assert.Equal(bookmark.DedupeKey, (bookmark with { Key = "different-key" }).DedupeKey);
+        Assert.Equal("bookmark:Chrome:D:\\CHROME\\PROFILE 1:one", bookmark.Id); // retained row keeps existing usage identity
+    }
     [Fact] public void MixedBookmarkRankingCannotPushAppsOrWindowsBelowBookmarks()
     {
         CommandMatch Row(string id, CommandKind kind, double score) => new(new(id, id, "", kind, "", () => Task.CompletedTask), score, []);

@@ -17,6 +17,7 @@ public sealed record BookmarkProfile(BookmarkBrowser Browser, string Name, strin
 public sealed record BookmarkEntry(string Key, string Title, string Url, BookmarkProfile Profile)
 {
     public string Id => "bookmark:" + Profile.Browser + ":" + Profile.Path.ToUpperInvariant() + ":" + Key;
+    public string DedupeKey => "bookmark:" + Profile.Browser + ":" + Profile.Path.TrimEnd('\\', '/').Replace('/', '\\').ToUpperInvariant() + ":" + new Uri(Url).AbsoluteUri;
     public string Subtitle => new Uri(Url).Host + " · " + Profile.Browser + " · " + Profile.Name;
 }
 public static class BookmarkParser
@@ -32,7 +33,7 @@ public static class BookmarkParser
         var result = new List<BookmarkEntry>();
         if (document.RootElement.TryGetProperty("roots", out var roots))
             foreach (var root in roots.EnumerateObject()) Walk(root.Value);
-        return result.DistinctBy(b => b.Id).ToArray();
+        return result.DistinctBy(b => b.DedupeKey).ToArray();
         void Walk(JsonElement node)
         {
             if (result.Count >= 10000 || node.ValueKind != JsonValueKind.Object) return;

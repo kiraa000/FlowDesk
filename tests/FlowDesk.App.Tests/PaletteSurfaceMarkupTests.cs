@@ -29,7 +29,12 @@ public sealed class PaletteSurfaceMarkupTests
             .Single(e => (string?)e.Attribute(PaletteMarkupFixture.X + "Name") == "Root");
         Assert.Equal("{ThemeResource SurfaceStrokeColorFlyoutBrush}", (string?)root.Attribute("BorderBrush"));
         Assert.Equal("1", (string?)root.Attribute("BorderThickness"));
-        var results = root.Descendants(PaletteMarkupFixture.Xaml + "Border").Single(e => (string?)e.Attribute("Grid.Row") == "1");
+        var surface = root.Descendants(PaletteMarkupFixture.Xaml + "Border").Single(e => (string?)e.Attribute("Grid.Row") == "1");
+        Assert.Equal("ContentSurface", (string?)surface.Attribute(PaletteMarkupFixture.X + "Name"));
+        Assert.Equal("{ThemeResource SolidBackgroundFillColorBaseBrush}", (string?)surface.Attribute("Background"));
+        Assert.Equal("Stretch", (string?)surface.Attribute("HorizontalAlignment"));
+        var list = surface.Descendants(PaletteMarkupFixture.Xaml + "ListView").Single();
+        var results = list.Ancestors(PaletteMarkupFixture.Xaml + "Border").First();
         Assert.Equal("Transparent", (string?)results.Attribute("Background"));
         Assert.Equal("0", (string?)results.Attribute("BorderThickness"));
     }

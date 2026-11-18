@@ -1,7 +1,8 @@
 <UserControl
     x:Class="FlowDesk.App.Views.AiSettingsPanel"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:settings="using:CommunityToolkit.WinUI.Controls">
     <StackPanel Spacing="12">
         <ComboBox x:Name="ProviderBox" Header="Provider"
                   AutomationProperties.Name="AI answers provider">
@@ -37,9 +38,10 @@
                    Foreground="{ThemeResource SystemFillColorCautionBrush}"
                    TextWrapping="Wrap"
                    AutomationProperties.LiveSetting="Polite" />
-        <ToggleSwitch x:Name="FallbackSwitch"
-                      Header="Show an Ask AI row in mixed results"
-                      AutomationProperties.Name="Show an Ask AI row in mixed results" />
+        <settings:SettingsCard Header="Show an Ask AI row in mixed results">
+            <ToggleSwitch x:Name="FallbackSwitch"
+                          AutomationProperties.Name="Show an Ask AI row in mixed results" />
+        </settings:SettingsCard>
         <Button x:Name="ApplyButton" Content="Save AI settings" Click="Apply_Click" MinHeight="32"
                 HorizontalAlignment="Left"
                 AutomationProperties.Name="Save AI answers settings" />

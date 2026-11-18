@@ -6,7 +6,8 @@ using FlowDesk.Core.Palette;
 namespace FlowDesk.App.Services;
 
 internal sealed class PaletteFileSource(PaletteUsageStore usage, Func<string, Task> copyPath,
-    Action<string> copyFile, Func<Task> advanced, Func<nint> owner, Func<string, Task> preview) : IAsyncCommandSource
+    Action<string> copyFile, Func<Task> advanced, Func<nint> owner, Func<string, Task> preview,
+    Func<Task<IPaletteFileBackend?>>? detect = null) : IAsyncCommandSource
 {
     private Task<IPaletteFileBackend?> backend = Task.FromResult<IPaletteFileBackend?>(null);
     private volatile bool enabled;
@@ -15,7 +16,7 @@ internal sealed class PaletteFileSource(PaletteUsageStore usage, Func<string, Ta
     public Task<IPaletteFileBackend?> BeginOpen(bool value)
     {
         enabled = value;
-        var next = value ? Task.Run(PaletteFileBackends.DetectAsync) : Task.FromResult<IPaletteFileBackend?>(null);
+        var next = value ? Task.Run(detect ?? PaletteFileBackends.DetectAsync) : Task.FromResult<IPaletteFileBackend?>(null);
         Volatile.Write(ref backend, next);
         return next;
     }
@@ -23,7 +24,7 @@ internal sealed class PaletteFileSource(PaletteUsageStore usage, Func<string, Ta
     {
         if (!Supports(mode)) return [];
         var detected = await Volatile.Read(ref backend).WaitAsync(token).ConfigureAwait(false);
-        if (detected is null) return mode == PaletteMode.Files || query.Trim().Length > 0 ? [Hint("File search needs Everything or Windows Search")] : [];
+        if (detected is null) return mode == PaletteMode.Files ? [Hint("File search needs Everything or Windows Search")] : [];
         if (query.Trim().Length == 0) return [];
         try
         {
@@ -32,7 +33,7 @@ internal sealed class PaletteFileSource(PaletteUsageStore usage, Func<string, Ta
             return files.Select(file => new CommandMatch(Item(file) with { IsFileSearch = true }, CommandMatcher.Match(file.Name, query, false).Score + usage.Boost(file.Id), [])).ToArray();
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
-        catch (Exception) { return [Hint("File search is unavailable · Open Advanced to check Everything")]; }
+        catch (Exception) { return mode == PaletteMode.Files ? [Hint("File search is unavailable · Open Advanced to check Everything")] : []; }
     }
     private CommandMatch Hint(string text) => new(new("file-search:setup", text, "Open Advanced", CommandKind.Help,
         "\uE8B7", advanced, RecordUsage: false), -500, []);

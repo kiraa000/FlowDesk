@@ -97,7 +97,7 @@ public sealed class AiAnswerSession(TimeSpan? timeout = null)
         Cancel();
         long expected = ++generation;
         using var cancellation = new CancellationTokenSource(timeout ?? TimeSpan.FromSeconds(60));
-        request = cancellation; Question = question; Answer = ""; Status = "Answering… · Esc to cancel"; Visible = true; Streaming = true; Changed?.Invoke();
+        request = cancellation; Question = question; Answer = ""; Status = "Answering…"; Visible = true; Streaming = true; Changed?.Invoke();
         try
         {
             await foreach (var chunk in provider.StreamAsync(question, cancellation.Token))
@@ -108,7 +108,7 @@ public sealed class AiAnswerSession(TimeSpan? timeout = null)
                 if (Answer.Length > 64000) { Answer = Answer[..64000] + "\n\nAnswer truncated."; break; }
                 Changed?.Invoke();
             }
-            if (generation == expected) Status = Answer.Length == 0 ? "The provider returned no answer." : "Enter · Copy answer   Esc · Results";
+            if (generation == expected) Status = Answer.Length == 0 ? "The provider returned no answer." : "";
         }
         catch (OperationCanceledException) { if (generation == expected) Status = "The request timed out after 60 seconds. Try again."; }
         catch (AiAnswerException ex) { if (generation == expected) Status = ex.Message; }
@@ -122,7 +122,7 @@ public sealed class AiAnswerSession(TimeSpan? timeout = null)
     public void Cancel()
     {
         if (!Streaming) return;
-        ++generation; request?.Cancel(); request = null; Streaming = false; Status = "Cancelled · Esc to return to results"; Changed?.Invoke();
+        ++generation; request?.Cancel(); request = null; Streaming = false; Status = "Cancelled"; Changed?.Invoke();
     }
     public void Close() { Cancel(); Visible = false; Changed?.Invoke(); }
 }

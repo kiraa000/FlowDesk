@@ -84,117 +84,131 @@
                         Click="ClearClipboard_Click" />
             </Grid>
 
-            <Border Grid.Row="1" VerticalAlignment="Top"
-                    Background="Transparent"
-                    BorderThickness="0"
-                    CornerRadius="{ThemeResource OverlayCornerRadius}">
-                <ListView x:Name="Results"
-                          MaxHeight="416"
-                          Padding="4"
-                          Background="Transparent"
-                          SelectionMode="Single"
-                          IsItemClickEnabled="True"
-                          ItemContainerStyle="{StaticResource PaletteResultItemStyle}"
-                           ItemClick="Results_ItemClick"
-                           AutomationProperties.Name="Command palette results"
-                          SelectionChanged="Results_SelectionChanged">
-                    <ListView.ItemTemplate>
-                        <DataTemplate>
-                            <Grid Height="44" ColumnSpacing="12"
-                                  AutomationProperties.Name="{Binding AutomationName}">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="24" />
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <!-- Glyph first so the real app icon, once loaded, covers it. -->
-                                <Grid Grid.Column="0" Width="24" Height="24" VerticalAlignment="Center">
-                                    <FontIcon Glyph="{Binding Glyph}"
-                                              Visibility="{Binding IconFallbackVisibility}"
-                                              FontSize="20"
-                                              HorizontalAlignment="Center"
-                                              VerticalAlignment="Center"
-                                              Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                    <Image Source="{Binding IconSource}"
-                                           Width="24" Height="24"
-                                           Stretch="Uniform"
-                                           HorizontalAlignment="Center"
-                                           VerticalAlignment="Center" />
-                                </Grid>
-                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                    <!-- Regular weight: the Loaded handler bolds the matched characters. -->
-                                     <TextBlock x:Name="ResultTitle"
-                                                 Loaded="ResultTitle_Loaded"
-                                                 DataContextChanged="ResultTitle_DataContextChanged"
-                                                 Visibility="{Binding NormalTitleVisibility}"
-                                                Style="{StaticResource BodyTextBlockStyle}"
-                                                Foreground="{ThemeResource TextFillColorPrimaryBrush}"
-                                                TextWrapping="NoWrap"
-                                                MaxLines="1"
-                                                TextTrimming="CharacterEllipsis"
-                                                 ToolTipService.ToolTip="{Binding Title}" />
-                                    <TextBlock Text="{Binding ConfirmationPrompt}"
-                                               Visibility="{Binding ConfirmationTitleVisibility}"
-                                               Style="{StaticResource BodyStrongTextBlockStyle}"
-                                               Foreground="{ThemeResource SystemFillColorCautionBrush}"
-                                               TextWrapping="NoWrap"
-                                               TextTrimming="CharacterEllipsis" />
-                                    <TextBlock Text="{Binding Subtitle}"
-                                               Style="{StaticResource CaptionTextBlockStyle}"
-                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                               TextWrapping="NoWrap"
-                                               MaxLines="1"
-                                               TextTrimming="CharacterEllipsis"
-                                               ToolTipService.ToolTip="{Binding Subtitle}" />
-                                </StackPanel>
-                                <TextBlock Grid.Column="2"
-                                           Text="{Binding Hint}"
-                                           Style="{StaticResource CaptionTextBlockStyle}"
-                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                           VerticalAlignment="Center"
-                                           TextWrapping="NoWrap"
-                                           MaxLines="1"
-                                           TextTrimming="CharacterEllipsis" />
-                            </Grid>
-                        </DataTemplate>
-                    </ListView.ItemTemplate>
-                </ListView>
-            </Border>
+            <!-- Shared content surface: the results list and the answer pane fill the same full-width
+                 backing, so neither shows a half-width strip. Code toggles which child is visible. -->
+            <Border x:Name="ContentSurface"
+                    Grid.Row="1"
+                    HorizontalAlignment="Stretch"
+                    Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
+                    CornerRadius="{ThemeResource ControlCornerRadius}">
+                <Grid>
+                    <Border VerticalAlignment="Top"
+                            Background="Transparent"
+                            BorderThickness="0"
+                            CornerRadius="{ThemeResource OverlayCornerRadius}">
+                        <ListView x:Name="Results"
+                                  MaxHeight="416"
+                                  Padding="4"
+                                  Background="Transparent"
+                                  SelectionMode="Single"
+                                  IsItemClickEnabled="True"
+                                  ItemContainerStyle="{StaticResource PaletteResultItemStyle}"
+                                  ItemClick="Results_ItemClick"
+                                  AutomationProperties.Name="Command palette results"
+                                  SelectionChanged="Results_SelectionChanged">
+                            <ListView.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Height="44" ColumnSpacing="12"
+                                          AutomationProperties.Name="{Binding AutomationName}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="24" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <!-- Glyph first so the real app icon, once loaded, covers it. -->
+                                        <Grid Grid.Column="0" Width="24" Height="24" VerticalAlignment="Center">
+                                            <FontIcon Glyph="{Binding Glyph}"
+                                                      Visibility="{Binding IconFallbackVisibility}"
+                                                      FontSize="20"
+                                                      HorizontalAlignment="Center"
+                                                      VerticalAlignment="Center"
+                                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                            <Image Source="{Binding IconSource}"
+                                                   Width="24" Height="24"
+                                                   Stretch="Uniform"
+                                                   HorizontalAlignment="Center"
+                                                   VerticalAlignment="Center" />
+                                        </Grid>
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                            <!-- Regular weight: the Loaded handler bolds the matched characters. -->
+                                            <TextBlock x:Name="ResultTitle"
+                                                       Loaded="ResultTitle_Loaded"
+                                                       DataContextChanged="ResultTitle_DataContextChanged"
+                                                       Visibility="{Binding NormalTitleVisibility}"
+                                                       Style="{StaticResource BodyTextBlockStyle}"
+                                                       Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                                                       TextWrapping="NoWrap"
+                                                       MaxLines="1"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       ToolTipService.ToolTip="{Binding Title}" />
+                                            <TextBlock Text="{Binding ConfirmationPrompt}"
+                                                       Visibility="{Binding ConfirmationTitleVisibility}"
+                                                       Style="{StaticResource BodyStrongTextBlockStyle}"
+                                                       Foreground="{ThemeResource SystemFillColorCautionBrush}"
+                                                       TextWrapping="NoWrap"
+                                                       TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding Subtitle}"
+                                                       Style="{StaticResource CaptionTextBlockStyle}"
+                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                       TextWrapping="NoWrap"
+                                                       MaxLines="1"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       ToolTipService.ToolTip="{Binding Subtitle}" />
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="2"
+                                                   Text="{Binding Hint}"
+                                                   Style="{StaticResource CaptionTextBlockStyle}"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                   VerticalAlignment="Center"
+                                                   TextWrapping="NoWrap"
+                                                   MaxLines="1"
+                                                   TextTrimming="CharacterEllipsis" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                    </Border>
 
-            <!-- Answer pane: shares row 1 with the results list; code shows one at a time by
-                 toggling this Grid and Results.Visibility. -->
-            <Grid x:Name="AnswerPane" Grid.Row="1" Visibility="Collapsed" RowSpacing="8">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" />
-                    <RowDefinition Height="Auto" />
-                </Grid.RowDefinitions>
-                <TextBlock x:Name="AnswerQuestion"
-                           Style="{StaticResource BodyStrongTextBlockStyle}"
-                           Foreground="{ThemeResource TextFillColorPrimaryBrush}"
-                           TextWrapping="Wrap"
-                           MaxLines="2"
-                           TextTrimming="CharacterEllipsis" />
-                <ScrollViewer x:Name="AnswerScroll"
-                              Grid.Row="1"
-                              VerticalScrollBarVisibility="Auto"
-                              HorizontalScrollBarVisibility="Disabled"
-                              MaxHeight="416">
-                    <RichTextBlock x:Name="AnswerBody"
-                                    IsTextSelectionEnabled="True"
-                                    IsTabStop="True"
-                                    AutomationProperties.Name="AI answer"
-                                   FontSize="14"
-                                   Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
-                </ScrollViewer>
-                <TextBlock x:Name="AnswerStatus"
-                           Grid.Row="2"
-                           Style="{StaticResource CaptionTextBlockStyle}"
-                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                           TextWrapping="Wrap"
-                           AutomationProperties.LiveSetting="Polite"
-                           AutomationProperties.Name="AI answer status" />
-            </Grid>
+                    <!-- Answer pane: shares the surface with the results list; code shows one at
+                         a time by toggling this Grid and Results.Visibility. -->
+                    <Grid x:Name="AnswerPane" Visibility="Collapsed" RowSpacing="8"
+                          HorizontalAlignment="Stretch" Padding="4">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <TextBlock x:Name="AnswerQuestion"
+                                   Style="{StaticResource BodyStrongTextBlockStyle}"
+                                   Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                                   TextWrapping="Wrap"
+                                   MaxLines="2"
+                                   TextTrimming="CharacterEllipsis" />
+                        <ScrollViewer x:Name="AnswerScroll"
+                                      Grid.Row="1"
+                                      VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled"
+                                      HorizontalContentAlignment="Stretch"
+                                      MaxHeight="416">
+                            <RichTextBlock x:Name="AnswerBody"
+                                           IsTextSelectionEnabled="True"
+                                           IsTabStop="True"
+                                           AutomationProperties.Name="AI answer"
+                                           TextWrapping="Wrap"
+                                           HorizontalAlignment="Stretch"
+                                           FontSize="14"
+                                           Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                        </ScrollViewer>
+                        <TextBlock x:Name="AnswerStatus"
+                                   Grid.Row="2"
+                                   Style="{StaticResource CaptionTextBlockStyle}"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   TextWrapping="Wrap"
+                                   AutomationProperties.LiveSetting="Polite"
+                                   AutomationProperties.Name="AI answer status" />
+                    </Grid>
+                </Grid>
+            </Border>
 
             <Grid Grid.Row="2" ColumnSpacing="8">
                 <Grid.ColumnDefinitions>

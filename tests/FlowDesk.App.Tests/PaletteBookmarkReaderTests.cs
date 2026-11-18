@@ -13,8 +13,10 @@ public sealed class PaletteBookmarkReaderTests
         Assert.Equal(0, sqlite3_open_v2(live, out nint database, 6, 0));
         try
         {
-            const string sql = "PRAGMA journal_mode=WAL; CREATE TABLE moz_places(id INTEGER, url TEXT); CREATE TABLE moz_bookmarks(guid TEXT,title TEXT,fk INTEGER,type INTEGER); INSERT INTO moz_places VALUES(1,'https://example.com/docs'); INSERT INTO moz_bookmarks VALUES('guid','Docs',1,1);";
+            const string sql = "PRAGMA journal_mode=WAL; CREATE TABLE moz_places(id INTEGER, url TEXT); CREATE TABLE moz_bookmarks(guid TEXT,title TEXT,fk INTEGER,type INTEGER); INSERT INTO moz_places VALUES(1,'https://example.com/docs'); INSERT INTO moz_bookmarks VALUES('guid','Docs',1,1),('second','Docs',1,1),('third','Docs',1,1);";
             Assert.Equal(0, sqlite3_exec(database, sql, 0, 0, out nint error));
+            if (error != 0) sqlite3_free(error);
+            Assert.Equal(0, sqlite3_exec(database, "INSERT INTO moz_bookmarks VALUES('copy1','Docs duplicate',1,1),('copy2','Docs again',1,1);", 0, 0, out error));
             if (error != 0) sqlite3_free(error);
             Assert.True(File.Exists(live + "-wal"));
             byte[] original = ReadShared(live), wal = ReadShared(live + "-wal");
