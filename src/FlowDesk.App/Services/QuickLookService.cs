@@ -173,7 +173,6 @@ public sealed class QuickLookService : IQuickLookInput, IDisposable
     {
         pathSession.Clear();
         owner = 0; timer.Stop(); session?.Cancel(); session?.Dispose(); session = null;
-        pathSession.Clear();
         item = null; window?.HidePreview();
     }
     public void Dispose()

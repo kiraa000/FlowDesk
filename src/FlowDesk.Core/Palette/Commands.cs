@@ -1,16 +1,16 @@
 namespace FlowDesk.Core.Palette;
 
-public enum CommandKind { Workspace, Action, App, Settings, File, Clipboard, Window, Calculator, Web, System, Help, Run, Bookmark }
+public enum CommandKind { Workspace, Action, App, Settings, File, Clipboard, Window, Calculator, Web, System, Help, Run, Bookmark, Ai }
 public sealed record PaletteAction(string Title, Func<Task> Run, string Glyph = "\uE76C",
     string? Shortcut = null, bool KeepsPaletteOpen = false, bool NeedsConfirm = false,
-    string? ConfirmationPrompt = null);
+    string? ConfirmationPrompt = null, bool RequiresEnter = false);
 public sealed record MatchRange(int Start, int Length);
 public sealed record CommandItem(string Id, string Title, string Subtitle, CommandKind Kind,
     string Icon, Func<Task> Primary, Func<Task>? Secondary = null, string Synonyms = "", string ActionHint = "Open",
     bool KeepsPaletteOpen = false, bool RecordUsage = true, IReadOnlyList<PaletteAction>? NamedActions = null, bool IsFileSearch = false)
 {
     public IReadOnlyList<PaletteAction> Actions => NamedActions ?? (Secondary is null
-        ? [new(ActionHint, Primary, Shortcut: "Enter", KeepsPaletteOpen: KeepsPaletteOpen)]
+        ? [new(ActionHint, Primary, Shortcut: "Enter", KeepsPaletteOpen: KeepsPaletteOpen, RequiresEnter: Kind == CommandKind.Ai)]
         : [new(Kind == CommandKind.Workspace ? "Open" : ActionHint, Primary, Shortcut: "Enter", KeepsPaletteOpen: KeepsPaletteOpen),
            new(Kind switch { CommandKind.Workspace => "Edit in FlowDesk", CommandKind.App => "Run as administrator",
                CommandKind.File => "Show in Explorer", CommandKind.Clipboard => "Copy", _ => "More" },
@@ -79,7 +79,7 @@ public sealed class CommandSearch(IEnumerable<ICommandSource> sources, PaletteUs
             .Select(m => m with { Score = recent ? usage.Get(m.Item.Id).LastUsed.UtcTicks : m.Score + (m.Item.RecordUsage ? usage.Boost(m.Item.Id) : 0) })
             .OrderBy(m => PaletteResultMerge.Group(m, mode)).ThenByDescending(m => m.Score).ThenBy(m => Priority(m.Item.Kind))
             .ThenBy(m => m.Item.Title, StringComparer.OrdinalIgnoreCase).ToArray();
-        return ranked.Length > 80 && ranked[^1].Score == WebSearch.FallbackScore
+        return ranked.Length > 80 && (ranked[^1].Score == WebSearch.FallbackScore || ranked[^1].Item.Kind == CommandKind.Ai)
             ? [.. ranked.Take(79), ranked[^1]] : ranked.Take(80).ToArray();
     }
     private static int Priority(CommandKind kind) => kind switch { CommandKind.Workspace or CommandKind.Action => 0, CommandKind.App => 1, CommandKind.Settings => 2, _ => 3 };

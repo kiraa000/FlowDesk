@@ -60,6 +60,7 @@ public sealed class AppSettings
     public bool PaletteChromeBookmarks { get; set; } = true;
     public bool PaletteFirefoxBookmarks { get; set; } = true;
     public FlowDesk.Core.Palette.CustomCommandSettings CustomCommands { get; set; } = new();
+    public FlowDesk.Core.Palette.AiOptions Ai { get; set; } = new();
     public bool PaletteCalculatorEnabled { get; set; } = true;
     public bool PaletteSystemEnabled { get; set; } = true;
     public bool PaletteWebEnabled { get; set; } = true;

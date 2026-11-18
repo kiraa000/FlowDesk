@@ -161,6 +161,41 @@
                 </ListView>
             </Border>
 
+            <!-- Answer pane: shares row 1 with the results list; code shows one at a time by
+                 toggling this Grid and Results.Visibility. -->
+            <Grid x:Name="AnswerPane" Grid.Row="1" Visibility="Collapsed" RowSpacing="8">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <TextBlock x:Name="AnswerQuestion"
+                           Style="{StaticResource BodyStrongTextBlockStyle}"
+                           Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                           TextWrapping="Wrap"
+                           MaxLines="2"
+                           TextTrimming="CharacterEllipsis" />
+                <ScrollViewer x:Name="AnswerScroll"
+                              Grid.Row="1"
+                              VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled"
+                              MaxHeight="416">
+                    <RichTextBlock x:Name="AnswerBody"
+                                    IsTextSelectionEnabled="True"
+                                    IsTabStop="True"
+                                    AutomationProperties.Name="AI answer"
+                                   FontSize="14"
+                                   Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                </ScrollViewer>
+                <TextBlock x:Name="AnswerStatus"
+                           Grid.Row="2"
+                           Style="{StaticResource CaptionTextBlockStyle}"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           TextWrapping="Wrap"
+                           AutomationProperties.LiveSetting="Polite"
+                           AutomationProperties.Name="AI answer status" />
+            </Grid>
+
             <Grid Grid.Row="2" ColumnSpacing="8">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />

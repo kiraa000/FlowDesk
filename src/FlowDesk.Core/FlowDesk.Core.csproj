@@ -9,4 +9,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="FlowDesk.Core.Tests" />
   </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Anthropic" Version="13.10.0" />
+  </ItemGroup>
 </Project>

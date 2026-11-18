@@ -30,6 +30,8 @@ internal sealed class CommandPaletteService : IDisposable
     private readonly CommandIndex bookmarks = new();
     private readonly PaletteBookmarkReader bookmarkReader = new();
     private BookmarkOptions bookmarkOptions = new();
+    private readonly IAiCredentialStore aiCredentials = new AiCredentialStore();
+    private AiAvailability ai = new(new(), false);
     private volatile bool calculatorEnabled = true;
     private volatile bool fileSearchEnabled = true;
     private long snapshotEpoch;
@@ -51,6 +53,7 @@ internal sealed class CommandPaletteService : IDisposable
               new CustomCommandSource(() => Volatile.Read(ref customCommands), CustomCommandExecutor.RunAsync),
               new RunCommandSource(usage, CustomCommandExecutor.RunAsync, usage.SaveAsync, RefreshWindowResults),
               new SnapshotCommandSource("Bookmarks", BookmarkSnapshot, PaletteMode.Bookmarks),
+              new AiCommandSource(() => Volatile.Read(ref ai), AskAiAsync),
              new SnapshotCommandSource("Open windows", () => Volatile.Read(ref openWindows), PaletteMode.Windows),
              new SnapshotCommandSource("System commands", () => Volatile.Read(ref systemCommands)),
              new CalculatorCommandSource(() => calculatorEnabled, CopyAsync),
@@ -62,6 +65,9 @@ internal sealed class CommandPaletteService : IDisposable
         files = new(usage, CopyAsync, path => clipboard.CopyFile(path), () =>
         { showMain(); vm.OpenAdvancedFromCalm(); return Task.CompletedTask; }, () => window.Handle, PreviewPathAsync);
         window.ClosePreview = () => services.QuickLook?.ClosePathPreview(window.Handle) == true;
+        window.CopyAnswerText = CopyAsync;
+        window.AskAgain = AskAiAsync;
+        window.OpenAiChat = () => PaletteShellIndex.LaunchAsync(AiRules.ChatUrl(Volatile.Read(ref ai).Options));
         slowSources.Add(files);
         index.FileItem = files.Item;
         switcher = new(services, CopyAsync, this.notify, window.HidePalette);
@@ -80,6 +86,8 @@ internal sealed class CommandPaletteService : IDisposable
             try { await Task.Run(usage.SaveAsync); window.RefreshResults(); }
             catch (Exception) { this.notify("Run history could not be saved. Try again."); }
         };
+        vm.Settings.AiSettingsChanged = RefreshAiSettings;
+        RefreshAiSettings();
         index.Apps.Changed += IndexChanged; index.Recent.Changed += IndexChanged;
         bookmarks.Changed += IndexChanged;
     }
@@ -90,6 +98,19 @@ internal sealed class CommandPaletteService : IDisposable
         if (services.QuickLook?.Enabled != true) notify("Turn on Quick Look in Settings to preview files.");
         else if (!services.QuickLook.ShowPath(path, window.Handle)) notify("That file could not be previewed. Try again.");
         return Task.CompletedTask;
+    }
+    private Task AskAiAsync(string question)
+    {
+        var configuration = Volatile.Read(ref ai);
+        return window.ShowAnswerAsync(new PaletteAiProvider(configuration.Options, aiCredentials), question);
+    }
+    private void RefreshAiSettings()
+    {
+        var options = services.Settings.Ai ?? new(); bool saved;
+        try { saved = !string.IsNullOrEmpty(aiCredentials.Read(options.Provider)); }
+        catch (Exception) { saved = false; }
+        Volatile.Write(ref ai, new(options, saved));
+        if (window.IsOpen) window.RefreshResults();
     }
     public async Task InitializeAsync()
     {
@@ -195,6 +216,7 @@ internal sealed class CommandPaletteService : IDisposable
         PaletteMode.Web => services.Settings.PaletteWebEnabled,
         PaletteMode.Files => services.Settings.PaletteFilesEnabled,
         PaletteMode.Bookmarks => services.Settings.PaletteEdgeBookmarks || services.Settings.PaletteChromeBookmarks || services.Settings.PaletteFirefoxBookmarks,
+        PaletteMode.Ai => Volatile.Read(ref ai).Configured,
         _ => true
     };
     private void SourcesChanged()
@@ -377,6 +399,7 @@ internal sealed class CommandPaletteService : IDisposable
         bookmarks.Changed -= IndexChanged;
         vm.Settings.ApplyClipboardHistory = null; vm.Settings.ClearClipboardHistory = null; vm.Settings.PaletteSourcesChanged = null;
         vm.Settings.ClearRunHistory = null;
+        vm.Settings.AiSettingsChanged = null;
         clipboard.Dispose(); window.Shutdown(); index.Dispose();
     }
 }

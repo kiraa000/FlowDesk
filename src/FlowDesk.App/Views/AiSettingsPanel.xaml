@@ -1,0 +1,51 @@
+<UserControl
+    x:Class="FlowDesk.App.Views.AiSettingsPanel"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <StackPanel Spacing="12">
+        <ComboBox x:Name="ProviderBox" Header="Provider"
+                  AutomationProperties.Name="AI answers provider">
+            <ComboBoxItem Content="Anthropic (Claude)" />
+            <ComboBoxItem Content="OpenAI-compatible" />
+        </ComboBox>
+        <TextBox x:Name="EndpointBox" Header="Base URL"
+                 PlaceholderText="https://api.openai.com/v1"
+                 AutomationProperties.Name="AI provider base URL" />
+        <TextBox x:Name="ModelBox" Header="Model"
+                 AutomationProperties.Name="AI answers model" />
+        <TextBlock Text="Claude default: claude-opus-5-5. For faster, cheaper answers, try claude-haiku-5-5. OpenAI-compatible also supports OpenRouter, DeepSeek and local Ollama."
+                   Style="{StaticResource CaptionTextBlockStyle}"
+                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                   TextWrapping="Wrap" />
+        <PasswordBox x:Name="KeyBox" Header="API key"
+                     AutomationProperties.Name="AI provider API key" />
+        <StackPanel Orientation="Horizontal" Spacing="8">
+            <Button x:Name="SaveButton" Content="Save" Click="Save_Click" MinHeight="32"
+                    AutomationProperties.Name="Save the API key in Windows Credential Manager" />
+            <Button x:Name="RemoveButton" Content="Remove" Click="Remove_Click" MinHeight="32"
+                    AutomationProperties.Name="Remove the saved API key" />
+            <Button x:Name="TestButton" Content="Test" Click="Test_Click" MinHeight="32"
+                    AutomationProperties.Name="Test the AI provider settings" />
+        </StackPanel>
+        <TextBlock x:Name="KeyStatus"
+                   Style="{StaticResource CaptionTextBlockStyle}"
+                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                   TextWrapping="Wrap"
+                   AutomationProperties.LiveSetting="Polite" />
+        <TextBlock x:Name="ErrorText"
+                   Style="{StaticResource CaptionTextBlockStyle}"
+                   Foreground="{ThemeResource SystemFillColorCautionBrush}"
+                   TextWrapping="Wrap"
+                   AutomationProperties.LiveSetting="Polite" />
+        <ToggleSwitch x:Name="FallbackSwitch"
+                      Header="Show an Ask AI row in mixed results"
+                      AutomationProperties.Name="Show an Ask AI row in mixed results" />
+        <Button x:Name="ApplyButton" Content="Save AI settings" Click="Apply_Click" MinHeight="32"
+                HorizontalAlignment="Left"
+                AutomationProperties.Name="Save AI answers settings" />
+        <TextBlock Text="Your question is sent to the provider you choose only when you press Enter."
+                   Style="{StaticResource CaptionTextBlockStyle}"
+                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                   TextWrapping="Wrap" />
+    </StackPanel>
+</UserControl>

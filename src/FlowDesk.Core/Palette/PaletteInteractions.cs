@@ -10,6 +10,7 @@ public static class PalettePrefixes
         new("f ", PaletteMode.Files, "Files", "Search files and folders…", "Find indexed files and folders"),
         new(">", PaletteMode.Run, "Run", "Enter a command line…", "Run a command or choose from history"),
         new("b ", PaletteMode.Bookmarks, "Bookmarks", "Search browser bookmarks…", "Open a bookmark in its browser profile"),
+        new("ai ", PaletteMode.Ai, "AI", "Ask a question…", "Send a question only when you press Enter"),
         new("=", PaletteMode.Calculator, "Calculator", "Enter an expression or conversion…", "Calculate, convert units or find a local time"),
         new("?", PaletteMode.Web, "Web", "Search or enter a URL…", "Search the web or open an address")
     });
@@ -55,6 +56,7 @@ public sealed class PaletteActionExecutor(Func<TimeSpan> clock)
         var actions = item.Actions;
         if (index < 0 || index >= actions.Count) { Cancel(); return PaletteExecution.Invalid; }
         var action = actions[index];
+        if (action.RequiresEnter && input != PaletteInvocation.Enter) { Cancel(); return PaletteExecution.Invalid; }
         if (action.NeedsConfirm)
         {
             var now = clock();

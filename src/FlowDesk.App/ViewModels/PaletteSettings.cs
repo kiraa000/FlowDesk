@@ -31,6 +31,8 @@ public partial class SettingsViewModel
         ? "Enter an HTTPS URL with %s where the search terms go." : "";
     public Visibility PaletteWebTemplateErrorVisibility => PaletteWebTemplateError.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
     internal Action? PaletteSourcesChanged { get; set; }
+    internal Action? AiSettingsChanged { get; set; }
+    internal void NotifyAiSettingsChanged() => AiSettingsChanged?.Invoke();
     partial void OnPaletteWindowsEnabledChanged(bool value) => SavePaletteSources();
     partial void OnPaletteFilesEnabledChanged(bool value) => SavePaletteSources();
     partial void OnPaletteEdgeBookmarksChanged(bool value) => SavePaletteSources();

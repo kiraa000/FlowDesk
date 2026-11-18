@@ -57,6 +57,7 @@
     <Compile Include="..\..\src\FlowDesk.App\ViewModels\CalmRows.cs" Link="CalmRows.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\PaletteNotice.cs" Link="PaletteNotice.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\PaletteBookmarkReader.cs" Link="PaletteBookmarkReader.cs" />
+    <Compile Include="..\..\src\FlowDesk.App\Services\AiCredentialStore.cs" Link="AiCredentialStore.cs" />
     <Compile Include="..\..\src\FlowDesk.App\ViewModels\CalmScanSession.cs" Link="CalmScanSession.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\CrashLog.cs" Link="CrashLog.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\ActivationRouter.cs" Link="ActivationRouter.cs" />

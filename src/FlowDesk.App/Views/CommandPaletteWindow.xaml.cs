@@ -82,6 +82,8 @@ internal sealed partial class CommandPaletteWindow : Window
     {
         this.search = search; this.usage = usage; this.notify = notify;
         InitializeComponent();
+        answer.Changed += QueueAnswerRender;
+        answerRenderTimer.Tick += (_, _) => { answerRenderTimer.Stop(); if (!shutdown) RenderAnswer(); };
         Title = "Command palette — FlowDesk";
         acrylic = new PaletteAcrylicBackdrop();
         acrylic.StateChanged += UpdateBackdropSurface;
@@ -170,6 +172,7 @@ internal sealed partial class CommandPaletteWindow : Window
     {
         ClosePreview?.Invoke();
         IsOpen = false; activationPending = false; foregroundAcquired = false; generation++; openEpoch++; query?.Cancel();
+        answer.Close();
         CancelConfirmation(); CloseActions(restore: false);
         acrylic.Update(false, Root.ActualTheme);
         AppWindow.Hide();
@@ -263,6 +266,7 @@ internal sealed partial class CommandPaletteWindow : Window
     public void RefreshResults()
     {
         if (!IsOpen) return;
+        if (answer.Visible) return;
         if (executor.IsPending) { refreshAfterConfirmation = true; return; }
         if (panel is not null) { refreshAfterPanel = true; return; }
         QueueQuery(true);
@@ -360,6 +364,7 @@ internal sealed partial class CommandPaletteWindow : Window
         if (e.Handled || !IsOpen) return;
         if (e.Key == VirtualKey.Enter) TraceSurface($"enter repeat={e.KeyStatus.WasKeyDown} current={resultsCurrent} running={running} panel={panel is not null}");
         bool ctrl = (GetKeyState(0x11) & 0x8000) != 0;
+        if (HandleAnswerKey(e, ctrl)) return;
         if (ctrl && e.Key == VirtualKey.Y)
         {
             e.Handled = true;
@@ -407,6 +412,12 @@ internal sealed partial class CommandPaletteWindow : Window
     }
     private void UpdateHint()
     {
+        if (answer.Visible && panel is null)
+        {
+            if (StatusText.Text != "AI answer") SetStatus("AI answer");
+            KeyboardHint.Text = answer.Streaming ? "Esc · Cancel" : "Enter · Copy answer   Esc · Results";
+            ActionsButton.IsEnabled = true; HelpButton.Visibility = Visibility.Collapsed; return;
+        }
         var row = Results.SelectedItem as PaletteResultRow;
         KeyboardHint.Text = panel is not null ? "Enter · Run   Esc · Back" : resultsCurrent && row is not null
             ? row.Match.Item.KeyboardHint : Mode == PaletteMode.Commands ? "↑ ↓ to select" : "Backspace on empty search · Commands";
@@ -420,7 +431,8 @@ internal sealed partial class CommandPaletteWindow : Window
         ClosePreview?.Invoke();
         CancelConfirmation();
         if (panel is not null) { CloseActions(); return; }
-        if (!resultsCurrent || Results.SelectedItem is not PaletteResultRow row || row.Match.Item.Actions.Count == 0) return;
+        var row = answer.Visible ? AnswerActions() : Results.SelectedItem as PaletteResultRow;
+        if ((!resultsCurrent && !answer.Visible) || row is null || row.Match.Item.Actions.Count == 0) return;
         panel = new(row, Results.ItemsSource, Results.SelectedIndex, StatusText.Text);
         query?.Cancel(); generation++;
         Results.ItemsSource = row.Match.Item.Actions.Select((action, index) => new PaletteResultRow(new(new(
@@ -430,6 +442,7 @@ internal sealed partial class CommandPaletteWindow : Window
         AutomationProperties.SetName(Results, "Actions for " + row.Title);
         ResizeForResults(Results.Items.Count); SetStatus("Actions · " + row.Title); UpdateHint();
         SearchBox.Focus(FocusState.Programmatic);
+        if (answer.Visible) RenderAnswer();
     }
     private void CloseActions(bool restore = true)
     {
@@ -441,9 +454,10 @@ internal sealed partial class CommandPaletteWindow : Window
             Results.ItemsSource = previous.Results;
             Results.SelectedIndex = previous.Selection;
             if (Results.SelectedItem is { } selected) Results.ScrollIntoView(selected);
-            ResizeForResults(Results.Items.Count); SetStatus(previous.Status); UpdateHint();
+            ResizeForResults(answer.Visible ? 8 : Results.Items.Count); SetStatus(previous.Status); UpdateHint();
             SearchBox.Focus(FocusState.Programmatic);
-            if (refreshAfterPanel) QueueQuery(true);
+            if (answer.Visible) RenderAnswer();
+            if (refreshAfterPanel && !answer.Visible) QueueQuery(true);
         }
         refreshAfterPanel = false;
     }
@@ -546,6 +560,7 @@ internal sealed partial class CommandPaletteWindow : Window
     public void Shutdown()
     {
         if (shutdown) return; shutdown = true; HidePalette();
+        answerRenderTimer.Stop(); answer.Changed -= QueueAnswerRender;
         acrylic.StateChanged -= UpdateBackdropSurface;
         SystemBackdrop = null; // detach/dispose the native controller before closing the HWND
         icons.Dispose(); Close();
