@@ -42,6 +42,7 @@ public sealed class LoneWindowsKey
     private int candidate;
     private long started;
     private bool mouseDown;
+    public bool IsCandidate => candidate != 0;
     public void Reset() { held.Clear(); candidate = 0; mouseDown = false; }
     public void ObserveMouse(bool buttonDown, bool buttonUp, bool wheel)
     {

@@ -4,6 +4,24 @@ namespace FlowDesk.App.Tests;
 
 public sealed class PaletteHotkeyRoutingTests
 {
+    [Fact] public void SavedWindowsKeyOptionInstallsMouseHookEvenAfterHostStarted()
+    {
+        string source = Source;
+        string apply = source[source.IndexOf("private void ApplyWindowsKeyHookChange()", StringComparison.Ordinal)..
+            source.IndexOf("private void ReleaseUnusedMouseHook()", StringComparison.Ordinal)];
+        Assert.Contains("if (change.Enabled && _hook == 0)", apply);
+        Assert.Contains("SetWindowsHookExW(WH_MOUSE_LL", apply);
+        Assert.True(apply.IndexOf("SetWindowsHookExW", StringComparison.Ordinal) < apply.IndexOf("SetPaletteWindowsKey(change.Enabled)", StringComparison.Ordinal));
+        string service = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "AppSources", "Services", "HotkeyService.cs"));
+        Assert.Contains("_host.ConfigurePaletteWindowsKeyAsync(enabled)", service);
+        Assert.True(service.IndexOf("host.SetPaletteWindowsKey(_paletteWindowsKey)", StringComparison.Ordinal) <
+            service.IndexOf("await host.StartAsync()", StringComparison.Ordinal));
+        string palette = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "AppSources", "Services", "CommandPaletteService.cs"));
+        Assert.Contains("SetPaletteWindowsKeyAsync(services.Settings.PaletteWindowsKey)", palette);
+        Assert.Contains("if (message == WM_CONFIGURE_WINDOWS_KEY", source);
+        foreach (string input in new[] { "setting=", "mouseHook=", "keyboardHook=", "callback=", "paused=", "sessionBlocked=", "policy=", "candidateBefore=", "candidate=", "tap=", "masked.Swallow=" })
+            Assert.Contains(input, source);
+    }
     private static string Source => File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "AppSources", "Services", "HotkeyHost.cs"));
 
     // Catches the exact R3 failure: a posted private id without a WndProc arm.

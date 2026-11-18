@@ -3,6 +3,17 @@ namespace FlowDesk.App.Tests;
 // Structural guard for the WinUI glue; executable decision tests live in PaletteSafetyTests.
 public sealed class PaletteExecutionSourceTests
 {
+    [Fact] public void ConfirmationNamesNotifyRealizedPeersAndFooterExplicitlyEntersContentView()
+    {
+        string source = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "AppSources", "Views", "CommandPaletteWindow.xaml.cs"));
+        Assert.Contains("SetAccessibleName(container, confirmationRow.AutomationName)", source);
+        Assert.Contains("AutomationElementIdentifiers.NameProperty, oldName, name", source);
+        Assert.Contains("SetAccessibilityView(ConfirmationText, AccessibilityView.Content)", source);
+        Assert.Contains("SetAccessibilityView(ConfirmationText, AccessibilityView.Raw)", source);
+        Assert.Contains("SetAccessibilityView(KeyboardHint, AccessibilityView.Raw)", source);
+        Assert.Contains("SetAccessibilityView(KeyboardHint, AccessibilityView.Content)", source);
+        Assert.Contains("StatusText.Visibility = KeyboardHint.Visibility = Visibility.Collapsed", source);
+    }
     [Fact] public void ConfirmationUpdatesBothVisibleSurfacesAndForegroundRequestsRequireActualOwnership()
     {
         string source = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "AppSources", "Views", "CommandPaletteWindow.xaml.cs"));

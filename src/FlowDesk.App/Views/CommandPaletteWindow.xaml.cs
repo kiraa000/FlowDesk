@@ -126,7 +126,7 @@ internal sealed partial class CommandPaletteWindow : Window
         Root.PreviewKeyDown += Root_KeyDown;
         Results.ContainerContentChanging += (_, e) =>
         {
-            if (!e.InRecycleQueue && e.Item is PaletteResultRow row) AutomationProperties.SetName(e.ItemContainer, row.AutomationName);
+            if (!e.InRecycleQueue && e.Item is PaletteResultRow row) SetAccessibleName(e.ItemContainer, row.AutomationName);
         };
         AppWindow.Hide();
         TraceSurface("constructed-hidden");
@@ -422,13 +422,16 @@ internal sealed partial class CommandPaletteWindow : Window
         if (confirmationRow is { } row)
         {
             row.ConfirmationPrompt = null;
-            if (Results.ContainerFromItem(row) is ListViewItem container) AutomationProperties.SetName(container, row.AutomationName);
+            if (Results.ContainerFromItem(row) is ListViewItem container) SetAccessibleName(container, row.AutomationName);
             confirmationRow = null;
         }
         if (ConfirmationText?.Visibility == Visibility.Visible)
         {
             ConfirmationText.Visibility = Visibility.Collapsed;
+            AutomationProperties.SetAccessibilityView(ConfirmationText, AccessibilityView.Raw);
+            SetAccessibleName(ConfirmationText, "");
             StatusText.Visibility = KeyboardHint.Visibility = Visibility.Visible;
+            AutomationProperties.SetAccessibilityView(KeyboardHint, AccessibilityView.Content);
         }
         if (refreshAfterConfirmation)
         {
@@ -457,9 +460,13 @@ internal sealed partial class CommandPaletteWindow : Window
                     confirmationRow = Results.SelectedItem as PaletteResultRow;
                     if (confirmationRow is not null) confirmationRow.ConfirmationPrompt = ConfirmationText.Text;
                     if (confirmationRow is not null && Results.ContainerFromItem(confirmationRow) is ListViewItem container)
-                        AutomationProperties.SetName(container, confirmationRow.AutomationName);
-                    AutomationProperties.SetName(ConfirmationText, ConfirmationText.Text);
+                        SetAccessibleName(container, confirmationRow.AutomationName);
+                    // Explicit content membership and a name-change notification are important for
+                    // already-realized/cached UIA peers, not just the next container realization.
+                    SetAccessibleName(ConfirmationText, ConfirmationText.Text);
                     StatusText.Visibility = KeyboardHint.Visibility = Visibility.Collapsed;
+                    AutomationProperties.SetAccessibilityView(KeyboardHint, AccessibilityView.Raw);
+                    AutomationProperties.SetAccessibilityView(ConfirmationText, AccessibilityView.Content);
                     ConfirmationText.Visibility = Visibility.Visible;
                     _ = ExpireConfirmationAsync(++confirmationVersion);
                     FrameworkElementAutomationPeer.CreatePeerForElement(ConfirmationText)?.RaiseAutomationEvent(AutomationEvents.LiveRegionChanged);
@@ -482,6 +489,14 @@ internal sealed partial class CommandPaletteWindow : Window
     }
     private void ResultTitle_Loaded(object sender, RoutedEventArgs e)
         => HighlightTitle(sender);
+    private static void SetAccessibleName(FrameworkElement element, string name)
+    {
+        string oldName = AutomationProperties.GetName(element);
+        AutomationProperties.SetName(element, name);
+        if (oldName != name)
+            FrameworkElementAutomationPeer.CreatePeerForElement(element)?.RaisePropertyChangedEvent(
+                AutomationElementIdentifiers.NameProperty, oldName, name);
+    }
     private void ResultTitle_DataContextChanged(FrameworkElement sender, DataContextChangedEventArgs e)
         => HighlightTitle(sender);
     private static void HighlightTitle(object sender)

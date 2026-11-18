@@ -621,8 +621,12 @@ public sealed class HotkeyHost : IDisposable
                     int version = Volatile.Read(ref _windowsKeyVersion);
                     if (version != _seenWindowsKeyVersion) { _loneWindows.Reset(); _seenWindowsKeyVersion = version; }
                     var modifiers = _keyboard.Modifiers;
-                    bool loneEnabled = Volatile.Read(ref _paletteWindowsKey) && _hook != 0 && _keyboardHook != 0 && _palette is not null &&
-                        !_actions.IsPaused && !_sessionBlocked && Volatile.Read(ref _policy).Enabled(HotkeyCatalog.PaletteId);
+                    bool loneSetting = Volatile.Read(ref _paletteWindowsKey);
+                    bool lonePolicy = Volatile.Read(ref _policy).Enabled(HotkeyCatalog.PaletteId);
+                    bool lonePaused = _actions.IsPaused;
+                    bool loneEnabled = loneSetting && _hook != 0 && _keyboardHook != 0 && _palette is not null &&
+                        !lonePaused && !_sessionBlocked && lonePolicy;
+                    bool loneCandidate = _loneWindows.IsCandidate;
                     bool sampleButtons = loneEnabled && down && info.VirtualKey is 0x5B or 0x5C;
                     bool loneTap = _loneWindows.ObserveKey((int)info.VirtualKey, down, Environment.TickCount64, loneEnabled,
                         modifiers.Alt || modifiers.Control || modifiers.Shift || (sampleButtons && (IsDown(1) || IsDown(2) || IsDown(4) || IsDown(5) || IsDown(6))));
@@ -632,6 +636,11 @@ public sealed class HotkeyHost : IDisposable
                         swallow = masked.Swallow;
                         if (masked.Swallow) _palette?.Invoke(); // only open when Start suppression succeeded
                     }
+                    if (info.VirtualKey is 0x5B or 0x5C || loneCandidate)
+                        TraceWinInput($"lone-win key=0x{info.VirtualKey:X2} down={down} enabled={loneEnabled} setting={loneSetting} " +
+                            $"mouseHook={_hook != 0} keyboardHook={_keyboardHook != 0} callback={_palette is not null} paused={lonePaused} " +
+                            $"sessionBlocked={_sessionBlocked} policy={lonePolicy} candidateBefore={loneCandidate} candidate={_loneWindows.IsCandidate} " +
+                            $"tap={loneTap} masked.Swallow={swallow} injected={(info.Flags & 0x10) != 0} modifiers={modifiers}");
                     uint mods = (modifiers.Win ? 8u : 0) | (modifiers.Alt ? 1u : 0) | (modifiers.Control ? 2u : 0) | (modifiers.Shift ? 4u : 0);
                     HotkeyBinding? matched = null;
                     if (down && !KeyChord.IsModifier(info.VirtualKey))
