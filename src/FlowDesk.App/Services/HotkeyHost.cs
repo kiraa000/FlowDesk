@@ -22,6 +22,7 @@ public sealed class HotkeyHost : IDisposable
     private const int WM_MOUSEWHEEL = 0x020A;
     private const uint WM_CONFIGURE_HOTCORNERS = 0x800D;
     private const uint WM_CONFIGURE_BINDINGS = 0x800E;
+    private const uint WM_OWNED_HOTKEY = 0x800F;
     private const int WH_MOUSE_LL = 14;
     private const int ERROR_CLASS_ALREADY_EXISTS = 1410;
     private const int WH_KEYBOARD_LL = 13;
@@ -58,6 +59,15 @@ public sealed class HotkeyHost : IDisposable
     private readonly WheelGestures _wheel = new();
     private readonly ShortcutKeyboardState _keyboard = new();
     private readonly ShortcutRepeatGate _repeatGate = new();
+    private readonly HotkeyInputOwnership _inputOwnership = new();
+    private readonly LoneWindowsKey _loneWindows = new();
+    private bool _paletteWindowsKey;
+    private int _windowsKeyVersion, _seenWindowsKeyVersion;
+    public void SetPaletteWindowsKey(bool enabled)
+    {
+        Volatile.Write(ref _paletteWindowsKey, enabled);
+        Interlocked.Increment(ref _windowsKeyVersion);
+    }
     private bool SoftwareRepeat => _windowShortcuts && _keyboardHook != 0;
     private readonly QuickLookTrigger _quickLookTrigger = new();
     private IQuickLookInput? _quickLook;
@@ -158,6 +168,7 @@ public sealed class HotkeyHost : IDisposable
                     (change.Policy.Enabled(b.Id) && !_policy.Enabled(b.Id))).Select(b => b.Id).ToHashSet(StringComparer.Ordinal);
                 var snapshot = _registered.Apply(effective, _desktops?.IsAvailable == true, new NativeRegistrar(this), change.Bindings, change.Atomic, required);
                 while (HotkeyNativeMethods.PeekMessageW(out _, _hwnd, WM_HOTKEY, WM_HOTKEY, 1)) { }
+                while (HotkeyNativeMethods.PeekMessageW(out _, _hwnd, WM_OWNED_HOTKEY, WM_OWNED_HOTKEY, 1)) { }
                 lock (_policyGate) { Volatile.Write(ref _policy, change.Policy); _bindings = change.Bindings; _multiPress.Reset(); }
                 Volatile.Write(ref _bindingStatus, snapshot);
                 Volatile.Write(ref _desktopBindingsAvailable, _desktops?.IsAvailable == true);
@@ -304,8 +315,12 @@ public sealed class HotkeyHost : IDisposable
             TraceWinInput($"session-notifications registered={_sessionNotificationsRegistered} error={(_sessionNotificationsRegistered ? 0 : Marshal.GetLastWin32Error())}");
             _keyboard.Seed(IsDown);
             var requirements = InputHookRequirements.For(_windowShortcuts, _quickLook is not null, _hotCorners is not null);
+            bool paletteInput = _palette is not null || _clipboard is not null;
+            requirements = new(requirements.Mouse || paletteInput, requirements.Keyboard || paletteInput);
             if (requirements.Mouse) _hook = HotkeyNativeMethods.SetWindowsHookExW(WH_MOUSE_LL, _hookProc, HotkeyNativeMethods.GetModuleHandleW(null), 0);
             if (requirements.Keyboard) _keyboardHook = HotkeyNativeMethods.SetWindowsHookExW(WH_KEYBOARD_LL, _keyboardProc, HotkeyNativeMethods.GetModuleHandleW(null), 0);
+            if ((_windowShortcuts || paletteInput) && _keyboardHook == 0) throw new InvalidOperationException("Shortcut key-pair safety hook is unavailable.");
+            if (paletteInput && _hook == 0) throw new InvalidOperationException("Palette mouse-observation hook is unavailable.");
             if (_quickLook is not null && _keyboardHook == 0) throw new InvalidOperationException("Quick Look keyboard hook could not be installed.");
             if (_hotCorners is not null && (_hook == 0 || !_sessionNotificationsRegistered)) throw new InvalidOperationException("Hot corner mouse/session safety hooks are unavailable.");
             _hotCorners?.SetSessionBlocked(_sessionBlocked);
@@ -404,7 +419,8 @@ public sealed class HotkeyHost : IDisposable
         var policy = Volatile.Read(ref _policy);
         if (!policy.Enabled(binding.Id)) return;
         if (SoftwareRepeat && !_repeatGate.Accept(binding)) return;
-        // Do not queue behind slow window actions; WM_HOTKEY grants this process foreground rights.
+        // Do not queue palette work behind slow window actions. The UI verifies actual foreground
+        // ownership and has a bounded input-attachment retry for hook-owned chord delivery.
         if (binding.Id == HotkeyCatalog.PaletteId) { _palette?.Invoke(); return; }
         if (binding.Id == HotkeyCatalog.ClipboardId) { _clipboard?.Invoke(); return; }
         SendAltMenuMask();
@@ -464,6 +480,13 @@ public sealed class HotkeyHost : IDisposable
 
     private nint MouseHookProc(int nCode, nint wParam, nint lParam)
     {
+        if (nCode >= 0 && Volatile.Read(ref _stopping) == 0)
+        {
+            int message = (int)wParam;
+            // Moves do not disqualify a tap; every button and either wheel does.
+            _loneWindows.ObserveMouse(message is 0x201 or 0x204 or 0x207 or 0x20B,
+                message is 0x202 or 0x205 or 0x208 or 0x20C, message is 0x20A or 0x20E);
+        }
         if (nCode >= 0 && Volatile.Read(ref _stopping) == 0 && Volatile.Read(ref _hotCorners) is { } corners)
         {
             try
@@ -530,6 +553,42 @@ public sealed class HotkeyHost : IDisposable
                 bool down = wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN;
                 _repeatGate.Observe(info.VirtualKey, down);
                 var observed = _keyboard.Observe((int)info.VirtualKey, down, info.ExtraInfo, info.ScanCode, (info.Flags & 1) != 0);
+                if (!observed.OwnInput && Volatile.Read(ref _stopping) == 0)
+                {
+                    int version = Volatile.Read(ref _windowsKeyVersion);
+                    if (version != _seenWindowsKeyVersion) { _loneWindows.Reset(); _seenWindowsKeyVersion = version; }
+                    var modifiers = _keyboard.Modifiers;
+                    bool loneEnabled = Volatile.Read(ref _paletteWindowsKey) && _palette is not null &&
+                        !_actions.IsPaused && !_sessionBlocked && Volatile.Read(ref _policy).Enabled(HotkeyCatalog.PaletteId);
+                    bool sampleButtons = loneEnabled && down && info.VirtualKey is 0x5B or 0x5C;
+                    bool loneTap = _loneWindows.ObserveKey((int)info.VirtualKey, down, Environment.TickCount64, loneEnabled,
+                        modifiers.Alt || modifiers.Control || modifiers.Shift || (sampleButtons && (IsDown(1) || IsDown(2) || IsDown(4) || IsDown(5) || IsDown(6))));
+                    if (loneTap)
+                    {
+                        var masked = WinKeyRelease.Process((ushort)info.VirtualKey, true, false, SendKeys);
+                        swallow = masked.Swallow;
+                        if (masked.Swallow) _palette?.Invoke(); // only open when Start suppression succeeded
+                    }
+                    uint mods = (modifiers.Win ? 8u : 0) | (modifiers.Alt ? 1u : 0) | (modifiers.Control ? 2u : 0) | (modifiers.Shift ? 4u : 0);
+                    int matchedId = 0;
+                    HotkeyBinding? matched = null;
+                    if (down && !KeyChord.IsModifier(info.VirtualKey))
+                        foreach (int id in _registered.NativeIds)
+                            if (_registered.TryGet(id, out var binding) && binding.VirtualKey == info.VirtualKey && binding.Modifiers == mods)
+                            { matchedId = id; matched = binding; break; }
+                    var owned = _inputOwnership.Observe(info.VirtualKey, down, Environment.TickCount64, matched);
+                    swallow |= owned.Swallow;
+                    if (owned.Swallow) TraceWinInput($"owned-trigger key=0x{info.VirtualKey:X2} down={down} activate={owned.Activate}");
+                    if (owned.Activate && matchedId != 0)
+                    {
+                        _keyboard.AcceptWinGesture();
+                        if (modifiers.Alt) SendAltMenuMask();
+                        HotkeyNativeMethods.PostMessageW(_hwnd, WM_OWNED_HOTKEY, (nint)matchedId, 0);
+                    }
+                    // Modifier downs were forwarded: forwarding their balanced ups is essential.
+                    // An adjacent vkE8 mask prevents Alt-up opening the previous application's menu.
+                    if (_inputOwnership.TakeAltMask(info.VirtualKey, down, Environment.TickCount64)) SendAltMenuMask();
+                }
                 if (QuickLookTrigger.IsCandidate((int)info.VirtualKey))
                 {
                     var quickLook = Volatile.Read(ref _quickLook);
@@ -540,7 +599,7 @@ public sealed class HotkeyHost : IDisposable
                         ? QuickLookNative.Context(quickLook, _keyboard.Modifiers) : default;
                     var decision = _quickLookTrigger.Observe((int)info.VirtualKey, down,
                         observed.OwnInput, context);
-                    swallow = decision.Swallow;
+                    swallow |= decision.Swallow;
                     if (down && quickLook?.Enabled == true && !observed.OwnInput)
                         TraceWinInput($"quicklook key=0x{info.VirtualKey:X2} command={decision.Command} swallowed={decision.Swallow} " +
                             $"foreground={context.ForegroundClass} focus={context.FocusClass} shellView={context.UnderShellView} ime={context.ImeComposing} injected={(info.Flags & 0x10) != 0} modifiers={context.Modifiers}");
@@ -550,7 +609,7 @@ public sealed class HotkeyHost : IDisposable
                 {
                     _wheel.ObserveWin(_keyboard.Modifiers.Win);
                     _wheel.ObserveAlt(_keyboard.Modifiers.Alt);
-                    if (observed.WinKeyUp)
+                    if (observed.WinKeyUp && !swallow)
                     {
                         var result = WinKeyRelease.Process((ushort)info.VirtualKey, observed.GestureAccepted,
                             Volatile.Read(ref _stopping) != 0, SendKeys);
@@ -588,6 +647,8 @@ public sealed class HotkeyHost : IDisposable
     private void OnSessionChange(uint reason)
     {
         _repeatGate.Reset();
+        _inputOwnership.Reset();
+        _loneWindows.Reset();
         if (reason is 2 or 4 or 6 or 7) { _sessionBlocked = true; _hotCorners?.SetSessionBlocked(true); }
         else if (reason is 1 or 3 or 5 or 8 or 0xF) { _sessionBlocked = false; _hotCorners?.SetSessionBlocked(false); }
         if (Volatile.Read(ref _stopping) != 0 || !_keyboard.ReseedForSessionChange(reason, IsDown)) return;

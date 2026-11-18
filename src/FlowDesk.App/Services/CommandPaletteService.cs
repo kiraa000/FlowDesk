@@ -75,6 +75,7 @@ internal sealed class CommandPaletteService : IDisposable
             long started = System.Diagnostics.Stopwatch.GetTimestamp();
             dispatcher.TryEnqueue(() => Toggle(target, started, mode: PaletteMode.Clipboard));
         });
+        await services.Hotkeys.SetPaletteWindowsKeyAsync(services.Settings.PaletteWindowsKey);
         if (services.Settings.ClipboardHistoryEnabled)
         {
             try { await SetClipboardAsync(true); }

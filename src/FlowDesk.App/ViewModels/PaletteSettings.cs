@@ -9,6 +9,7 @@ namespace FlowDesk.App.ViewModels;
 public partial class SettingsViewModel
 {
     [ObservableProperty] public partial bool CommandPalette { get; set; } = true;
+    [ObservableProperty] public partial bool PaletteWindowsKey { get; set; }
     [ObservableProperty] public partial bool PaletteBusy { get; set; }
     [ObservableProperty] public partial string PaletteStatus { get; set; } = "";
     [ObservableProperty] public partial bool ClipboardHistory { get; set; }
@@ -65,6 +66,7 @@ public partial class SettingsViewModel
     {
         paletteLoading = true;
         CommandPalette = owner.Services.Settings.CommandPaletteEnabled;
+        PaletteWindowsKey = owner.Services.Settings.PaletteWindowsKey;
         ClipboardHistory = owner.Services.Settings.ClipboardHistoryEnabled;
         var s = owner.Services.Settings;
         PaletteWindowsEnabled = s.PaletteWindowsEnabled;
@@ -91,6 +93,24 @@ public partial class SettingsViewModel
         if (loading || paletteLoading) return;
         if (!PaletteCanToggle || ApplyClipboardHistory is null) { RefreshPaletteSettings(); return; }
         _ = ApplyClipboardAsync(value);
+    }
+    partial void OnPaletteWindowsKeyChanged(bool value)
+    {
+        if (loading || paletteLoading) return;
+        if (!PaletteCanToggle) { RefreshPaletteSettings(); return; }
+        _ = ApplyWindowsKeyAsync(value);
+    }
+    private async Task ApplyWindowsKeyAsync(bool value)
+    {
+        PaletteBusy = true;
+        try
+        {
+            await owner.Services.Hotkeys.SetPaletteWindowsKeyAsync(value);
+            owner.Services.Settings.PaletteWindowsKey = value;
+            owner.Services.Changed();
+        }
+        catch { owner.ShowStatus("Windows-key shortcut is unavailable. Your previous choice was kept.", StatusKind.Warning); }
+        finally { PaletteBusy = false; RefreshPaletteSettings(); }
     }
     private async Task ApplyClipboardAsync(bool value)
     {

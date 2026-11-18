@@ -6,6 +6,11 @@ namespace FlowDesk.App.Tests;
 
 public sealed class PaletteSettingsTests
 {
+    [Fact] public void LoneWindowsKeyDefaultsOffAndPersists()
+    {
+        Assert.False(AppSettings.FromJson("{}").PaletteWindowsKey);
+        Assert.True(AppSettings.FromJson(new AppSettings { PaletteWindowsKey = true }.ToJson()).PaletteWindowsKey);
+    }
     [Fact] public void SourceSettingsDefaultOnAndRoundTripThroughAppSerializer()
     {
         var previous = AppSettings.FromJson("{\"Theme\":\"Dark\"}");

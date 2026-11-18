@@ -24,7 +24,7 @@ internal sealed partial class PaletteResultRow(CommandMatch match) : ObservableO
     public CommandMatch Match => match;
     public string Title => match.Item.Title;
     public string Subtitle => match.Item.Subtitle;
-    public string AutomationName => Title + ", " + Subtitle;
+    public string AutomationName => (ConfirmationPrompt ?? Title) + ", " + Subtitle;
     public string Glyph => match.Item.Icon.Length == 1 ? match.Item.Icon : match.Item.Kind == CommandKind.App ? "\uE71D" : "\uE8A5";
     [ObservableProperty] public partial ImageSource? IconSource { get; set; }
     public Visibility IconFallbackVisibility => IconSource is null ? Visibility.Visible : Visibility.Collapsed;
@@ -37,6 +37,7 @@ internal sealed partial class PaletteResultRow(CommandMatch match) : ObservableO
     {
         OnPropertyChanged(nameof(NormalTitleVisibility));
         OnPropertyChanged(nameof(ConfirmationTitleVisibility));
+        OnPropertyChanged(nameof(AutomationName));
     }
 }
 
@@ -56,6 +57,7 @@ internal sealed partial class CommandPaletteWindow : Window
     private long openEpoch;
     private long openStarted;
     private bool shutdown, opening, running, activationPending;
+    private bool foregroundAcquired;
     private bool changingMode, resultsCurrent;
     private PaletteActionPanel<PaletteResultRow>? panel;
     private bool userSelected;
@@ -107,11 +109,14 @@ internal sealed partial class CommandPaletteWindow : Window
         Activated += (_, e) =>
         {
             TraceSurface($"activated-{e.WindowActivationState}");
+            if (IsOpen && !activationPending && e.WindowActivationState != WindowActivationState.Deactivated && GetForegroundWindow() == hwnd)
+                foregroundAcquired = true;
 #if DEBUG
             // Configuration updates can run after Window.Activated; capture the settled value too.
             DispatcherQueue.TryEnqueue(() => TraceSurface("activation-settled"));
 #endif
-            if (!opening && !activationPending && IsOpen && e.WindowActivationState == WindowActivationState.Deactivated) HidePalette();
+            if (e.WindowActivationState == WindowActivationState.Deactivated &&
+                PaletteFocusRules.ShouldHideOnDeactivation(IsOpen, opening, activationPending, foregroundAcquired)) HidePalette();
         };
         Root.Loaded += (_, _) => TraceSurface("root-loaded");
         SearchBox.Loaded += (_, _) =>
@@ -131,6 +136,7 @@ internal sealed partial class CommandPaletteWindow : Window
         if (shutdown || running) return;
         opening = true;
         activationPending = true;
+        foregroundAcquired = false;
         openStarted = started;
         long epoch = ++openEpoch;
         try
@@ -150,10 +156,11 @@ internal sealed partial class CommandPaletteWindow : Window
             EnsureBorderlessFrame();
             TraceSurface("shown");
             // No synthetic keys or AttachThreadInput: use the foreground permission granted by WM_HOTKEY.
-            bool foreground = SetForegroundWindow(hwnd) || GetForegroundWindow() == hwnd;
+            SetForegroundWindow(hwnd);
+            bool foreground = GetForegroundWindow() == hwnd; // the native return can mean an asynchronous request was accepted
             bool focused = SearchBox.Focus(FocusState.Programmatic);
             if (!foreground || !focused) _ = RetryFocusAsync(epoch, previous, started);
-            else { activationPending = false; TraceOpen(started, true); }
+            else { activationPending = false; foregroundAcquired = true; TraceOpen(started, true); }
             QueueQuery();
         }
         catch (Exception ex) { Log(ex); HidePalette(); notify("Command palette could not open. Try again."); }
@@ -161,7 +168,7 @@ internal sealed partial class CommandPaletteWindow : Window
     }
     public void HidePalette()
     {
-        IsOpen = false; activationPending = false; generation++; openEpoch++; query?.Cancel();
+        IsOpen = false; activationPending = false; foregroundAcquired = false; generation++; openEpoch++; query?.Cancel();
         CancelConfirmation(); CloseActions(restore: false);
         acrylic.Update(false, Root.ActualTheme);
         AppWindow.Hide();
@@ -177,19 +184,41 @@ internal sealed partial class CommandPaletteWindow : Window
                 await Task.Delay(20); // let first-show XAML layout finish; bounded to 80 ms
                 bool current = IsOpen && !shutdown && openEpoch == epoch;
                 nint foreground = GetForegroundWindow();
+                if (current && attempt == 0 && foreground != hwnd)
+                { RequestForegroundWithInputAttachment(); foreground = GetForegroundWindow(); }
                 var decision = PaletteFocusRules.Decide(current, foreground == hwnd, foreground == previous,
                     SearchBox.FocusState != FocusState.Unfocused, attempt);
-                if (decision == PaletteFocusDecision.Cancel) { if (current) HidePalette(); return; }
-                if (decision == PaletteFocusDecision.Focused) { activationPending = false; TraceOpen(started, true); return; }
+                if (decision == PaletteFocusDecision.Cancel)
+                { if (current) FocusUnavailable(); return; }
+                if (decision == PaletteFocusDecision.Focused) { activationPending = false; foregroundAcquired = true; TraceOpen(started, true); return; }
                 if (decision == PaletteFocusDecision.Failed) break;
-                bool activated = SetForegroundWindow(hwnd) || GetForegroundWindow() == hwnd;
-                if (activated && SearchBox.Focus(FocusState.Programmatic))
-                { activationPending = false; TraceOpen(started, true); return; }
+                if (GetForegroundWindow() == hwnd && SearchBox.Focus(FocusState.Programmatic))
+                { activationPending = false; foregroundAcquired = true; TraceOpen(started, true); return; }
             }
-            HidePalette();
-            notify($"Command palette could not take focus. Leave the full-screen or administrator window and try {App.ViewModels.Services.Settings.EffectiveShortcut(FlowDesk.Core.Hotkeys.HotkeyCatalog.PaletteId).Shortcut} again.");
+            FocusUnavailable();
         }
-        catch (Exception ex) { Log(ex); if (IsOpen && openEpoch == epoch) { HidePalette(); notify("Command palette could not take focus. Try again."); } }
+        catch (Exception ex) { Log(ex); if (IsOpen && openEpoch == epoch) FocusUnavailable(); }
+    }
+    private void FocusUnavailable()
+    {
+        activationPending = false;
+        TraceSurface("focus-unavailable-kept-visible");
+        SetStatus("Palette is open · Click the search box to focus");
+    }
+    private void RequestForegroundWithInputAttachment()
+    {
+        uint foregroundThread = GetWindowThreadProcessId(GetForegroundWindow(), out _);
+        uint ownThread = GetCurrentThreadId();
+        bool attached = false;
+        try
+        {
+            if (foregroundThread != 0 && foregroundThread != ownThread)
+                attached = AttachThreadInput(ownThread, foregroundThread, true);
+            BringWindowToTop(hwnd);
+            SetForegroundWindow(hwnd);
+        }
+        finally { if (attached) AttachThreadInput(ownThread, foregroundThread, false); }
+        TraceSurface("foreground-attachment-retry");
     }
     private void SetStatus(string text)
     {
@@ -390,7 +419,12 @@ internal sealed partial class CommandPaletteWindow : Window
     {
         if (executor.IsPending) TraceSurface("confirmation-cancel");
         executor.Cancel(); confirmationVersion++;
-        if (confirmationRow is { } row) { row.ConfirmationPrompt = null; confirmationRow = null; }
+        if (confirmationRow is { } row)
+        {
+            row.ConfirmationPrompt = null;
+            if (Results.ContainerFromItem(row) is ListViewItem container) AutomationProperties.SetName(container, row.AutomationName);
+            confirmationRow = null;
+        }
         if (ConfirmationText?.Visibility == Visibility.Visible)
         {
             ConfirmationText.Visibility = Visibility.Collapsed;
@@ -422,6 +456,9 @@ internal sealed partial class CommandPaletteWindow : Window
                     if (confirmationRow is { } prior) prior.ConfirmationPrompt = null;
                     confirmationRow = Results.SelectedItem as PaletteResultRow;
                     if (confirmationRow is not null) confirmationRow.ConfirmationPrompt = ConfirmationText.Text;
+                    if (confirmationRow is not null && Results.ContainerFromItem(confirmationRow) is ListViewItem container)
+                        AutomationProperties.SetName(container, confirmationRow.AutomationName);
+                    AutomationProperties.SetName(ConfirmationText, ConfirmationText.Text);
                     StatusText.Visibility = KeyboardHint.Visibility = Visibility.Collapsed;
                     ConfirmationText.Visibility = Visibility.Visible;
                     _ = ExpireConfirmationAsync(++confirmationVersion);
@@ -535,6 +572,9 @@ internal sealed partial class CommandPaletteWindow : Window
     [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(nint window, out uint process);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassNameW(nint window, StringBuilder text, int capacity);
     [DllImport("user32.dll")] private static extern bool SetForegroundWindow(nint window);
+    [DllImport("user32.dll")] private static extern bool AttachThreadInput(uint from, uint to, bool attach);
+    [DllImport("user32.dll")] private static extern bool BringWindowToTop(nint window);
+    [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
     [DllImport("user32.dll")] private static extern short GetKeyState(int key);
     [DllImport("user32.dll")] private static extern bool GetCursorPos(out Point point);
     [DllImport("user32.dll")] private static extern nint MonitorFromPoint(Point point, uint flags);

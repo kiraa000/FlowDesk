@@ -100,6 +100,12 @@
                                   IsEnabled="{Binding PaletteCanToggle}"
                                   AutomationProperties.Name="Command palette" />
                 </settings:SettingsCard>
+                <settings:SettingsCard Header="Open with the Windows key"
+                    Description="Pressing and releasing the Windows key on its own opens the palette instead of Start. Ctrl+Esc still opens Start.">
+                    <ToggleSwitch IsOn="{Binding PaletteWindowsKey, Mode=TwoWay}"
+                                  IsEnabled="{Binding PaletteCanToggle}"
+                                  AutomationProperties.Name="Open with the Windows key" />
+                </settings:SettingsCard>
                 <settings:SettingsCard Header="Open windows"
                     Description="Switch to another open window from the palette.">
                     <ToggleSwitch IsOn="{Binding PaletteWindowsEnabled, Mode=TwoWay}"

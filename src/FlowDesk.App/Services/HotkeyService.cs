@@ -30,6 +30,19 @@ public sealed class HotkeyService(string dataDirectory, VirtualDesktopService? s
     private Action? _palette;
     private Action? _clipboard;
     private bool _clipboardEnabled;
+    private bool _paletteWindowsKey;
+    public async Task SetPaletteWindowsKeyAsync(bool enabled)
+    {
+        await _gate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (_disposed) return;
+            if (enabled && _host is { KeyboardHookAvailable: false }) throw new InvalidOperationException("Windows-key hook unavailable.");
+            _paletteWindowsKey = enabled;
+            _host?.SetPaletteWindowsKey(enabled);
+        }
+        finally { _gate.Release(); }
+    }
     public void TogglePause() => _host?.TogglePause();
     public async Task SetPaletteAsync(Action? callback, Action? clipboard = null)
     {
@@ -255,6 +268,7 @@ public sealed class HotkeyService(string dataDirectory, VirtualDesktopService? s
         host = new HotkeyHost(new Win32WindowOps(), _desktops, Notify,
             () => _terminal.Open(TerminalProgram?.Invoke(), Notify),
             () => RequestReload(host!), _shortcutsRequested, _quickLook, _hotCorners, EffectiveDisabled(), _palette, _clipboard, _overrides);
+        host.SetPaletteWindowsKey(_paletteWindowsKey);
         try
         {
             await host.StartAsync().ConfigureAwait(false);

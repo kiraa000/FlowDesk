@@ -3,6 +3,19 @@ namespace FlowDesk.App.Tests;
 // Structural guard for the WinUI glue; executable decision tests live in PaletteSafetyTests.
 public sealed class PaletteExecutionSourceTests
 {
+    [Fact] public void ConfirmationUpdatesBothVisibleSurfacesAndForegroundRequestsRequireActualOwnership()
+    {
+        string source = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "AppSources", "Views", "CommandPaletteWindow.xaml.cs"));
+        Assert.Contains("confirmationRow.ConfirmationPrompt = ConfirmationText.Text", source);
+        Assert.Contains("ConfirmationText.Visibility = Visibility.Visible", source);
+        Assert.Contains("PaletteFocusRules.ShouldHideOnDeactivation(IsOpen, opening, activationPending, foregroundAcquired)", source);
+        Assert.DoesNotContain("SetForegroundWindow(hwnd) ||", source);
+        Assert.Contains("RequestForegroundWithInputAttachment()", source);
+        var doc = PaletteMarkupFixture.Load();
+        Assert.Contains(doc.Descendants(PaletteMarkupFixture.Xaml + "TextBlock"), e =>
+            (string?)e.Attribute("Text") == "{Binding ConfirmationPrompt}" &&
+            (string?)e.Attribute("Visibility") == "{Binding ConfirmationTitleVisibility}");
+    }
     [Fact]
     public void EveryUiInvocationUsesTheSharedExecutorAndPanelRowsCarryNoExecutableDelegate()
     {
