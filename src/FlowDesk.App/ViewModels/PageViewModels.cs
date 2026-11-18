@@ -125,7 +125,7 @@ public partial class SaveOpenWindowsViewModel(AppViewModels owner) : ObservableO
             // Current desktop first, then each desktop in order; stable inside a desktop.
             foreach (var candidate in captured.OrderBy(c => DesktopLabels.SortKey(c.Window)))
             {
-                var row = new CandidateViewModel(candidate, currentDesktop);
+                var row = new CandidateViewModel(candidate, currentDesktop, owner.Services.Windows.DisplayNames.For(candidate.Window.MonitorDevice));
                 row.PropertyChanged += CandidateChanged;
                 Candidates.Add(row);
             }
@@ -135,7 +135,7 @@ public partial class SaveOpenWindowsViewModel(AppViewModels owner) : ObservableO
     });
     private void CandidateChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(CandidateViewModel.Selected)) UpdateSelection();
+        if (e.PropertyName == nameof(CandidateViewModel.Selected)) { UpdateSelection(); owner.RefreshBrowserNotice(); }
     }
     [RelayCommand] private void SelectAll() => Select(true);
     [RelayCommand] private void SelectNone() => Select(false);
@@ -177,6 +177,7 @@ public partial class CandidateViewModel : ObservableObject
 {
     internal CaptureCandidate Source { get; }
     private readonly int? currentDesktopIndex;
+    private readonly string monitorName;
     [ObservableProperty] public partial bool Selected { get; set; }
     [ObservableProperty] public partial string Links { get; set; } = "";
     public bool CanSelect => Source.Problem is null;
@@ -185,7 +186,7 @@ public partial class CandidateViewModel : ObservableObject
     public string Name => Source.Item.Name;
     public string Title => Source.Window.Title;
     public string Position => DesktopLabels.Prefix(Source.Window,
-        $"{Source.Window.MonitorDevice.Replace(@"\\.\DISPLAY", "Monitor ")} · {Source.Window.Show} · {Source.Window.NormalRect.Width} × {Source.Window.NormalRect.Height}",
+        $"{monitorName} · {Source.Window.Show} · {Source.Window.NormalRect.Width} × {Source.Window.NormalRect.Height}",
         currentDesktopIndex);
     public string Problem => Source.Problem ?? "";
     /// <summary>
@@ -197,10 +198,11 @@ public partial class CandidateViewModel : ObservableObject
     /// <summary>Stable id for the trusted real-app script: selects this exact window, not a same-name twin.</summary>
     public string AutomationId => "window-" + Source.Window.Handle.ToString(System.Globalization.CultureInfo.InvariantCulture);
     public string Glyph => ItemDisplay.Glyph(Source.Item.Kind);
-    public CandidateViewModel(CaptureCandidate candidate, int? currentDesktopIndex = null)
+    public CandidateViewModel(CaptureCandidate candidate, int? currentDesktopIndex = null, string monitorName = "Display")
     {
         Source = candidate;
         this.currentDesktopIndex = currentDesktopIndex;
+        this.monitorName = monitorName;
         Selected = UxDecisions.InitialWindowSelection;
     }
 }

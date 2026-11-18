@@ -184,7 +184,7 @@ public partial class AppViewModels : ObservableObject
         BrowserNotice.ShowFor(currentPage switch
         {
             AppPage.Details => Details.Workspace?.Model,
-            AppPage.Capture => new Workspace { Items = Capture.Candidates.Select(c => c.Source.Item).ToList() },
+            AppPage.Capture => new Workspace { Items = Capture.Candidates.Where(c => c.Selected && c.CanSelect).Select(c => c.Source.Item).ToList() },
             _ => null
         });
 

@@ -25,12 +25,12 @@ internal sealed partial class PaletteResultRow(CommandMatch match) : ObservableO
     public CommandMatch Match => match;
     public string Title => match.Item.Title;
     public string Subtitle => match.Item.Subtitle;
-    public string AutomationName => (ConfirmationPrompt ?? Title) + ", " + Subtitle;
+    public string AutomationName => (ConfirmationPrompt ?? Title) + ", " + Subtitle + (Hint.Length == 0 ? "" : ", " + Hint);
     public string Glyph => match.Item.Icon.Length == 1 ? match.Item.Icon : match.Item.Kind == CommandKind.App ? "\uE71D" : "\uE8A5";
     [ObservableProperty] public partial ImageSource? IconSource { get; set; }
     public Visibility IconFallbackVisibility => IconSource is null ? Visibility.Visible : Visibility.Collapsed;
     partial void OnIconSourceChanged(ImageSource? value) => OnPropertyChanged(nameof(IconFallbackVisibility));
-    [ObservableProperty] public partial string Hint { get; set; } = "";
+    [ObservableProperty] public partial string Hint { get; set; } = match.Item.SecondaryHint;
     [ObservableProperty] public partial string? ConfirmationPrompt { get; set; }
     public Visibility NormalTitleVisibility => ConfirmationPrompt is null ? Visibility.Visible : Visibility.Collapsed;
     public Visibility ConfirmationTitleVisibility => ConfirmationPrompt is null ? Visibility.Collapsed : Visibility.Visible;

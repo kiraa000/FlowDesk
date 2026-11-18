@@ -311,7 +311,7 @@ internal sealed class CommandPaletteService : IDisposable
         bool hasTarget = PaletteTargetRules.IsAppTarget(targetProcess, (uint)services.Windows.OwnProcessId, CommandPaletteWindow.ClassOf(target)) && CommandPaletteWindow.ProcessOf(target) == targetProcess;
         // UI-owned VMs are read once, then only immutable arrays are searched on background threads.
         CommandItem[] workspaceItems = vm.IsBusy ? [] : vm.WorkspacesCollection.Select(w => new CommandItem("workspace:" + w.Model.Id,
-            "Switch to " + w.Name, $"Workspace · {w.Model.Items.Count} apps", CommandKind.Workspace, "\uE8A1",
+            "Switch to " + w.Name, $"Workspace · {FlowDesk.Core.CountText.Format(w.Model.Items.Count, "item")}", CommandKind.Workspace, "\uE8A1",
             async () => { EnsureIdle(); await vm.OpenAsync(w); NotifyProblem(); },
             () => { EnsureIdle(); showMain(); vm.Edit(w); return Task.CompletedTask; }, w.Name)).ToArray();
         Volatile.Write(ref workspaces, workspaceItems);
@@ -387,7 +387,7 @@ internal sealed class CommandPaletteService : IDisposable
                                 return services.Layouts.Apply(layout.Preset, [active], active.MonitorDevice);
                             });
                             int placed = results.Count(r => r.Outcome == FlowDesk.Core.Windows.PlaceOutcome.Ok);
-                            vm.ShowStatus($"Placed {placed} of {results.Count} windows.", placed == results.Count ? StatusKind.Success : StatusKind.Warning);
+                            vm.ShowStatus($"Placed {placed} of {FlowDesk.Core.CountText.Format(results.Count, "window") }.", placed == results.Count ? StatusKind.Success : StatusKind.Warning);
                         });
                         NotifyProblem();
                     }, "\uECA5", "Apply");

@@ -115,6 +115,8 @@ internal sealed partial class CommandPaletteWindow
             foreach (var block in AiMarkdown.Parse(answer.Answer))
             {
                 var paragraph = new Paragraph();
+                // WinUI Paragraph has no margin: one blank body line separates semantic blocks.
+                if (AnswerBody.Blocks.Count > 0) paragraph.Inlines.Add(new LineBreak());
                 foreach (var span in block.Spans)
                 {
                     var run = new Run { Text = span.Text };

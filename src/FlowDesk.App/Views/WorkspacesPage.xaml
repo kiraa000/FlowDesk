@@ -60,6 +60,9 @@
                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                 </StackPanel>
                                 <StackPanel Grid.Column="1" Spacing="4">
+                                    <TextBlock Text="Active" Style="{StaticResource CaptionTextBlockStyle}"
+                                               Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
+                                               Visibility="{Binding IsActive, Converter={StaticResource BoolVisibility}}" />
                                     <TextBlock Text="{Binding Name}" Style="{StaticResource BodyStrongTextBlockStyle}"
                                                Foreground="{ThemeResource TextFillColorPrimaryBrush}"
                                                TextTrimming="CharacterEllipsis" />

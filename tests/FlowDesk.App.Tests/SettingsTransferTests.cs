@@ -250,6 +250,7 @@ public sealed class SettingsTransferTests
         var preview = Parse(SettingsTransfer.Export(new(), settings, new(), "test")); int probes = 0;
         var plan = SettingsTransfer.Merge(new(), new(), preview, new(), _ => { probes++; throw new InvalidOperationException("Must never probe"); });
         Assert.Equal(0, probes); Assert.Empty(plan.Settings.CustomCommands.Entries); Assert.Single(plan.Warnings);
+        Assert.Contains("Network paths are not supported", plan.Warnings[0]);
     }
     [Fact] public void NullLocalAiOptionsDoNotPreventExport()
     {

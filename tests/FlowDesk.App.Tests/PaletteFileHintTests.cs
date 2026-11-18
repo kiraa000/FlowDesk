@@ -5,6 +5,24 @@ namespace FlowDesk.App.Tests;
 
 public sealed class PaletteFileHintTests
 {
+    [Fact] public async Task InstalledEverythingHasMatchingStatusAndStartsOnlyWhenInvoked()
+    {
+        int started = 0, advanced = 0;
+        var installed = new InstalledFileBackend(() => { started++; return Task.CompletedTask; });
+        var source = new PaletteFileSource(new("not-written.json"), _ => Task.CompletedTask, _ => { },
+            () => { advanced++; return Task.CompletedTask; }, () => 0, _ => Task.CompletedTask,
+            () => Task.FromResult<IPaletteFileBackend?>(installed));
+        var status = await source.BeginOpen(true);
+        Assert.Equal("Everything is installed but not running", status!.Name);
+        Assert.Empty(await source.QueryAsync("report", PaletteMode.Commands, CancellationToken.None));
+        var row = Assert.Single(await source.QueryAsync("report", PaletteMode.Files, CancellationToken.None));
+        Assert.Equal(status.Name, row.Item.Title); Assert.Equal("Start Everything", row.Item.Subtitle);
+        Assert.Equal("Start Everything", row.Item.Actions[0].Title);
+        Assert.Equal(0, started); Assert.Equal(0, advanced);
+        await row.Item.Primary(); Assert.Equal(1, started); Assert.Equal(0, advanced);
+        await source.BeginOpen(false);
+        Assert.Empty(await source.QueryAsync("report", PaletteMode.Files, CancellationToken.None));
+    }
     [Fact] public async Task MissingBackendIsQuietInMixedModeAndFilesHintOpensAdvancedOnlyOnInvocation()
     {
         int opened = 0;

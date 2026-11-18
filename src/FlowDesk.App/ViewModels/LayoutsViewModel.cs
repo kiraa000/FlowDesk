@@ -44,17 +44,6 @@ public partial class LayoutsViewModel(AppViewModels owner) : ObservableObject
     public bool HasActiveWorkspace => workspace is not null && workspace.Model.Id == owner.Services.Switcher.ActiveWorkspaceId;
     public bool CanApply => Windows.Any(w => w.IsSelected);
 
-    /// <summary>"Display 2 · 2560 × 1440 · Main" instead of the raw device name \\.\DISPLAY2.</summary>
-    public static string MonitorLabel(string device, bool isPrimary, int width, int height)
-    {
-        string name = device;
-        int index = device.LastIndexOf("DISPLAY", StringComparison.OrdinalIgnoreCase);
-        if (index >= 0 && int.TryParse(device[(index + "DISPLAY".Length)..], out int number))
-            name = $"Display {number}";
-        string label = $"{name} · {width} × {height}";
-        return isPrimary ? label + " · Main" : label;
-    }
-
     private WorkspaceViewModel? workspace;
     private IReadOnlyList<WindowInfo> liveWindows = [];
     private readonly Dictionary<long, bool> selections = [];
@@ -94,7 +83,7 @@ public partial class LayoutsViewModel(AppViewModels owner) : ObservableObject
             live: owner.Services.Windows.GetAppWindows()));
         var device = Monitors.FirstOrDefault(m => m.IsSelected)?.Device;
         var monitors = result.monitors.Select(m =>
-            new MonitorChoice(MonitorLabel(m.Device, m.IsPrimary, m.Bounds.Width, m.Bounds.Height), m.Device, m.IsPrimary)).ToArray();
+            new MonitorChoice(owner.Services.Windows.DisplayNames.Label(m), m.Device, m.IsPrimary)).ToArray();
         if (monitors.Length > 0) (monitors.FirstOrDefault(m => m.Device == device) ?? monitors[0]).IsSelected = true;
         foreach (var old in Monitors) old.PropertyChanged -= MonitorChanged;
         Monitors = monitors; liveWindows = result.live;
@@ -111,7 +100,7 @@ public partial class LayoutsViewModel(AppViewModels owner) : ObservableObject
         var results = await Task.Run(() => owner.Services.Layouts.Apply(preset, ordered, monitor));
         CanSave = HasActiveWorkspace && results.Any(r => r.Outcome == PlaceOutcome.Ok);
         int placed = results.Count(r => r.Outcome == PlaceOutcome.Ok);
-        owner.ShowStatus($"Placed {placed} of {results.Count} windows. Windows running as administrator may need elevated access.",
+        owner.ShowStatus($"Placed {placed} of {FlowDesk.Core.CountText.Format(results.Count, "window")}. Windows running as administrator may need elevated access.",
             placed == results.Count ? StatusKind.Success : StatusKind.Warning);
     });
     [RelayCommand] private async Task SaveAsync()

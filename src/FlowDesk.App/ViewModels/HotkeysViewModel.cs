@@ -32,7 +32,7 @@ public sealed partial class HotkeyRowViewModel : ObservableObject
     [ObservableProperty] public partial bool CanToggle { get; set; }
     [ObservableProperty] public partial string StatusText { get; set; } = "Not available";
     private ShortcutStatus status = ShortcutStatus.Unavailable;
-    public bool ShowStatus => status is not (ShortcutStatus.Active or ShortcutStatus.Off);
+    public bool ShowStatus => ShortcutPresentation.ShowStatusDetail(status);
     public bool IsConflict => ShortcutPresentation.IsConflict(status);
     public bool IsNeutralStatus => ShowStatus && !IsConflict;
     private bool applying;
@@ -48,7 +48,7 @@ public sealed partial class HotkeyRowViewModel : ObservableObject
         try
         {
             IsOn = enabled; CanToggle = canToggle;
-            StatusText = status == ShortcutStatus.Off ? "" : ShortcutPresentation.StatusText(status);
+            StatusText = ShortcutPresentation.StatusText(status);
             if (this.status != status)
             {
                 this.status = status;

@@ -120,7 +120,9 @@
                     </InfoBar.Content>
                 </InfoBar>
                 <InfoBar AutomationProperties.AutomationId="BrowserRestoreBar" Grid.Row="2" Margin="32,8,32,0"
-                    IsOpen="{Binding BrowserNotice.IsOpen}" IsClosable="False" Severity="Informational"
+                    IsOpen="{Binding BrowserNotice.IsOpen, Mode=OneWay}"
+                    Visibility="{Binding BrowserNotice.IsOpen, Converter={StaticResource BoolVisibility}}"
+                    IsClosable="False" Severity="Informational"
                     Title="Reopen your last browser tabs" Message="{Binding BrowserNotice.NoticeText}">
                     <InfoBar.Content>
                         <StackPanel Orientation="Horizontal" Spacing="8" Margin="0">

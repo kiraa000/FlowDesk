@@ -26,7 +26,7 @@ public sealed class ContextEditorViewModel : ObservableObject
     {
         this.workspace = workspace; this.audio = audio; this.dnd = dnd;
         this.focusSettings = focusSettings; this.changed = changed;
-        presetIndex = workspace.Context.IsEmpty ? 0 : -1;
+        presetIndex = ContextPresets.Match(workspace.Context);
         ClearSoundOutputCommand = new RelayCommand(() => SelectedAudio = AudioChoices[0]);
         RebuildAudio([]);
     }
@@ -77,7 +77,7 @@ public sealed class ContextEditorViewModel : ObservableObject
     }
     private void Edited()
     {
-        presetIndex = -1; NotifyFields(); changed();
+        presetIndex = ContextPresets.Match(workspace.Context); NotifyFields(); changed();
     }
     private void NotifyFields()
     {

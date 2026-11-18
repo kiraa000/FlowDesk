@@ -7,6 +7,15 @@ namespace FlowDesk.App.Tests;
 
 public sealed class CalmRound2Tests
 {
+    [Theory] [InlineData(CalmState.Calm, false)] [InlineData(CalmState.Noisy, true)]
+    public void CaptionsDoNotRepeatTheToggleState(CalmState state, bool usesDefault)
+    {
+        var setting = CalmCatalog.All[0];
+        var row = new CalmRow(new(setting, state, null, usesDefault), false, (_, _) => Task.CompletedTask);
+        Assert.Equal((usesDefault ? "Windows default · " : "") + setting.Effect, row.Caption);
+        Assert.False(row.Caption.StartsWith("On · ", StringComparison.Ordinal));
+        Assert.False(row.Caption.StartsWith("Off · ", StringComparison.Ordinal));
+    }
     [Fact] public async Task AutoRestartShellDoesNotNeedAnotherExplorerLaunch()
     {
         uint?[] sequence = [10, null, null, 11]; int reads = 0; var delays = new List<TimeSpan>();

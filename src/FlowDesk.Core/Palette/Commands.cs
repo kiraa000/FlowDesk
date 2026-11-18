@@ -21,6 +21,8 @@ public sealed record CommandItem(string Id, string Title, string Subtitle, Comma
         1 => "Enter · " + Actions[0].Title,
         _ => "Enter · " + Actions[0].Title + "   Ctrl+Enter · " + Actions[1].Title
     };
+    public string SecondaryHint => Actions.FirstOrDefault(a => a.Shortcut == "Ctrl+Enter") is { } action
+        ? "Ctrl+Enter · " + action.Title : "";
 }
 public sealed record CommandMatch(CommandItem Item, double Score, IReadOnlyList<MatchRange> Highlights);
 

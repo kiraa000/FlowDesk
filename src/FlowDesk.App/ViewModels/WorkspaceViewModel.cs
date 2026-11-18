@@ -37,8 +37,7 @@ public partial class WorkspaceViewModel : ObservableObject
                 : age.Value.TotalHours < 1 ? $"Last used {(int)age.Value.TotalMinutes} min ago"
                 : age.Value.TotalDays < 1 ? $"Last used {CountText.Format((int)age.Value.TotalHours, "hour")} ago"
                 : $"Last used {CountText.Format((int)age.Value.TotalDays, "day")} ago";
-            string active = IsActive ? "Active · " : "";
-            return $"{active}{CountText.Format(Items.Count, "item")} · {used}";
+            return $"{CountText.Format(Items.Count, "item")} · {used}";
         }
     }
     public bool IsEmpty => Items.Count == 0;
@@ -171,7 +170,7 @@ public partial class ItemViewModel : ObservableObject
         : model.Kind is ItemKind.File or ItemKind.Folder ? model.Path ?? "Path unavailable" : model.Name;
     public string ExePath => model.App?.ExePath ?? (model.Kind == ItemKind.File ? model.Path : null) ?? "";
     public string Glyph => ItemDisplay.Glyph(model.Kind);
-    public string Position => ItemDisplay.Position(model);
+    public string Position => ItemDisplay.Position(model, owner.Services.Windows.DisplayNames.For(model.Window?.MonitorDevice ?? ""));
     public bool IsBrowser => BrowserRestoreHelp.IsBrowserItem(model);
     [ObservableProperty] public partial bool ReopenLastTabs { get; set; }
     partial void OnReopenLastTabsChanged(bool value)
@@ -198,8 +197,8 @@ internal static class ItemDisplay
     {
         ItemKind.Website => "\uE774", ItemKind.Folder => "\uE8B7", ItemKind.File => "\uE8A5", _ => "\uE7C3"
     };
-    public static string Position(WorkspaceItem item) => item.Window is { } w
-        ? DesktopPrefix(w) + $"{w.MonitorDevice.Replace(@"\\.\DISPLAY", "Monitor ")} · {w.Show}"
+    public static string Position(WorkspaceItem item, string monitorName = "Display") => item.Window is { } w
+        ? DesktopPrefix(w) + $"{monitorName} · {w.Show}"
             + (w.Show == WindowShow.Normal ? $" · {w.Rect.Width} × {w.Rect.Height}" : "")
         : "Position chosen by the app";
 

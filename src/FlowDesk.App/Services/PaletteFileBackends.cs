@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using FlowDesk.Core.Palette;
+using FlowDesk.Core.Advanced;
 
 namespace FlowDesk.App.Services;
 
@@ -12,7 +13,14 @@ internal static class PaletteFileBackends
         // Called once per palette open, away from the dispatcher. No service start, disk walk or install.
         nint everything = EverythingFileBackend.Find();
         if (everything != 0) return new EverythingFileBackend(everything);
-        return await WindowsSearchFileBackend.AvailableAsync().ConfigureAwait(false) ? new WindowsSearchFileBackend() : null;
+        if (await WindowsSearchFileBackend.AvailableAsync().ConfigureAwait(false)) return new WindowsSearchFileBackend();
+        var tool = AdvancedTools.All.Single(t => t.Id == "voidtools.Everything");
+        string? path = ToolDetection.Find(tool, new WindowsToolReader());
+        return path is null ? null : new InstalledFileBackend(() =>
+        {
+            AdvancedToolService.Open(tool, path); // Normal Shell open; FlowDesk never requests elevation.
+            return Task.CompletedTask;
+        });
     }
 
     internal static async Task<T> WithLeaseAsync<T>(SemaphoreSlim gate, Func<T> read, CancellationToken token)

@@ -76,6 +76,7 @@ public sealed class AppServices : ObservableObject, IDisposable
     {
         var loaded = await Task.Run(() =>
         {
+            Windows.GetMonitors(); // Seed shared position-based names before any page builds rows.
             var data = Store.Load(out var recovered);
             AppSettings settings = new();
             string? warning = recovered is null ? null

@@ -286,28 +286,6 @@
                 </settings:SettingsExpander>
                 </settings:SettingsExpander.Items>
             </settings:SettingsExpander>
-            <TextBlock Text="Clipboard history" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,24,0,8" />
-                <settings:SettingsCard Header="Clipboard history">
-                    <settings:SettingsCard.Description>
-                        <StackPanel Spacing="2">
-                            <TextBlock Text="Keep up to 50 text items in memory. Cleared when turned off or FlowDesk exits."
-                                       Style="{StaticResource CaptionTextBlockStyle}"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                       TextWrapping="Wrap" />
-                            <TextBlock Text="{Binding ClipboardStatus}"
-                                       Style="{StaticResource CaptionTextBlockStyle}"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                       TextWrapping="Wrap" />
-                        </StackPanel>
-                    </settings:SettingsCard.Description>
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <Button Content="Clear" Command="{Binding ClearClipboardCommand}" MinHeight="32"
-                                AutomationProperties.Name="Clear clipboard history" />
-                        <ToggleSwitch IsOn="{Binding ClipboardHistory, Mode=TwoWay}"
-                                      IsEnabled="{Binding PaletteCanToggle}"
-                                      AutomationProperties.Name="Clipboard history" />
-                    </StackPanel>
-                </settings:SettingsCard>
             <TextBlock Text="Quick Look &amp; hot corners" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,24,0,8" />
             <StackPanel Spacing="4">
                 <settings:SettingsCard Header="Quick Look"
@@ -386,6 +364,24 @@
                                TextWrapping="Wrap" />
                 </StackPanel>
             </StackPanel>
+            <TextBlock Text="Clipboard history" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,24,0,8" />
+            <settings:SettingsCard Header="Clipboard history">
+                <settings:SettingsCard.Description>
+                    <StackPanel Spacing="2">
+                        <TextBlock Text="Keep up to 50 text items in memory. Cleared when turned off or FlowDesk exits."
+                                   Style="{StaticResource CaptionTextBlockStyle}"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                        <TextBlock Text="{Binding ClipboardStatus}" Style="{StaticResource CaptionTextBlockStyle}"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                    </StackPanel>
+                </settings:SettingsCard.Description>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button Content="Clear" Command="{Binding ClearClipboardCommand}" MinHeight="32"
+                            AutomationProperties.Name="Clear clipboard history" />
+                    <ToggleSwitch IsOn="{Binding ClipboardHistory, Mode=TwoWay}" IsEnabled="{Binding PaletteCanToggle}"
+                                  AutomationProperties.Name="Clipboard history" />
+                </StackPanel>
+            </settings:SettingsCard>
             <TextBlock Text="Data" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,24,0,8" />
             <settings:SettingsCard Header="Back up or move FlowDesk"
                 Description="Export a backup or import settings from another PC.">

@@ -57,8 +57,8 @@ public static class ShortcutPresentation
         return runtime.Registration.Registered.Contains(binding.Id) ? ShortcutStatus.Active : ShortcutStatus.Unavailable;
     }
     public static string StatusText(ShortcutStatus status) => status switch {
-        ShortcutStatus.Active => "Active", ShortcutStatus.Off => "Off", ShortcutStatus.Conflict => "In use by another app", _ => "Not available" };
-    public static bool ShowStatusDetail(ShortcutStatus status) => status != ShortcutStatus.Active;
+        ShortcutStatus.Active => "Active", ShortcutStatus.Off => "", ShortcutStatus.Conflict => "In use by another app", _ => "Not available" };
+    public static bool ShowStatusDetail(ShortcutStatus status) => status is not (ShortcutStatus.Active or ShortcutStatus.Off);
     public static bool IsConflict(ShortcutStatus status) => status == ShortcutStatus.Conflict;
 }
 

@@ -236,7 +236,9 @@ public static class SettingsTransfer
                 var c = source;
                 // Validate ignores matching ids (editor semantics), so remap identity before checking keyword clashes.
                 if (entries.Any(e => e.Id == c.Id)) c = c with { Id = Guid.NewGuid().ToString("N") };
-                string? error = CustomCommandRules.Validate(c, entries, p => DrivePath(p) && (exists ?? ExistsLocal)(p));
+                string target = Environment.ExpandEnvironmentVariables(c.Target ?? "");
+                bool networkPath = c.Kind != CustomTargetKind.Url && (target.StartsWith(@"\\", StringComparison.Ordinal) || target.StartsWith("//", StringComparison.Ordinal));
+                string? error = networkPath ? "Network paths are not supported." : CustomCommandRules.Validate(c, entries, p => DrivePath(p) && (exists ?? ExistsLocal)(p));
                 if (error is not null) { warnings.Add($"Custom command '{c.Name}' skipped: {error}"); continue; }
                 entries.Add(c);
             }

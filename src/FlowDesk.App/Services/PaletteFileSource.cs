@@ -5,6 +5,15 @@ using FlowDesk.Core.Palette;
 
 namespace FlowDesk.App.Services;
 
+/// <summary>A detected installation is not a searchable backend until its app is running.</summary>
+internal sealed class InstalledFileBackend(Func<Task> start) : IPaletteFileBackend
+{
+    public string Name => "Everything is installed but not running";
+    public Task StartAsync() => start();
+    public Task<IReadOnlyList<PaletteFile>> SearchAsync(string query, int limit, CancellationToken token) =>
+        Task.FromResult<IReadOnlyList<PaletteFile>>([]);
+}
+
 internal sealed class PaletteFileSource(PaletteUsageStore usage, Func<string, Task> copyPath,
     Action<string> copyFile, Func<Task> advanced, Func<nint> owner, Func<string, Task> preview,
     Func<Task<IPaletteFileBackend?>>? detect = null) : IAsyncCommandSource
@@ -24,6 +33,9 @@ internal sealed class PaletteFileSource(PaletteUsageStore usage, Func<string, Ta
     {
         if (!Supports(mode)) return [];
         var detected = await Volatile.Read(ref backend).WaitAsync(token).ConfigureAwait(false);
+        if (detected is InstalledFileBackend installed)
+            return mode == PaletteMode.Files ? [new(new("file-search:start", installed.Name, "Start Everything", CommandKind.Help,
+                "\uE8B7", installed.StartAsync, ActionHint: "Start Everything", RecordUsage: false), -500, [])] : [];
         if (detected is null) return mode == PaletteMode.Files ? [Hint("File search needs Everything or Windows Search")] : [];
         if (query.Trim().Length == 0) return [];
         try
@@ -36,7 +48,7 @@ internal sealed class PaletteFileSource(PaletteUsageStore usage, Func<string, Ta
         catch (Exception) { return mode == PaletteMode.Files ? [Hint("File search is unavailable · Open Advanced to check Everything")] : []; }
     }
     private CommandMatch Hint(string text) => new(new("file-search:setup", text, "Open Advanced", CommandKind.Help,
-        "\uE8B7", advanced, RecordUsage: false), -500, []);
+        "\uE8B7", advanced, ActionHint: "Open Advanced", RecordUsage: false), -500, []);
     public CommandItem Item(PaletteFile file)
     {
         string path = file.Path;

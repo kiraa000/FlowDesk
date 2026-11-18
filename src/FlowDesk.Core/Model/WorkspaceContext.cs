@@ -31,6 +31,18 @@ public sealed class WorkspaceContext
 public enum ContextPreset { None, Study, Coding, Gaming }
 public static class ContextPresets
 {
+    public static int Match(WorkspaceContext context)
+    {
+        if (context.IsEmpty) return (int)ContextPreset.None;
+        foreach (var preset in new[] { ContextPreset.Study, ContextPreset.Coding, ContextPreset.Gaming })
+        {
+            var expected = Create(preset);
+            if (context.SoundOutput is null && context.Focus == expected.Focus &&
+                context.FocusMinutes == expected.FocusMinutes && context.FocusStrictness == expected.FocusStrictness &&
+                context.DoNotDisturb == expected.DoNotDisturb) return (int)preset;
+        }
+        return -1;
+    }
     public static WorkspaceContext Create(ContextPreset preset) => preset switch
     {
         ContextPreset.Study => new() { Focus = ContextFocus.Start, FocusMinutes = 50, DoNotDisturb = ContextToggle.On },

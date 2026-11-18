@@ -15,6 +15,7 @@ namespace FlowDesk.Core.Windows;
 public sealed class Win32WindowSystem(IVirtualDesktops? desktops = null) : IWindowSystem
 {
     private readonly IVirtualDesktops _desktops = desktops ?? VirtualDesktopService.ReadOnly;
+    public MonitorNames DisplayNames { get; } = new();
     private static readonly HashSet<string> ShellClasses = new(StringComparer.Ordinal)
     {
         "Progman", "WorkerW", "Shell_TrayWnd", "Shell_SecondaryTrayWnd",
@@ -193,6 +194,7 @@ public sealed class Win32WindowSystem(IVirtualDesktops? desktops = null) : IWind
             }
             return true;
         }, 0);
+        DisplayNames.Observe(list);
         return list;
     }
 
