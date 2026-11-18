@@ -85,7 +85,7 @@ internal sealed class SettingsTransferDialogs(FrameworkElement root)
             bool replace = useWorkspaces && mode?.SelectedIndex == 1;
             if (!replace) { caution.Text = ""; caution.Visibility = Visibility.Collapsed; return; }
             string text = $"This removes your {existingWorkspaceCount} existing workspace{(existingWorkspaceCount == 1 ? "" : "s")}. Your apps and files are not deleted.";
-            if (byId.TryGetValue("customCommands", out var commands) && commands.IsChecked == true)
+            if (existingCustomCommandCount > 0 && byId.TryGetValue("customCommands", out var commands) && commands.IsChecked == true)
                 text += $" This also replaces your {existingCustomCommandCount} custom command{(existingCustomCommandCount == 1 ? "" : "s")}.";
             caution.Text = text;
             caution.Visibility = Visibility.Visible;

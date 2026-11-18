@@ -130,7 +130,7 @@ public static class SettingsTransfer
                             (i.Window is not null && (!Enum.IsDefined(i.Window.Show) || i.Window.Title is null || i.Window.ClassName is null || i.Window.MonitorDevice is null))))) throw new JsonException();
                 if (value.Items.Any(w => w.Items.Select(i => i.Id).Distinct(StringComparer.Ordinal).Count() != w.Items.Count)) throw new JsonException();
                 if (value.Items.Select(w => w.Id).Distinct(StringComparer.Ordinal).Count() != value.Items.Count) throw new JsonException();
-                preview.Workspaces = value; return $"{value.Items.Count} workspaces";
+                preview.Workspaces = value; return Count(value.Items.Count, "workspace");
             });
             Read("focus", node =>
             {
@@ -148,13 +148,13 @@ public static class SettingsTransfer
                     !Enum.IsDefined(value.PaletteWebEngine) || !Enum.IsDefined(value.Ai.Provider) || value.TerminalProgram is null || value.PaletteWebTemplate is null ||
                     !Enum.IsDefined(value.HotCornerTopLeft) || !Enum.IsDefined(value.HotCornerTopRight) || !Enum.IsDefined(value.HotCornerBottomLeft) || !Enum.IsDefined(value.HotCornerBottomRight) ||
                     AiRules.Validate(value.Ai with { Provider = AiProviderKind.OpenAICompatible }) is not null) throw new JsonException();
-                preview.Settings = safe; return $"Settings and {value.ShortcutOverrides.Count + value.DisabledShortcuts.Count} shortcut changes";
+                preview.Settings = safe; int changes = value.ShortcutOverrides.Count + value.DisabledShortcuts.Count; return changes == 0 ? "Settings and shortcuts" : "Settings and " + Count(changes, "shortcut change");
             });
             Read("customCommands", node =>
             {
                 var value = node.Deserialize<CustomCommandSettings>(JsonStore.Options) ?? throw new JsonException();
                 if (value.Version != 1 || value.Entries is null || value.Entries.Any(c => c is null)) throw new JsonException();
-                preview.CustomCommands = value; return $"{value.Entries.Count} custom commands";
+                preview.CustomCommands = value; return value.Entries.Count == 0 ? "Custom palette commands (none)" : Count(value.Entries.Count, "custom command");
             });
             preview.Sections = rows;
             if (rows.Count == 0) preview.Error = "This export has no supported sections.";
@@ -163,6 +163,7 @@ public static class SettingsTransfer
         catch (Exception ex) when (ex is JsonException or InvalidOperationException or FormatException)
         { return Failed("This file is not valid FlowDesk JSON."); }
     }
+    private static string Count(int n, string noun) => n + " " + noun + (n == 1 ? "" : "s");
     private static string Label(string id) => id switch { "workspaces" => "Workspaces and layouts", "focus" => "Focus settings", "settings" => "Settings and shortcuts", _ => "Custom palette commands" };
 
     public static Task<TransferPlan> PrepareAsync(FlowDeskData current, AppSettings local, TransferPreview preview, TransferSelection selection)
