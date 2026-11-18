@@ -19,8 +19,8 @@ public static class HotCornerActionKeys
 }
 public readonly record struct InputHookRequirements(bool Mouse, bool Keyboard)
 {
-    public static InputHookRequirements For(bool windowShortcuts, bool quickLook, bool hotCorners) =>
-        new(windowShortcuts || hotCorners, windowShortcuts || quickLook);
+    public static InputHookRequirements For(bool windowShortcuts, bool quickLook, bool hotCorners, bool palette = false, bool windowsKey = false) =>
+        new(windowShortcuts || hotCorners || windowsKey, windowShortcuts || quickLook || palette || windowsKey);
 }
 public sealed record HotCornerActionOption(HotCornerAction Action, string Label);
 public sealed record HotCornerConfiguration(bool Enabled = false, HotCornerAction TopLeft = HotCornerAction.TaskView,

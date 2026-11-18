@@ -22,7 +22,7 @@ public sealed class HotkeyHost : IDisposable
     private const int WM_MOUSEWHEEL = 0x020A;
     private const uint WM_CONFIGURE_HOTCORNERS = 0x800D;
     private const uint WM_CONFIGURE_BINDINGS = 0x800E;
-    private const uint WM_OWNED_HOTKEY = 0x800F;
+    private const uint WM_CONFIGURE_WINDOWS_KEY = 0x8010;
     private const int WH_MOUSE_LL = 14;
     private const int ERROR_CLASS_ALREADY_EXISTS = 1410;
     private const int WH_KEYBOARD_LL = 13;
@@ -62,6 +62,8 @@ public sealed class HotkeyHost : IDisposable
     private readonly HotkeyInputOwnership _inputOwnership = new();
     private readonly LoneWindowsKey _loneWindows = new();
     private bool _paletteWindowsKey;
+    private bool _windowsMouseFailed;
+    private WindowsKeyHookChange? _windowsKeyChange;
     private int _windowsKeyVersion, _seenWindowsKeyVersion;
     public void SetPaletteWindowsKey(bool enabled)
     {
@@ -127,6 +129,7 @@ public sealed class HotkeyHost : IDisposable
     public bool WheelHookAvailable { get; private set; }
     public bool WinWheelHookAvailable { get; private set; }
     public bool KeyboardHookAvailable => _keyboardHook != 0;
+    public bool PaletteWindowsKeyAvailable => KeyboardHookAvailable && !Volatile.Read(ref _windowsMouseFailed);
     public void SetQuickLook(IQuickLookInput? input) => Volatile.Write(ref _quickLook, input);
     public ShortcutRegistrationSnapshot BindingStatus => Volatile.Read(ref _bindingStatus);
     private sealed record BindingChange(ShortcutPolicy Policy, IReadOnlyList<HotkeyBinding> Bindings, bool Atomic)
@@ -168,7 +171,6 @@ public sealed class HotkeyHost : IDisposable
                     (change.Policy.Enabled(b.Id) && !_policy.Enabled(b.Id))).Select(b => b.Id).ToHashSet(StringComparer.Ordinal);
                 var snapshot = _registered.Apply(effective, _desktops?.IsAvailable == true, new NativeRegistrar(this), change.Bindings, change.Atomic, required);
                 while (HotkeyNativeMethods.PeekMessageW(out _, _hwnd, WM_HOTKEY, WM_HOTKEY, 1)) { }
-                while (HotkeyNativeMethods.PeekMessageW(out _, _hwnd, WM_OWNED_HOTKEY, WM_OWNED_HOTKEY, 1)) { }
                 lock (_policyGate) { Volatile.Write(ref _policy, change.Policy); _bindings = change.Bindings; _multiPress.Reset(); }
                 Volatile.Write(ref _bindingStatus, snapshot);
                 Volatile.Write(ref _desktopBindingsAvailable, _desktops?.IsAvailable == true);
@@ -230,13 +232,72 @@ public sealed class HotkeyHost : IDisposable
                 Volatile.Write(ref _hotCorners, change.Input);
                 change.Input?.SetSessionBlocked(_sessionBlocked);
                 change.Input?.SetHookAvailable(true);
-                if (change.Input is null && !_windowShortcuts && _hook != 0)
-                { HotkeyNativeMethods.UnhookWindowsHookEx(_hook); _hook = 0; }
-                WheelHookAvailable = _hook != 0; WinWheelHookAvailable = _hook != 0 && _keyboardHook != 0;
+                ReleaseUnusedMouseHook();
                 change.Completion.TrySetResult(true);
             }
             catch (Exception ex) { change.Completion.TrySetException(ex); }
         }
+    }
+
+    private sealed record WindowsKeyHookChange(bool Enabled)
+    {
+        public TaskCompletionSource<bool> Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+    public async Task<bool> ConfigurePaletteWindowsKeyAsync(bool enabled)
+    {
+        var change = new WindowsKeyHookChange(enabled);
+        lock (_hotCornerGate)
+        {
+            if (Volatile.Read(ref _stopping) != 0 || _windowsKeyChange is not null) throw new InvalidOperationException("Input host is stopping or changing.");
+            _windowsKeyChange = change;
+            if (!HotkeyNativeMethods.PostMessageW(_hwnd, WM_CONFIGURE_WINDOWS_KEY, 0, 0))
+            { _windowsKeyChange = null; throw new InvalidOperationException("Windows-key update could not be queued."); }
+        }
+        try { return await change.Completion.Task.WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false); }
+        catch (TimeoutException)
+        {
+            lock (_hotCornerGate) { if (ReferenceEquals(_windowsKeyChange, change)) _windowsKeyChange = null; }
+            if (change.Completion.Task.IsCompleted) return await change.Completion.Task.ConfigureAwait(false);
+            throw;
+        }
+    }
+    private void ApplyWindowsKeyHookChange()
+    {
+        lock (_hotCornerGate)
+        {
+            var change = _windowsKeyChange; _windowsKeyChange = null;
+            if (change is null) return;
+            try
+            {
+                if (Volatile.Read(ref _stopping) != 0) throw new InvalidOperationException("Input host stopped.");
+                if (change.Enabled && _keyboardHook == 0)
+                { LogHookUnavailable("Windows-key keyboard hook"); change.Completion.TrySetResult(false); return; }
+                if (change.Enabled && _hook == 0)
+                {
+                    _hook = HotkeyNativeMethods.SetWindowsHookExW(WH_MOUSE_LL, _hookProc, HotkeyNativeMethods.GetModuleHandleW(null), 0);
+                    Volatile.Write(ref _windowsMouseFailed, _hook == 0);
+                    if (_hook == 0) { LogHookUnavailable("Windows-key mouse hook"); change.Completion.TrySetResult(false); return; }
+                }
+                SetPaletteWindowsKey(change.Enabled);
+                _loneWindows.Reset();
+                ReleaseUnusedMouseHook();
+                change.Completion.TrySetResult(true);
+            }
+            catch (Exception ex) { change.Completion.TrySetException(ex); }
+        }
+    }
+    private void ReleaseUnusedMouseHook()
+    {
+        bool needed = InputHookRequirements.For(_windowShortcuts, _quickLook is not null, _hotCorners is not null,
+            _palette is not null || _clipboard is not null, _paletteWindowsKey).Mouse;
+        if (!needed && _hook != 0 && HotkeyNativeMethods.UnhookWindowsHookEx(_hook)) _hook = 0;
+        WheelHookAvailable = _hook != 0;
+        WinWheelHookAvailable = _hook != 0 && _keyboardHook != 0;
+    }
+    private void LogHookUnavailable(string feature)
+    {
+        TraceWinInput($"hook-unavailable feature={feature} native-hotkeys-retained=true");
+        new CrashLog().TryWrite(CrashSource.Activation, new InvalidOperationException(feature + " is unavailable; native hotkeys remain enabled."));
     }
 
     public async Task StartAsync(CancellationToken cancellationToken = default)
@@ -314,17 +375,17 @@ public sealed class HotkeyHost : IDisposable
             _sessionNotificationsRegistered = HotkeyNativeMethods.WTSRegisterSessionNotification(_hwnd, 0); // this session
             TraceWinInput($"session-notifications registered={_sessionNotificationsRegistered} error={(_sessionNotificationsRegistered ? 0 : Marshal.GetLastWin32Error())}");
             _keyboard.Seed(IsDown);
-            var requirements = InputHookRequirements.For(_windowShortcuts, _quickLook is not null, _hotCorners is not null);
             bool paletteInput = _palette is not null || _clipboard is not null;
-            requirements = new(requirements.Mouse || paletteInput, requirements.Keyboard || paletteInput);
+            var requirements = InputHookRequirements.For(_windowShortcuts, _quickLook is not null, _hotCorners is not null, paletteInput, _paletteWindowsKey);
             if (requirements.Mouse) _hook = HotkeyNativeMethods.SetWindowsHookExW(WH_MOUSE_LL, _hookProc, HotkeyNativeMethods.GetModuleHandleW(null), 0);
             if (requirements.Keyboard) _keyboardHook = HotkeyNativeMethods.SetWindowsHookExW(WH_KEYBOARD_LL, _keyboardProc, HotkeyNativeMethods.GetModuleHandleW(null), 0);
-            if ((_windowShortcuts || paletteInput) && _keyboardHook == 0) throw new InvalidOperationException("Shortcut key-pair safety hook is unavailable.");
-            if (paletteInput && _hook == 0) throw new InvalidOperationException("Palette mouse-observation hook is unavailable.");
-            if (_quickLook is not null && _keyboardHook == 0) throw new InvalidOperationException("Quick Look keyboard hook could not be installed.");
-            if (_hotCorners is not null && (_hook == 0 || !_sessionNotificationsRegistered)) throw new InvalidOperationException("Hot corner mouse/session safety hooks are unavailable.");
+            if (requirements.Keyboard && _keyboardHook == 0) LogHookUnavailable("Keyboard hook (release protection off)");
+            if (requirements.Mouse && _hook == 0) LogHookUnavailable("Mouse hook");
+            _windowsMouseFailed = _paletteWindowsKey && _hook == 0;
+            if (!paletteInput && _quickLook is not null && _keyboardHook == 0) throw new InvalidOperationException("Quick Look keyboard hook could not be installed.");
+            if (!paletteInput && _hotCorners is not null && (_hook == 0 || !_sessionNotificationsRegistered)) throw new InvalidOperationException("Hot corner mouse/session safety hooks are unavailable.");
             _hotCorners?.SetSessionBlocked(_sessionBlocked);
-            _hotCorners?.SetHookAvailable(true);
+            _hotCorners?.SetHookAvailable(_hook != 0 && _sessionNotificationsRegistered);
             WheelHookAvailable = _hook != 0;
             WinWheelHookAvailable = _hook != 0 && _keyboardHook != 0;
             RegisterBindings();
@@ -350,6 +411,8 @@ public sealed class HotkeyHost : IDisposable
                 _hotCornerChange = null;
                 _bindingChange?.Completion.TrySetException(new InvalidOperationException("Input host stopped."));
                 _bindingChange = null;
+                _windowsKeyChange?.Completion.TrySetException(new InvalidOperationException("Input host stopped."));
+                _windowsKeyChange = null;
             }
             Interlocked.Exchange(ref _stopping, 1);
             _cts.Cancel();
@@ -419,8 +482,8 @@ public sealed class HotkeyHost : IDisposable
         var policy = Volatile.Read(ref _policy);
         if (!policy.Enabled(binding.Id)) return;
         if (SoftwareRepeat && !_repeatGate.Accept(binding)) return;
-        // Do not queue palette work behind slow window actions. The UI verifies actual foreground
-        // ownership and has a bounded input-attachment retry for hook-owned chord delivery.
+        // Native WM_HOTKEY grants foreground permission. Never replace it with a posted private message.
+        TraceWinInput($"native-hotkey id={binding.Id}");
         if (binding.Id == HotkeyCatalog.PaletteId) { _palette?.Invoke(); return; }
         if (binding.Id == HotkeyCatalog.ClipboardId) { _clipboard?.Invoke(); return; }
         SendAltMenuMask();
@@ -558,7 +621,7 @@ public sealed class HotkeyHost : IDisposable
                     int version = Volatile.Read(ref _windowsKeyVersion);
                     if (version != _seenWindowsKeyVersion) { _loneWindows.Reset(); _seenWindowsKeyVersion = version; }
                     var modifiers = _keyboard.Modifiers;
-                    bool loneEnabled = Volatile.Read(ref _paletteWindowsKey) && _palette is not null &&
+                    bool loneEnabled = Volatile.Read(ref _paletteWindowsKey) && _hook != 0 && _keyboardHook != 0 && _palette is not null &&
                         !_actions.IsPaused && !_sessionBlocked && Volatile.Read(ref _policy).Enabled(HotkeyCatalog.PaletteId);
                     bool sampleButtons = loneEnabled && down && info.VirtualKey is 0x5B or 0x5C;
                     bool loneTap = _loneWindows.ObserveKey((int)info.VirtualKey, down, Environment.TickCount64, loneEnabled,
@@ -570,20 +633,18 @@ public sealed class HotkeyHost : IDisposable
                         if (masked.Swallow) _palette?.Invoke(); // only open when Start suppression succeeded
                     }
                     uint mods = (modifiers.Win ? 8u : 0) | (modifiers.Alt ? 1u : 0) | (modifiers.Control ? 2u : 0) | (modifiers.Shift ? 4u : 0);
-                    int matchedId = 0;
                     HotkeyBinding? matched = null;
                     if (down && !KeyChord.IsModifier(info.VirtualKey))
                         foreach (int id in _registered.NativeIds)
                             if (_registered.TryGet(id, out var binding) && binding.VirtualKey == info.VirtualKey && binding.Modifiers == mods)
-                            { matchedId = id; matched = binding; break; }
+                            { matched = binding; break; }
                     var owned = _inputOwnership.Observe(info.VirtualKey, down, Environment.TickCount64, matched);
                     swallow |= owned.Swallow;
-                    if (owned.Swallow) TraceWinInput($"owned-trigger key=0x{info.VirtualKey:X2} down={down} activate={owned.Activate}");
-                    if (owned.Activate && matchedId != 0)
+                    if (owned.Swallow || owned.Armed) TraceWinInput($"paired-trigger key=0x{info.VirtualKey:X2} down={down} swallowed={owned.Swallow}");
+                    if (owned.Armed)
                     {
                         _keyboard.AcceptWinGesture();
                         if (modifiers.Alt) SendAltMenuMask();
-                        HotkeyNativeMethods.PostMessageW(_hwnd, WM_OWNED_HOTKEY, (nint)matchedId, 0);
                     }
                     // Modifier downs were forwarded: forwarding their balanced ups is essential.
                     // An adjacent vkE8 mask prevents Alt-up opening the previous application's menu.
@@ -718,6 +779,8 @@ public sealed class HotkeyHost : IDisposable
         { try { bindingHost.ApplyBindingChange(); } catch (Exception) { } return 0; }
         if (message == WM_CONFIGURE_HOTCORNERS && _current is { } cornerHost)
         { try { cornerHost.ApplyHotCornerHookChange(); } catch (Exception) { } return 0; }
+        if (message == WM_CONFIGURE_WINDOWS_KEY && _current is { } windowsKeyHost)
+        { try { windowsKeyHost.ApplyWindowsKeyHookChange(); } catch (Exception) { } return 0; }
         if (message == WM_WTSSESSION_CHANGE && _current is { } sessionHost)
         {
             try { sessionHost.OnSessionChange((uint)wParam); } catch (Exception) { /* never cross a native callback */ }

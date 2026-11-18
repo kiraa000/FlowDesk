@@ -1,9 +1,9 @@
 namespace FlowDesk.Core.Hotkeys;
 
-public readonly record struct OwnedHotkeyEvent(bool Swallow, bool Activate);
+public readonly record struct OwnedHotkeyEvent(bool Swallow, bool Armed);
 
-/// <summary>Hook-thread only. Own BOTH halves before Windows can translate a registered chord.
-/// Native registration remains the conflict arbiter; only registered bindings may be passed here.</summary>
+/// <summary>Hook-thread only. Forward every down so Windows can produce WM_HOTKEY (and foreground
+/// permission); suppress only the paired up. Only registered bindings may arm a release.</summary>
 public sealed class HotkeyInputOwnership
 {
     public const long TimeoutMilliseconds = 5000;
@@ -13,15 +13,15 @@ public sealed class HotkeyInputOwnership
     {
         if (owned.Count != 0)
             foreach (var stale in owned.Where(p => now < p.Value.Started || now - p.Value.Started >= TimeoutMilliseconds).Select(p => p.Key).ToArray()) owned.Remove(stale);
-        if (owned.TryGetValue(key, out var press))
+        if (owned.ContainsKey(key))
         {
             if (!down) owned.Remove(key);
-            return new(true, down && press.Binding.Repeat);
+            return new(!down, false); // repeat downs must also reach RegisterHotKey
         }
         if (!down || registered is null || registered.VirtualKey != key || KeyChord.IsModifier(key)) return default;
         owned[key] = (now, registered);
         if ((registered.Modifiers & HotkeyCatalog.ModAlt) != 0) maskAltSince = now;
-        return new(true, true);
+        return new(false, true);
     }
     public bool TakeAltMask(uint key, bool down, long now)
     {

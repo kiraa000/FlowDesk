@@ -31,15 +31,16 @@ public sealed class HotkeyService(string dataDirectory, VirtualDesktopService? s
     private Action? _clipboard;
     private bool _clipboardEnabled;
     private bool _paletteWindowsKey;
+    public bool PaletteWindowsKeyAvailable => _host?.PaletteWindowsKeyAvailable == true;
     public async Task SetPaletteWindowsKeyAsync(bool enabled)
     {
         await _gate.WaitAsync().ConfigureAwait(false);
         try
         {
             if (_disposed) return;
-            if (enabled && _host is { KeyboardHookAvailable: false }) throw new InvalidOperationException("Windows-key hook unavailable.");
+            if (_host is not null && !await _host.ConfigurePaletteWindowsKeyAsync(enabled).ConfigureAwait(false))
+                throw new InvalidOperationException("Windows-key hooks unavailable. The regular palette shortcut remains enabled.");
             _paletteWindowsKey = enabled;
-            _host?.SetPaletteWindowsKey(enabled);
         }
         finally { _gate.Release(); }
     }

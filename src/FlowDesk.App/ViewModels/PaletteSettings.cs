@@ -58,10 +58,15 @@ public partial class SettingsViewModel
     internal Action? ClearClipboardHistory { get; set; }
     [RelayCommand] private void ClearClipboard() => ClearClipboardHistory?.Invoke();
     public bool PaletteCanToggle => !PaletteBusy && !owner.Hotkeys.IsBusy;
+    public bool PaletteWindowsKeyCanToggle => PaletteCanToggle && (PaletteWindowsKey || owner.Services.Hotkeys.PaletteWindowsKeyAvailable);
+    public string PaletteWindowsKeyStatus => owner.Services.Hotkeys.PaletteWindowsKeyAvailable ? "" :
+        "Windows-key option unavailable. The regular palette shortcut still works.";
+    public Visibility PaletteWindowsKeyStatusVisibility => PaletteWindowsKeyStatus.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
     public string PaletteShortcut => owner.Services.Settings.EffectiveShortcut(HotkeyCatalog.PaletteId).Shortcut;
     public string PaletteDescription => $"Search workspaces, apps and actions with {PaletteShortcut}. Works independently of window shortcuts.";
     private bool paletteLoading;
-    partial void OnPaletteBusyChanged(bool value) => OnPropertyChanged(nameof(PaletteCanToggle));
+    partial void OnPaletteBusyChanged(bool value)
+    { OnPropertyChanged(nameof(PaletteCanToggle)); OnPropertyChanged(nameof(PaletteWindowsKeyCanToggle)); }
     internal void RefreshPaletteSettings()
     {
         paletteLoading = true;
@@ -86,6 +91,9 @@ public partial class SettingsViewModel
             ? $"{PaletteShortcut} is in use by another app." : runtime.Registration.Registered.Contains(HotkeyCatalog.PaletteId)
             ? $"{PaletteShortcut} · Ready" : $"{PaletteShortcut} · Not available";
         OnPropertyChanged(nameof(PaletteCanToggle));
+        OnPropertyChanged(nameof(PaletteWindowsKeyCanToggle));
+        OnPropertyChanged(nameof(PaletteWindowsKeyStatus));
+        OnPropertyChanged(nameof(PaletteWindowsKeyStatusVisibility));
         OnPropertyChanged(nameof(PaletteShortcut)); OnPropertyChanged(nameof(PaletteDescription));
     }
     partial void OnClipboardHistoryChanged(bool value)

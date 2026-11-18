@@ -1,10 +1,20 @@
 using FlowDesk.Core.Hotkeys;
 using FlowDesk.Core.Palette;
+using FlowDesk.Core.HotCorners;
 
 namespace FlowDesk.Core.Tests;
 
 public sealed class PaletteHotkeyInputTests
 {
+    [Theory]
+    [InlineData(false, false, false, false, false, false, false)]
+    [InlineData(false, false, false, true, false, false, true)]
+    [InlineData(false, false, false, true, true, true, true)]
+    [InlineData(true, false, false, true, false, true, true)]
+    [InlineData(false, false, true, true, false, true, true)]
+    [InlineData(false, true, false, false, false, false, true)]
+    public void MouseIsNotRequiredJustForTheRegularPalette(bool windows, bool preview, bool corners, bool palette, bool loneWin, bool mouse, bool keyboard) =>
+        Assert.Equal(new InputHookRequirements(mouse, keyboard), InputHookRequirements.For(windows, preview, corners, palette, loneWin));
     [Theory]
     [InlineData(true, false, false, true, true)]
     [InlineData(true, false, false, false, false)]
@@ -14,11 +24,11 @@ public sealed class PaletteHotkeyInputTests
     public void DeactivationCannotDismissAnUnacquiredOrOpeningPalette(bool open, bool opening, bool pending, bool acquired, bool expected) =>
         Assert.Equal(expected, PaletteFocusRules.ShouldHideOnDeactivation(open, opening, pending, acquired));
     private static readonly HotkeyBinding Palette = HotkeyCatalog.Find(HotkeyCatalog.PaletteId)!;
-    [Fact] public void OwnsBothTriggerHalvesBeforeAnyFocusChangeAndOnlyActivatesOnce()
+    [Fact] public void EveryDownReachesWindowsAndOnlyThePairedUpIsSwallowed()
     {
         var state = new HotkeyInputOwnership();
-        Assert.Equal(new OwnedHotkeyEvent(true, true), state.Observe(0x20, true, 0, Palette));
-        Assert.Equal(new OwnedHotkeyEvent(true, false), state.Observe(0x20, true, 1, Palette));
+        Assert.Equal(new OwnedHotkeyEvent(false, true), state.Observe(0x20, true, 0, Palette));
+        Assert.Equal(default, state.Observe(0x20, true, 1, Palette));
         Assert.Equal(new OwnedHotkeyEvent(true, false), state.Observe(0x20, false, 2));
         Assert.Equal(default, state.Observe(0x20, false, 3));
     }
@@ -34,11 +44,11 @@ public sealed class PaletteHotkeyInputTests
     {
         var state = new HotkeyInputOwnership();
         var rebound = Palette with { Id = HotkeyCatalog.ClipboardId, VirtualKey = 0x56 };
-        Assert.True(state.Observe(0x56, true, 0, rebound).Activate);
+        Assert.Equal(new OwnedHotkeyEvent(false, true), state.Observe(0x56, true, 0, rebound));
         Assert.True(state.Observe(0x56, false, 1).Swallow);
         var repeating = rebound with { Repeat = true };
-        Assert.True(state.Observe(0x56, true, 2, repeating).Activate);
-        Assert.True(state.Observe(0x56, true, 3, repeating).Activate);
+        Assert.Equal(new OwnedHotkeyEvent(false, true), state.Observe(0x56, true, 2, repeating));
+        Assert.Equal(default, state.Observe(0x56, true, 3, repeating));
     }
     [Theory] [InlineData(false)] [InlineData(true)]
     public void TimeoutOrResetDropsOldOwnership(bool reset)

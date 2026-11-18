@@ -75,7 +75,8 @@ internal sealed class CommandPaletteService : IDisposable
             long started = System.Diagnostics.Stopwatch.GetTimestamp();
             dispatcher.TryEnqueue(() => Toggle(target, started, mode: PaletteMode.Clipboard));
         });
-        await services.Hotkeys.SetPaletteWindowsKeyAsync(services.Settings.PaletteWindowsKey);
+        try { await services.Hotkeys.SetPaletteWindowsKeyAsync(services.Settings.PaletteWindowsKey); }
+        catch (Exception ex) { Log(ex); notify("Windows-key option unavailable. The regular palette shortcut still works."); }
         if (services.Settings.ClipboardHistoryEnabled)
         {
             try { await SetClipboardAsync(true); }
