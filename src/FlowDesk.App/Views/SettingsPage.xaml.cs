@@ -47,4 +47,38 @@ public sealed partial class SettingsPage : Page
             });
         }
     }
+    private async void AddCustomCommand_Click(object sender, RoutedEventArgs e) => await EditCustomAsync(null);
+    private async void EditCustomCommand_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: FlowDesk.Core.Palette.CustomCommandDefinition command }) await EditCustomAsync(command);
+    }
+    private async Task EditCustomAsync(FlowDesk.Core.Palette.CustomCommandDefinition? command)
+    {
+        var vm = App.ViewModels.Settings;
+        var editor = new CustomCommandEditor(command, vm.CustomCommands.ToArray());
+        var dialog = new ContentDialog { XamlRoot = XamlRoot, Title = command is null ? "Add custom command" : "Edit custom command",
+            Content = editor, PrimaryButtonText = "Save", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Primary };
+        dialog.PrimaryButtonClick += (_, args) =>
+        {
+            if (!editor.Validate()) { args.Cancel = true; return; }
+            if (!vm.SaveCustomCommand(editor.Value)) { editor.ShowError(vm.CustomCommandsError); args.Cancel = true; }
+        };
+        await dialog.ShowAsync();
+    }
+    private async void DeleteCustomCommand_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: FlowDesk.Core.Palette.CustomCommandDefinition command }) return;
+        var dialog = new ContentDialog { XamlRoot = XamlRoot, Title = "Delete custom command?", Content = command.Name,
+            PrimaryButtonText = "Delete", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close };
+        if (await dialog.ShowAsync() == ContentDialogResult.Primary) App.ViewModels.Settings.DeleteCustomCommand(command.Id);
+    }
+    private async void TestCustomCommand_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: FlowDesk.Core.Palette.CustomCommandDefinition command }) return;
+        var query = new TextBox { Header = "Query (optional)", PlaceholderText = "Text for {query}" };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(query, "Test command query");
+        var dialog = new ContentDialog { XamlRoot = XamlRoot, Title = "Test " + command.Name, Content = query,
+            PrimaryButtonText = "Run", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close };
+        if (await dialog.ShowAsync() == ContentDialogResult.Primary) await App.ViewModels.Settings.TestCustomCommandAsync(command, query.Text);
+    }
 }

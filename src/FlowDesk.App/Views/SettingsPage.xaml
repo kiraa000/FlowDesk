@@ -141,6 +141,59 @@
                                   IsEnabled="{Binding PaletteCanToggle}"
                                   AutomationProperties.Name="File search in the command palette" />
                 </settings:SettingsCard>
+                <settings:SettingsExpander Header="Custom commands"
+                    Description="Run your own links, files, programs and PowerShell scripts from the palette.">
+                    <settings:SettingsExpander.Items>
+                        <settings:SettingsCard HorizontalContentAlignment="Stretch" ContentAlignment="Vertical">
+                            <StackPanel Spacing="8">
+                                <ItemsControl ItemsSource="{Binding CustomCommands}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid Margin="0,4" ColumnSpacing="12">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <StackPanel Spacing="2">
+                                                    <TextBlock Text="{Binding Name}"
+                                                               Style="{StaticResource BodyTextBlockStyle}"
+                                                               Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                                                               TextWrapping="Wrap" />
+                                                    <TextBlock Text="{Binding Keywords}"
+                                                               Style="{StaticResource CaptionTextBlockStyle}"
+                                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                               TextWrapping="Wrap" />
+                                                </StackPanel>
+                                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8"
+                                                            VerticalAlignment="Center">
+                                                    <Button Content="Edit" Tag="{Binding}"
+                                                            Click="EditCustomCommand_Click" MinHeight="32"
+                                                            AutomationProperties.Name="Edit custom command"
+                                                            ToolTipService.ToolTip="{Binding Name}" />
+                                                    <Button Content="Test" Tag="{Binding}"
+                                                            Click="TestCustomCommand_Click" MinHeight="32"
+                                                            AutomationProperties.Name="Test custom command"
+                                                            ToolTipService.ToolTip="{Binding Name}" />
+                                                    <Button Content="Delete" Tag="{Binding}"
+                                                            Click="DeleteCustomCommand_Click" MinHeight="32"
+                                                            AutomationProperties.Name="Delete custom command"
+                                                            ToolTipService.ToolTip="{Binding Name}" />
+                                                </StackPanel>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <Button Content="Add command" Click="AddCustomCommand_Click" MinHeight="32"
+                                        HorizontalAlignment="Left"
+                                        AutomationProperties.Name="Add custom command" />
+                                <TextBlock Text="{Binding CustomCommandsError}"
+                                           Style="{StaticResource CaptionTextBlockStyle}"
+                                           Foreground="{ThemeResource SystemFillColorCautionBrush}"
+                                           TextWrapping="Wrap" />
+                            </StackPanel>
+                        </settings:SettingsCard>
+                    </settings:SettingsExpander.Items>
+                </settings:SettingsExpander>
                 <settings:SettingsCard Header="Calculator"
                     Description="Math, unit conversion and time zones in the search box.">
                     <ToggleSwitch IsOn="{Binding PaletteCalculatorEnabled, Mode=TwoWay}"

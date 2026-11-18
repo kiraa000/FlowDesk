@@ -26,6 +26,7 @@ internal sealed class CommandPaletteService : IDisposable
     private CommandItem[] workspaces = [], actions = [];
     private CommandItem[] openWindows = [], systemCommands = [];
     private WebOptions web = new(true, true, WebEngine.Google, "");
+    private CustomCommandSettings customCommands = new();
     private volatile bool calculatorEnabled = true;
     private volatile bool fileSearchEnabled = true;
     private long snapshotEpoch;
@@ -44,6 +45,7 @@ internal sealed class CommandPaletteService : IDisposable
             new WorkspaceCommandSource(() => Volatile.Read(ref workspaces)), new ActionCommandSource(() => Volatile.Read(ref actions)),
               new AppCommandSource(index.Apps), new SettingsCommandSource(PaletteShellIndex.LaunchAsync),
               new SnapshotCommandSource("Recent files", () => fileSearchEnabled ? index.Recent.Snapshot : []),
+              new CustomCommandSource(() => Volatile.Read(ref customCommands), CustomCommandExecutor.RunAsync),
              new SnapshotCommandSource("Open windows", () => Volatile.Read(ref openWindows), PaletteMode.Windows),
              new SnapshotCommandSource("System commands", () => Volatile.Read(ref systemCommands)),
              new CalculatorCommandSource(() => calculatorEnabled, CopyAsync),
@@ -206,6 +208,8 @@ internal sealed class CommandPaletteService : IDisposable
     {
         var settings = services.Settings;
         calculatorEnabled = settings.PaletteCalculatorEnabled;
+        var custom = settings.CustomCommands ?? new();
+        Volatile.Write(ref customCommands, new() { Version = custom.Version, Entries = [.. (custom.Entries ?? []).Where(c => c is not null)] });
         Volatile.Write(ref web, new(settings.PaletteWebEnabled, settings.PaletteWebFallback, settings.PaletteWebEngine, settings.PaletteWebTemplate ?? ""));
         Volatile.Write(ref openWindows, []);
         Volatile.Write(ref systemCommands, []);

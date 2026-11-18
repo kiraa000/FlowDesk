@@ -29,6 +29,12 @@ public sealed class PaletteSettingsTests
         var settings = JsonSerializer.Deserialize<AppSettings>("{\"Theme\":\"Dark\"}")!;
         Assert.True(settings.PaletteFilesEnabled);
     }
+    [Fact] public void CustomCommandsAreVersionedAndOldSettingsHaveAnEmptyList()
+    {
+        var old = AppSettings.FromJson("{}"); Assert.Equal(1, old.CustomCommands.Version); Assert.Empty(old.CustomCommands.Entries);
+        old.CustomCommands.Entries.Add(new("test", "Test", "test", FlowDesk.Core.Palette.CustomTargetKind.Url, "https://example.com/{query}"));
+        var loaded = AppSettings.FromJson(old.ToJson()); Assert.Equal(old.CustomCommands.Entries[0], Assert.Single(loaded.CustomCommands.Entries));
+    }
     [Fact] public void OlderSettingsDefaultPaletteOnIndependentlyOfWindowShortcuts()
     {
         var settings = JsonSerializer.Deserialize<AppSettings>("{\"WindowShortcutsEnabled\":false}")!;

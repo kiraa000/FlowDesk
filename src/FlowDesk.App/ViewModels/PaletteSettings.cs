@@ -86,6 +86,7 @@ public partial class SettingsViewModel
         PaletteWebFallback = s.PaletteWebFallback;
         PaletteWebEngineIndex = Enum.IsDefined(s.PaletteWebEngine) ? (int)s.PaletteWebEngine : 0;
         PaletteWebTemplate = s.PaletteWebTemplate ?? "";
+        RefreshCustomCommands();
         paletteLoading = false;
         var runtime = owner.Services.Hotkeys.ShortcutRuntime;
         string clipboardShortcut = owner.Services.Settings.EffectiveShortcut(HotkeyCatalog.ClipboardId).Shortcut;
