@@ -60,6 +60,8 @@ public partial class SettingsViewModel
     }
     internal Func<bool, Task>? ApplyClipboardHistory { get; set; }
     internal Action? ClearClipboardHistory { get; set; }
+    internal Func<Task>? ClearRunHistory { get; set; }
+    [RelayCommand] private async Task ClearPaletteRunHistoryAsync() { if (ClearRunHistory is not null) await ClearRunHistory(); }
     [RelayCommand] private void ClearClipboard() => ClearClipboardHistory?.Invoke();
     public bool PaletteCanToggle => !PaletteBusy && !owner.Hotkeys.IsBusy;
     public bool PaletteWindowsKeyCanToggle => PaletteCanToggle && (PaletteWindowsKey || owner.Services.Hotkeys.PaletteWindowsKeyAvailable);

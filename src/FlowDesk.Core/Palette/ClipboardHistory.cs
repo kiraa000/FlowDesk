@@ -39,7 +39,7 @@ public sealed class ClipboardHistory
     public static bool Matches(ClipboardEntry entry, string query) => string.IsNullOrWhiteSpace(query) || CommandMatcher.Match(entry.Display, query, allowFuzzy: false).Score > 0;
 }
 
-public enum PaletteMode { Commands, Clipboard, Windows, Calculator, Web, Help, Files }
+public enum PaletteMode { Commands, Clipboard, Windows, Calculator, Web, Help, Files, Run }
 public static class ClipboardModeRules
 {
     public static PaletteMode Resolve(PaletteMode requested, bool enabled) => enabled ? requested : PaletteMode.Commands;

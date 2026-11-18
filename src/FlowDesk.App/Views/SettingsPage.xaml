@@ -194,6 +194,10 @@
                         </settings:SettingsCard>
                     </settings:SettingsExpander.Items>
                 </settings:SettingsExpander>
+                <settings:SettingsCard Header="Run history" Description="Keep the last 20 command lines used with the &gt; prefix.">
+                    <Button Content="Clear history" Command="{Binding ClearPaletteRunHistoryCommand}"
+                            AutomationProperties.Name="Clear palette run history" />
+                </settings:SettingsCard>
                 <settings:SettingsCard Header="Calculator"
                     Description="Math, unit conversion and time zones in the search box.">
                     <ToggleSwitch IsOn="{Binding PaletteCalculatorEnabled, Mode=TwoWay}"

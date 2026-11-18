@@ -1,6 +1,6 @@
 namespace FlowDesk.Core.Palette;
 
-public enum CommandKind { Workspace, Action, App, Settings, File, Clipboard, Window, Calculator, Web, System, Help }
+public enum CommandKind { Workspace, Action, App, Settings, File, Clipboard, Window, Calculator, Web, System, Help, Run }
 public sealed record PaletteAction(string Title, Func<Task> Run, string Glyph = "\uE76C",
     string? Shortcut = null, bool KeepsPaletteOpen = false, bool NeedsConfirm = false,
     string? ConfirmationPrompt = null);

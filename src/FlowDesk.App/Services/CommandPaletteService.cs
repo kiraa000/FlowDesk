@@ -46,6 +46,7 @@ internal sealed class CommandPaletteService : IDisposable
               new AppCommandSource(index.Apps), new SettingsCommandSource(PaletteShellIndex.LaunchAsync),
               new SnapshotCommandSource("Recent files", () => fileSearchEnabled ? index.Recent.Snapshot : []),
               new CustomCommandSource(() => Volatile.Read(ref customCommands), CustomCommandExecutor.RunAsync),
+              new RunCommandSource(usage, CustomCommandExecutor.RunAsync, usage.SaveAsync, RefreshWindowResults),
              new SnapshotCommandSource("Open windows", () => Volatile.Read(ref openWindows), PaletteMode.Windows),
              new SnapshotCommandSource("System commands", () => Volatile.Read(ref systemCommands)),
              new CalculatorCommandSource(() => calculatorEnabled, CopyAsync),
@@ -68,9 +69,16 @@ internal sealed class CommandPaletteService : IDisposable
         vm.Settings.ApplyClipboardHistory = SetClipboardAsync;
         vm.Settings.ClearClipboardHistory = clipboard.Clear;
         vm.Settings.PaletteSourcesChanged = SourcesChanged;
+        vm.Settings.ClearRunHistory = async () =>
+        {
+            usage.ClearRunHistory();
+            try { await Task.Run(usage.SaveAsync); window.RefreshResults(); }
+            catch (Exception) { this.notify("Run history could not be saved. Try again."); }
+        };
         index.Apps.Changed += IndexChanged; index.Recent.Changed += IndexChanged;
     }
     private void IndexChanged() => dispatcher.TryEnqueue(() => { if (!disposed && window.IsOpen) window.RefreshResults(); });
+    private void RefreshWindowResults() => dispatcher.TryEnqueue(() => { if (!disposed) window.RefreshResults(); });
     public async Task InitializeAsync()
     {
         await Task.Run(usage.Load);

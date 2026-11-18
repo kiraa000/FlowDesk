@@ -36,7 +36,7 @@ public sealed class PaletteV2Tests
     {
         PaletteMode entered = PaletteMode.Commands;
         var help = PalettePrefixes.Help(m => m != PaletteMode.Web, m => { entered = m; return Task.CompletedTask; });
-        Assert.Equal(3, help.Count);
+        Assert.Equal(4, help.Count);
         await help[0].Item.Actions[0].Run();
         Assert.Equal(PaletteMode.Windows, entered);
         Assert.Equal(PaletteMode.Windows, PalettePrefixes.Backspace(entered, " "));
