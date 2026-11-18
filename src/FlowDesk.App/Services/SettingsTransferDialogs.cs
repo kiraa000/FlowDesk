@@ -23,6 +23,7 @@ internal sealed class SettingsTransferDialogs(FrameworkElement root)
         var settings = AddSection(content, checks, "Settings and shortcuts");
         var customCommands = AddSection(content, checks, "Custom palette commands");
         content.Children.Add(Ui.Text(PrivacyText, CaptionStyle, secondary: true));
+        content.Children.Add(Ui.Text("Review command arguments and web addresses before sharing.", CaptionStyle, secondary: true));
 
         var dialog = CreateDialog("Export FlowDesk settings", content, "Export");
         void Update() => dialog.IsPrimaryButtonEnabled = checks.Any(check => check.IsChecked == true);
@@ -39,7 +40,8 @@ internal sealed class SettingsTransferDialogs(FrameworkElement root)
             Replace: false);
     }
 
-    public async Task<TransferSelection?> ImportAsync(TransferPreview preview, int existingWorkspaceCount)
+    public async Task<TransferSelection?> ImportAsync(TransferPreview preview, int existingWorkspaceCount,
+        int existingCustomCommandCount)
     {
         var content = new StackPanel { Spacing = 8, MaxWidth = 440 };
         var checks = new List<CheckBox>();
@@ -81,10 +83,12 @@ internal sealed class SettingsTransferDialogs(FrameworkElement root)
             if (mode is not null) mode.Visibility = useWorkspaces ? Visibility.Visible : Visibility.Collapsed;
             if (caution is null) return;
             bool replace = useWorkspaces && mode?.SelectedIndex == 1;
-            caution.Text = replace
-                ? $"This removes your {existingWorkspaceCount} existing workspace{(existingWorkspaceCount == 1 ? "" : "s")}. Your apps and files are not deleted."
-                : "";
-            caution.Visibility = replace ? Visibility.Visible : Visibility.Collapsed;
+            if (!replace) { caution.Text = ""; caution.Visibility = Visibility.Collapsed; return; }
+            string text = $"This removes your {existingWorkspaceCount} existing workspace{(existingWorkspaceCount == 1 ? "" : "s")}. Your apps and files are not deleted.";
+            if (byId.TryGetValue("customCommands", out var commands) && commands.IsChecked == true)
+                text += $" This also replaces your {existingCustomCommandCount} custom command{(existingCustomCommandCount == 1 ? "" : "s")}.";
+            caution.Text = text;
+            caution.Visibility = Visibility.Visible;
         }
         Subscribe(checks, Update);
         if (mode is not null) mode.SelectionChanged += (_, _) => Update();

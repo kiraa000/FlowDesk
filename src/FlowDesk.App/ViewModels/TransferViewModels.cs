@@ -18,9 +18,18 @@ public partial class AppViewModels
         WorkspacesCollection.Clear();
         foreach (var w in Services.Data.Workspaces) WorkspacesCollection.Add(new(w, this));
         activeWorkspace = WorkspacesCollection.FirstOrDefault(w => w.Model.Id == active);
+        if (activeWorkspace is null) { Services.Switcher.ClearActive(); AutoSave.Coordinator.Deactivate(); }
         Workspaces.UpdateEmpty(); Details.Workspace = null;
         Focus.Load(); Settings.Load(); RefreshInputPages(); RefreshAdvancedPages();
         HasReport = false; Navigate(AppPage.Workspaces);
+    }
+    internal async Task RestoreUndoActivationAsync()
+    {
+        if (activeWorkspace?.Model.Id == Services.Settings.ActiveWorkspaceId) return;
+        activeWorkspace = null; Services.Switcher.ClearActive(); AutoSave.Coordinator.Deactivate();
+        // This is a local backup identity, not an imported active id. Startup's existing resume policy
+        // only enumerates/rebaselines; it does not restore, launch, focus or move any window.
+        await ResumeActiveWorkspaceAsync();
     }
 }
 

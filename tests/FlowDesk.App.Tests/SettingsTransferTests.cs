@@ -46,6 +46,8 @@ public sealed class SettingsTransferTests
         Assert.Equal(settings.ShortcutOverrides, plan.Settings.ShortcutOverrides); Assert.Equal(settings.DisabledShortcuts, plan.Settings.DisabledShortcuts);
         Assert.Equal(new[] { "work" }, plan.Settings.AutosaveOff); Assert.Equal(new[] { "work" }, plan.Settings.AlwaysAddNewWindows);
         Assert.Equal(settings.CustomCommands.Entries, plan.Settings.CustomCommands.Entries); Assert.Empty(plan.Warnings);
+        Assert.Equal(SettingsTransfer.Export(source, settings, new(), "test", DateTimeOffset.UnixEpoch),
+            SettingsTransfer.Export(plan.Data, plan.Settings, new(), "test", DateTimeOffset.UnixEpoch));
     }
     [Fact] public void SerializedAllowListDoesNotContainLocalStateOrComputedAppKey()
     {
@@ -237,5 +239,39 @@ public sealed class SettingsTransferTests
             await File.WriteAllTextAsync(path, "{"); Assert.Contains("not valid", (await SettingsTransfer.ReadAsync(path)).Error);
         }
         finally { Directory.Delete(root, true); }
+    }
+    [Theory]
+    [InlineData(@"\\server\share\program.exe")]
+    [InlineData(@"\\?\UNC\server\share\program.exe")]
+    [InlineData(@"\\?\D:\program.exe")]
+    public void NetworkOrDeviceCommandTargetsAreNeverProbed(string target)
+    {
+        var settings = new AppSettings { CustomCommands = new() { Entries = [new("remote", "Remote", "remote", CustomTargetKind.Program, target)] } };
+        var preview = Parse(SettingsTransfer.Export(new(), settings, new(), "test")); int probes = 0;
+        var plan = SettingsTransfer.Merge(new(), new(), preview, new(), _ => { probes++; throw new InvalidOperationException("Must never probe"); });
+        Assert.Equal(0, probes); Assert.Empty(plan.Settings.CustomCommands.Entries); Assert.Single(plan.Warnings);
+    }
+    [Fact] public void NullLocalAiOptionsDoNotPreventExport()
+    {
+        var json = SettingsTransfer.Export(new(), new() { Ai = null! }, new(), "test");
+        var preview = Parse(json); Assert.Null(preview.Error); Assert.All(preview.Sections, row => Assert.Null(row.Error));
+    }
+    [Fact] public void ReplaceOnlyReplacesCustomCommandsWhenTheirSectionIsSelected()
+    {
+        var local = new AppSettings { CustomCommands = new() { Entries = [new("old", "Old", "old", CustomTargetKind.Url, "https://example.org")] } };
+        var incoming = new AppSettings { CustomCommands = new() { Entries = [new("new", "New", "new", CustomTargetKind.Url, "https://example.org")] } };
+        var preview = Parse(SettingsTransfer.Export(new(), incoming, new(), "test"));
+        var replaced = SettingsTransfer.Merge(new(), local, preview, new(Replace: true));
+        var untouched = SettingsTransfer.Merge(new(), local, preview, new(CustomCommands: false, Replace: true));
+        Assert.Equal("new", Assert.Single(replaced.Settings.CustomCommands.Entries).Id);
+        Assert.Equal("old", Assert.Single(untouched.Settings.CustomCommands.Entries).Id);
+    }
+    [Fact] public async Task WorkerPreparationUsesDispatcherSnapshotNotLaterMutations()
+    {
+        var (data, settings) = Sample(); var preview = Parse(SettingsTransfer.Export(new(), new(), new(), "test"));
+        var pending = SettingsTransfer.PrepareAsync(data, settings, preview, new(false, false, false, false));
+        data.Workspaces.Clear(); settings.Theme = "Light";
+        var plan = await pending;
+        Assert.Single(plan.Data.Workspaces); Assert.Equal("Dark", plan.Settings.Theme);
     }
 }

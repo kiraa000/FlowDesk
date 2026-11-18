@@ -70,9 +70,12 @@ public static class SettingsTransfer
         if (selection.Focus) sections["focus"] = JsonSerializer.SerializeToNode(data.Focus, ExportOptions);
         if (selection.Settings)
         {
-            var safe = Filter(Object(settings));
+            var source = Object(settings);
+            var ai = settings.Ai ?? new AiOptions();
+            source["Ai"] = Object(ai);
+            var safe = Filter(source);
             // The normal editor forbids credentials/query tokens in endpoint URLs. Defend old/hand-edited stores too.
-            if (AiRules.Validate(settings.Ai with { Provider = AiProviderKind.OpenAICompatible }) is not null)
+            if (AiRules.Validate(ai with { Provider = AiProviderKind.OpenAICompatible }) is not null)
                 safe["Ai"]!["BaseUrl"] = new AiOptions().BaseUrl;
             sections["settings"] = safe;
         }
@@ -162,6 +165,33 @@ public static class SettingsTransfer
     }
     private static string Label(string id) => id switch { "workspaces" => "Workspaces and layouts", "focus" => "Focus settings", "settings" => "Settings and shortcuts", _ => "Custom palette commands" };
 
+    public static Task<TransferPlan> PrepareAsync(FlowDeskData current, AppSettings local, TransferPreview preview, TransferSelection selection)
+    {
+        // Snapshot dispatcher-owned state before doing any local filesystem checks off-thread.
+        var data = Copy(current); var settings = Copy(local);
+        return Task.Run(() => Merge(data, settings, preview, selection));
+    }
+
+    private static bool DrivePath(string path) => path.Length >= 3 && char.IsAsciiLetter(path[0]) && path[1] == ':' && path[2] is '\\' or '/';
+    private static bool ExistsLocal(string path)
+    {
+        // Never authenticate to an imported UNC/device/mapped-network path. Also refuse reparse ancestors
+        // (junctions/symlinks/cloud placeholders) before traversing them: a local-looking path may lead to SMB.
+        try
+        {
+            string full = Path.GetFullPath(path); string root = Path.GetPathRoot(full)!;
+            if (new DriveInfo(root).DriveType is not (DriveType.Fixed or DriveType.Removable or DriveType.CDRom or DriveType.Ram)) return false;
+            string cursor = root;
+            foreach (string part in full[root.Length..].Split(['\\', '/'], StringSplitOptions.RemoveEmptyEntries))
+            {
+                cursor = Path.Combine(cursor, part);
+                if ((File.GetAttributes(cursor) & FileAttributes.ReparsePoint) != 0) return false;
+            }
+            return File.Exists(full) || Directory.Exists(full);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException) { return false; }
+    }
+
     public static TransferPlan Merge(FlowDeskData current, AppSettings local, TransferPreview preview, TransferSelection selection,
         Func<string, bool>? exists = null)
     {
@@ -205,7 +235,7 @@ public static class SettingsTransfer
                 var c = source;
                 // Validate ignores matching ids (editor semantics), so remap identity before checking keyword clashes.
                 if (entries.Any(e => e.Id == c.Id)) c = c with { Id = Guid.NewGuid().ToString("N") };
-                string? error = CustomCommandRules.Validate(c, entries, exists ?? (p => File.Exists(p) || Directory.Exists(p)));
+                string? error = CustomCommandRules.Validate(c, entries, p => DrivePath(p) && (exists ?? ExistsLocal)(p));
                 if (error is not null) { warnings.Add($"Custom command '{c.Name}' skipped: {error}"); continue; }
                 entries.Add(c);
             }

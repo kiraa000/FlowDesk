@@ -10,6 +10,7 @@ public sealed partial class MainWindow
 {
     private bool transferOpen;
     private AppServices.ImportUndo? importUndo;
+    private bool importReplaced;
     private InfoBar? transferBar;
     private bool TransferAvailable => loaded && !initializing && !closing && !endingSession && !exitRequested && App.ViewModels.CanTransfer;
     private void InitializeTransfer()
@@ -64,15 +65,16 @@ public sealed partial class MainWindow
             var preview = await SettingsTransfer.ReadAsync(file.Path);
             if (preview.Error is { } error) { App.ViewModels.ShowStatus(error, StatusKind.Error); return; }
             if (!TransferAvailable) return;
-            var selection = await new SettingsTransferDialogs(Root).ImportAsync(preview, services.Data.Workspaces.Count);
+            var selection = await new SettingsTransferDialogs(Root).ImportAsync(preview, services.Data.Workspaces.Count, services.Settings.CustomCommands.Entries.Count);
             if (selection is null || !TransferAvailable) return;
             await App.ViewModels.ExecuteAsync(async () =>
             {
                 // Re-evaluate current state after preview: autosave may have updated it while the dialog was open.
-                var plan = SettingsTransfer.Merge(services.Data, services.Settings, preview, selection);
+                var plan = await SettingsTransfer.PrepareAsync(services.Data, services.Settings, preview, selection);
                 importUndo = await services.ImportAsync(plan);
+                importReplaced = selection.Workspaces && selection.Replace && preview.Workspaces is not null;
                 transferBar!.IsOpen = true;
-                App.ViewModels.ReloadTransferViews(selection.Workspaces && selection.Replace && preview.Workspaces is not null);
+                App.ViewModels.ReloadTransferViews(importReplaced);
                 var warnings = plan.Warnings.ToList();
                 try { warnings.AddRange(await App.ViewModels.Settings.ApplyTransferredSettingsAsync()); }
                 catch (Exception) { warnings.Add("Some input settings could not be applied. Check Settings before using shortcuts."); }
@@ -94,8 +96,9 @@ public sealed partial class MainWindow
             {
                 await services.UndoImportAsync(saved);
                 importUndo = null; transferBar!.IsOpen = false;
-                App.ViewModels.ReloadTransferViews(replaced: true);
+                App.ViewModels.ReloadTransferViews(importReplaced);
                 var warnings = await App.ViewModels.Settings.ApplyTransferredSettingsAsync();
+                await App.ViewModels.RestoreUndoActivationAsync();
                 App.ViewModels.ShowStatus(warnings.Count == 0 ? "Import undone. Your previous data was restored." :
                     "Import undone. " + string.Join(Environment.NewLine, warnings), warnings.Count == 0 ? StatusKind.Success : StatusKind.Warning);
             });
