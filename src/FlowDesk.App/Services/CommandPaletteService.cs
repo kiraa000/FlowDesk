@@ -60,7 +60,8 @@ internal sealed class CommandPaletteService : IDisposable
         window = new(new PaletteStreamingSearch(search, slowSources, (_, ex) => Log(ex)), usage, this.notify);
         clipboard = new(window.Handle, () => window.RefreshResults());
         files = new(usage, CopyAsync, path => clipboard.CopyFile(path), () =>
-        { showMain(); vm.OpenAdvancedFromCalm(); return Task.CompletedTask; }, () => window.Handle);
+        { showMain(); vm.OpenAdvancedFromCalm(); return Task.CompletedTask; }, () => window.Handle, PreviewPathAsync);
+        window.ClosePreview = () => services.QuickLook?.ClosePathPreview(window.Handle) == true;
         slowSources.Add(files);
         index.FileItem = files.Item;
         switcher = new(services, CopyAsync, this.notify, window.HidePalette);
@@ -84,6 +85,12 @@ internal sealed class CommandPaletteService : IDisposable
     }
     private void IndexChanged() => dispatcher.TryEnqueue(() => { if (!disposed && window.IsOpen) window.RefreshResults(); });
     private void RefreshWindowResults() => dispatcher.TryEnqueue(() => { if (!disposed) window.RefreshResults(); });
+    private Task PreviewPathAsync(string path)
+    {
+        if (services.QuickLook?.Enabled != true) notify("Turn on Quick Look in Settings to preview files.");
+        else if (!services.QuickLook.ShowPath(path, window.Handle)) notify("That file could not be previewed. Try again.");
+        return Task.CompletedTask;
+    }
     public async Task InitializeAsync()
     {
         await Task.Run(usage.Load);

@@ -68,6 +68,7 @@ internal sealed partial class CommandPaletteWindow : Window
     private long confirmationVersion;
     public bool IsOpen { get; private set; }
     public Action? BeforeQuery { get; set; }
+    public Func<bool>? ClosePreview { get; set; }
     public nint Handle => hwnd;
     public PaletteMode Mode { get; private set; }
     public Func<bool>? ClipboardEnabled { get; set; }
@@ -167,6 +168,7 @@ internal sealed partial class CommandPaletteWindow : Window
     }
     public void HidePalette()
     {
+        ClosePreview?.Invoke();
         IsOpen = false; activationPending = false; foregroundAcquired = false; generation++; openEpoch++; query?.Cancel();
         CancelConfirmation(); CloseActions(restore: false);
         acrylic.Update(false, Root.ActualTheme);
@@ -227,6 +229,7 @@ internal sealed partial class CommandPaletteWindow : Window
     private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
     {
         if (!IsOpen || opening || changingMode) return;
+        ClosePreview?.Invoke();
         CancelConfirmation();
         if (panel is not null) CloseActions();
         string text = SearchBox.Text;
@@ -239,6 +242,7 @@ internal sealed partial class CommandPaletteWindow : Window
         => SetMode(requested, "");
     private void SetMode(PaletteMode requested, string text)
     {
+        ClosePreview?.Invoke();
         CancelConfirmation(); CloseActions(restore: false);
         Mode = (requested == PaletteMode.Clipboard && ClipboardEnabled?.Invoke() != true) || !ModeEnabled(requested)
             ? PaletteMode.Commands : requested;
@@ -339,6 +343,7 @@ internal sealed partial class CommandPaletteWindow : Window
         int next = key switch { VirtualKey.Up => selected - 1, VirtualKey.Down => selected + 1,
             VirtualKey.PageUp => selected - 8, VirtualKey.PageDown => selected + 8, VirtualKey.Home => 0, VirtualKey.End => count - 1, _ => int.MinValue };
         if (next == int.MinValue) return false;
+        ClosePreview?.Invoke();
         if (count > 0) { Results.SelectedIndex = Math.Clamp(next, 0, count - 1); Results.ScrollIntoView(Results.SelectedItem); }
         return true;
     }
@@ -355,6 +360,18 @@ internal sealed partial class CommandPaletteWindow : Window
         if (e.Handled || !IsOpen) return;
         if (e.Key == VirtualKey.Enter) TraceSurface($"enter repeat={e.KeyStatus.WasKeyDown} current={resultsCurrent} running={running} panel={panel is not null}");
         bool ctrl = (GetKeyState(0x11) & 0x8000) != 0;
+        if (ctrl && e.Key == VirtualKey.Y)
+        {
+            e.Handled = true;
+            if (!e.KeyStatus.WasKeyDown && ClosePreview?.Invoke() != true && panel is null && Results.SelectedItem is PaletteResultRow previewRow)
+            {
+                int previewIndex = previewRow.Match.Item.Actions.ToList().FindIndex(a => a.Title == "Quick Look");
+                if (previewIndex >= 0) _ = RunAsync(previewRow, previewIndex, PaletteInvocation.ModifiedEnter);
+            }
+            return;
+        }
+        if (e.Key == VirtualKey.Escape && ClosePreview?.Invoke() == true) { e.Handled = true; return; }
+        if (e.Key == VirtualKey.Enter || e.Key is VirtualKey.Up or VirtualKey.Down or VirtualKey.PageUp or VirtualKey.PageDown) ClosePreview?.Invoke();
         if (e.Key != VirtualKey.Enter) CancelConfirmation();
         if (ctrl && e.Key == VirtualKey.K)
         { e.Handled = true; if (!e.KeyStatus.WasKeyDown) ToggleActions(); return; }
@@ -400,6 +417,7 @@ internal sealed partial class CommandPaletteWindow : Window
     private void Help_Click(object sender, RoutedEventArgs e) { SetMode(PaletteMode.Help); SearchBox.Focus(FocusState.Programmatic); }
     private void ToggleActions()
     {
+        ClosePreview?.Invoke();
         CancelConfirmation();
         if (panel is not null) { CloseActions(); return; }
         if (!resultsCurrent || Results.SelectedItem is not PaletteResultRow row || row.Match.Item.Actions.Count == 0) return;

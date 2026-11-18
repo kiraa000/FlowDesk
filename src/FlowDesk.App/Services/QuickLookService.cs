@@ -22,7 +22,29 @@ public sealed class QuickLookService : IQuickLookInput, IDisposable
     private bool disposed, polling, opening;
     private int? desktop;
     private long enableGeneration;
+    private readonly QuickLookPathSession pathSession = new();
     public bool Enabled => enabled;
+    public bool ShowPath(string path, nint source)
+    {
+        if (disposed || !enabled || QuickLookNative.GetForegroundWindow() != source) return false;
+        Close();
+        if (!pathSession.Begin(path, source, QuickLookNative.GetForegroundWindow(), enabled)) return false;
+        try
+        {
+            window ??= CreateWindow(); owner = source; session = new();
+            desktop = services.Desktops.GetCurrent();
+            if (desktop is int target) services.Desktops.MoveWindow((long)window.NativeHandle, target);
+            item = new(path, System.IO.Path.GetFileName(path), path, false, System.IO.Path.GetExtension(path));
+            window.ShowFrame(source, services.Settings.Theme);
+            _ = window.DisplayAsync(item); timer.Start(); return true;
+        }
+        catch (Exception) { Close(); return false; }
+    }
+    public bool ClosePathPreview(nint source)
+    {
+        if (!pathSession.BelongsTo(source)) return false;
+        Close(); return true;
+    }
     public nint PreviewOwner => Volatile.Read(ref owner);
     public QuickLookService(DispatcherQueue dispatcher, AppServices services)
     {
@@ -77,6 +99,7 @@ public sealed class QuickLookService : IQuickLookInput, IDisposable
         if (!QuickLookNative.IsWindow(source) || QuickLookNative.GetForegroundWindow() != source ||
             (desktop is not null && services.Desktops.GetCurrent() is int current && current != desktop))
         { Close(); return; }
+        if (pathSession.Active) return; // explicit path stays pinned; no Explorer polling
         if (polling) return;
         polling = true;
         try
@@ -117,7 +140,8 @@ public sealed class QuickLookService : IQuickLookInput, IDisposable
             // again instead of accidentally launching the old displayed file. A thumbnail may own
             // the STA briefly; retry only within this one bounded request, never launch stale state.
             var watch = Stopwatch.StartNew();
-            while (watch.ElapsedMilliseconds < 700)
+            if (pathSession.Active) selected = item;
+            while (!pathSession.Active && watch.ElapsedMilliseconds < 700)
             {
                 selected = await shell.ReadAsync(source, token);
                 if (selected is not null) break;
@@ -147,7 +171,9 @@ public sealed class QuickLookService : IQuickLookInput, IDisposable
     }
     private void Close()
     {
+        pathSession.Clear();
         owner = 0; timer.Stop(); session?.Cancel(); session?.Dispose(); session = null;
+        pathSession.Clear();
         item = null; window?.HidePreview();
     }
     public void Dispose()

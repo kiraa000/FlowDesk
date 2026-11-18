@@ -6,7 +6,7 @@ using FlowDesk.Core.Palette;
 namespace FlowDesk.App.Services;
 
 internal sealed class PaletteFileSource(PaletteUsageStore usage, Func<string, Task> copyPath,
-    Action<string> copyFile, Func<Task> advanced, Func<nint> owner) : IAsyncCommandSource
+    Action<string> copyFile, Func<Task> advanced, Func<nint> owner, Func<string, Task> preview) : IAsyncCommandSource
 {
     private Task<IPaletteFileBackend?> backend = Task.FromResult<IPaletteFileBackend?>(null);
     private volatile bool enabled;
@@ -47,6 +47,7 @@ internal sealed class PaletteFileSource(PaletteUsageStore usage, Func<string, Ta
             actions.Add(new("Show in Explorer", () => PaletteShellIndex.OpenLocationAsync(path), "\uE838", "Ctrl+Enter"));
             actions.Add(new("Open with…", () => OpenWithAsync(path), "\uE8A7"));
             actions.Add(new("Copy file", () => { copyFile(path); return Task.CompletedTask; }, "\uE8C8"));
+            actions.Add(new("Quick Look", () => preview(path), "\uE890", "Ctrl+Y", KeepsPaletteOpen: true));
             if (FileSearchQuery.CanElevate(path)) actions.Add(new("Run as administrator", () => ElevateAsync(path), "\uEA18"));
         }
         actions.Add(new("Copy path", () => copyPath(path), "\uE8C8"));
