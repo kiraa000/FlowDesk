@@ -26,6 +26,7 @@ public sealed class ClipboardHistory
     public bool Enabled { get; private set; }
     public void SetEnabled(bool enabled) { Enabled = enabled; if (!enabled) Clear(); }
     public void Clear() => items.Clear();
+    public void Delete(long id) => items.RemoveAll(e => e.Id == id);
     public ClipboardEntry[] Snapshot() => items.ToArray();
     public bool Capture(string? text, ClipboardPrivacy privacy, bool selfWrite, DateTimeOffset now)
     {
@@ -38,7 +39,7 @@ public sealed class ClipboardHistory
     public static bool Matches(ClipboardEntry entry, string query) => string.IsNullOrWhiteSpace(query) || CommandMatcher.Match(entry.Display, query, allowFuzzy: false).Score > 0;
 }
 
-public enum PaletteMode { Commands, Clipboard }
+public enum PaletteMode { Commands, Clipboard, Windows, Calculator, Web, Help }
 public static class ClipboardModeRules
 {
     public static PaletteMode Resolve(PaletteMode requested, bool enabled) => enabled ? requested : PaletteMode.Commands;

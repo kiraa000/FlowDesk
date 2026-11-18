@@ -26,7 +26,7 @@ public sealed class RecentFileCommandSource(CommandIndex index) : ICommandSource
     public string Name => "Recent files";
     public IEnumerable<CommandMatch> Query(string query) => new SnapshotCommandSource(Name, () => index.Snapshot).Query(query);
     public static IReadOnlyList<CommandItem> Resolve(IEnumerable<string> links, Func<string, string?> resolve,
-        Func<string, bool> exists, Func<string, Task> open, Func<string, Task> location, Action<Exception> log)
+        Func<string, bool> exists, Func<string, Task> open, Func<string, Task> location, Action<Exception> log, Func<string, Task>? copy = null)
     {
         var items = new List<CommandItem>();
         foreach (string link in links)
@@ -36,7 +36,9 @@ public sealed class RecentFileCommandSource(CommandIndex index) : ICommandSource
                 string? target = resolve(link);
                 if (string.IsNullOrWhiteSpace(target) || !exists(target)) continue;
                 items.Add(new("file:" + target.ToUpperInvariant(), Path.GetFileName(target.TrimEnd('\\')), "File · " + target,
-                    CommandKind.File, target, () => open(target), () => location(target), Synonyms: target));
+                    CommandKind.File, target, () => open(target), () => location(target), Synonyms: target, NamedActions: copy is null ? null :
+                    [new("Open", () => open(target), "\uE8E5", "Enter"), new("Show in Explorer", () => location(target), "\uE838", "Ctrl+Enter"),
+                        new("Copy path", () => copy(target), "\uE8C8")]));
             }
             catch (Exception ex) { log(ex); }
         }
