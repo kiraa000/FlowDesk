@@ -141,6 +141,24 @@
                                   IsEnabled="{Binding PaletteCanToggle}"
                                   AutomationProperties.Name="File search in the command palette" />
                 </settings:SettingsCard>
+                <settings:SettingsCard Header="Edge bookmarks"
+                    Description="Search bookmarks from all Edge profiles with b or in mixed results.">
+                    <ToggleSwitch IsOn="{Binding PaletteEdgeBookmarks, Mode=TwoWay}"
+                                  IsEnabled="{Binding PaletteCanToggle}"
+                                  AutomationProperties.Name="Edge bookmarks in the command palette" />
+                </settings:SettingsCard>
+                <settings:SettingsCard Header="Chrome bookmarks"
+                    Description="Search bookmarks from all Chrome profiles with b or in mixed results.">
+                    <ToggleSwitch IsOn="{Binding PaletteChromeBookmarks, Mode=TwoWay}"
+                                  IsEnabled="{Binding PaletteCanToggle}"
+                                  AutomationProperties.Name="Chrome bookmarks in the command palette" />
+                </settings:SettingsCard>
+                <settings:SettingsCard Header="Firefox bookmarks"
+                    Description="Search bookmarks from all Firefox profiles with b or in mixed results.">
+                    <ToggleSwitch IsOn="{Binding PaletteFirefoxBookmarks, Mode=TwoWay}"
+                                  IsEnabled="{Binding PaletteCanToggle}"
+                                  AutomationProperties.Name="Firefox bookmarks in the command palette" />
+                </settings:SettingsCard>
                 <settings:SettingsExpander Header="Custom commands"
                     Description="Run your own links, files, programs and PowerShell scripts from the palette.">
                     <settings:SettingsExpander.Items>

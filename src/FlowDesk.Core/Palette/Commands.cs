@@ -1,6 +1,6 @@
 namespace FlowDesk.Core.Palette;
 
-public enum CommandKind { Workspace, Action, App, Settings, File, Clipboard, Window, Calculator, Web, System, Help, Run }
+public enum CommandKind { Workspace, Action, App, Settings, File, Clipboard, Window, Calculator, Web, System, Help, Run, Bookmark }
 public sealed record PaletteAction(string Title, Func<Task> Run, string Glyph = "\uE76C",
     string? Shortcut = null, bool KeepsPaletteOpen = false, bool NeedsConfirm = false,
     string? ConfirmationPrompt = null);
@@ -77,7 +77,7 @@ public sealed class CommandSearch(IEnumerable<ICommandSource> sources, PaletteUs
         var ranked = matches.DistinctBy(m => m.Item.Id)
             .Where(m => !recent || (m.Item.RecordUsage && usage.Get(m.Item.Id).Count > 0))
             .Select(m => m with { Score = recent ? usage.Get(m.Item.Id).LastUsed.UtcTicks : m.Score + (m.Item.RecordUsage ? usage.Boost(m.Item.Id) : 0) })
-            .OrderByDescending(m => m.Score).ThenBy(m => Priority(m.Item.Kind))
+            .OrderBy(m => PaletteResultMerge.Group(m, mode)).ThenByDescending(m => m.Score).ThenBy(m => Priority(m.Item.Kind))
             .ThenBy(m => m.Item.Title, StringComparer.OrdinalIgnoreCase).ToArray();
         return ranked.Length > 80 && ranked[^1].Score == WebSearch.FallbackScore
             ? [.. ranked.Take(79), ranked[^1]] : ranked.Take(80).ToArray();

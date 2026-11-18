@@ -27,6 +27,9 @@ internal sealed class CommandPaletteService : IDisposable
     private CommandItem[] openWindows = [], systemCommands = [];
     private WebOptions web = new(true, true, WebEngine.Google, "");
     private CustomCommandSettings customCommands = new();
+    private readonly CommandIndex bookmarks = new();
+    private readonly PaletteBookmarkReader bookmarkReader = new();
+    private BookmarkOptions bookmarkOptions = new();
     private volatile bool calculatorEnabled = true;
     private volatile bool fileSearchEnabled = true;
     private long snapshotEpoch;
@@ -47,6 +50,7 @@ internal sealed class CommandPaletteService : IDisposable
               new SnapshotCommandSource("Recent files", () => fileSearchEnabled ? index.Recent.Snapshot : []),
               new CustomCommandSource(() => Volatile.Read(ref customCommands), CustomCommandExecutor.RunAsync),
               new RunCommandSource(usage, CustomCommandExecutor.RunAsync, usage.SaveAsync, RefreshWindowResults),
+              new SnapshotCommandSource("Bookmarks", BookmarkSnapshot, PaletteMode.Bookmarks),
              new SnapshotCommandSource("Open windows", () => Volatile.Read(ref openWindows), PaletteMode.Windows),
              new SnapshotCommandSource("System commands", () => Volatile.Read(ref systemCommands)),
              new CalculatorCommandSource(() => calculatorEnabled, CopyAsync),
@@ -76,6 +80,7 @@ internal sealed class CommandPaletteService : IDisposable
             catch (Exception) { this.notify("Run history could not be saved. Try again."); }
         };
         index.Apps.Changed += IndexChanged; index.Recent.Changed += IndexChanged;
+        bookmarks.Changed += IndexChanged;
     }
     private void IndexChanged() => dispatcher.TryEnqueue(() => { if (!disposed && window.IsOpen) window.RefreshResults(); });
     private void RefreshWindowResults() => dispatcher.TryEnqueue(() => { if (!disposed) window.RefreshResults(); });
@@ -182,6 +187,7 @@ internal sealed class CommandPaletteService : IDisposable
         PaletteMode.Calculator => services.Settings.PaletteCalculatorEnabled,
         PaletteMode.Web => services.Settings.PaletteWebEnabled,
         PaletteMode.Files => services.Settings.PaletteFilesEnabled,
+        PaletteMode.Bookmarks => services.Settings.PaletteEdgeBookmarks || services.Settings.PaletteChromeBookmarks || services.Settings.PaletteFirefoxBookmarks,
         _ => true
     };
     private void SourcesChanged()
@@ -215,6 +221,8 @@ internal sealed class CommandPaletteService : IDisposable
     private void StartSourceSnapshots(PaletteMode mode)
     {
         var settings = services.Settings;
+        var options = new BookmarkOptions(settings.PaletteEdgeBookmarks, settings.PaletteChromeBookmarks, settings.PaletteFirefoxBookmarks);
+        Volatile.Write(ref bookmarkOptions, options);
         calculatorEnabled = settings.PaletteCalculatorEnabled;
         var custom = settings.CustomCommands ?? new();
         Volatile.Write(ref customCommands, new() { Version = custom.Version, Entries = [.. (custom.Entries ?? []).Where(c => c is not null)] });
@@ -223,6 +231,7 @@ internal sealed class CommandPaletteService : IDisposable
         Volatile.Write(ref systemCommands, []);
         long epoch = ++snapshotEpoch;
         if (mode == PaletteMode.Clipboard && !window.IsOpen) return;
+        _ = RefreshBookmarksAsync(options);
         if (settings.PaletteWindowsEnabled)
         {
             if (windowsRead is not { IsCompleted: false }) windowsRead = Task.Run(() => switcher.Snapshot(index.Apps.Snapshot));
@@ -233,6 +242,25 @@ internal sealed class CommandPaletteService : IDisposable
             if (systemRead is not { IsCompleted: false }) systemRead = Task.Run(async () => SystemCommands.Create(system, await system.ReadAsync()).ToArray());
             _ = PublishAsync(systemRead, isWindows: false, epoch);
         }
+    }
+    private IReadOnlyList<CommandItem> BookmarkSnapshot()
+    {
+        var options = Volatile.Read(ref bookmarkOptions);
+        return bookmarks.Snapshot.Where(item => Enum.GetValues<BookmarkBrowser>().Any(browser => options.Enabled(browser) && item.Id.StartsWith("bookmark:" + browser + ":", StringComparison.Ordinal))).ToArray();
+    }
+    private async Task RefreshBookmarksAsync(BookmarkOptions options)
+    {
+        try { await bookmarks.RefreshAsync(() => Task.Run<IReadOnlyList<CommandItem>>(() => bookmarkReader.Read(options).Select(BookmarkItem).ToArray())); }
+        catch (Exception) { /* An inaccessible browser profile must not erase the last usable snapshot. */ }
+    }
+    private CommandItem BookmarkItem(BookmarkEntry bookmark)
+    {
+        Func<Task> open = () => CustomCommandExecutor.RunAsync(new(bookmark.Profile.Executable,
+            bookmark.Profile.Arguments + " " + CustomCommandRules.Quote(bookmark.Url), false));
+        return new(bookmark.Id, bookmark.Title, bookmark.Subtitle, CommandKind.Bookmark, bookmark.Profile.Executable, open,
+            Synonyms: bookmark.Url, NamedActions: [new("Open in " + bookmark.Profile.Browser + " · " + bookmark.Profile.Name, open, "\uE774", "Enter"),
+                new("Open in default browser", () => PaletteShellIndex.LaunchAsync(bookmark.Url), "\uE774", "Ctrl+Enter"),
+                new("Copy URL", () => CopyAsync(bookmark.Url), "\uE8C8")]);
     }
     private async Task PublishAsync(Task<CommandItem[]> load, bool isWindows, long epoch)
     {
@@ -339,7 +367,9 @@ internal sealed class CommandPaletteService : IDisposable
     {
         if (disposed) return; disposed = true;
         index.Apps.Changed -= IndexChanged; index.Recent.Changed -= IndexChanged;
+        bookmarks.Changed -= IndexChanged;
         vm.Settings.ApplyClipboardHistory = null; vm.Settings.ClearClipboardHistory = null; vm.Settings.PaletteSourcesChanged = null;
+        vm.Settings.ClearRunHistory = null;
         clipboard.Dispose(); window.Shutdown(); index.Dispose();
     }
 }

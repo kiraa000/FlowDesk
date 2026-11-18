@@ -60,7 +60,6 @@ internal sealed partial class CommandPaletteWindow : Window
     private bool foregroundAcquired;
     private bool changingMode, resultsCurrent;
     private PaletteActionPanel<PaletteResultRow>? panel;
-    private bool userSelected;
     private bool refreshAfterPanel;
     private readonly PaletteActionExecutor executor = new(() => Stopwatch.GetElapsedTime(ProcessStarted));
     private static readonly long ProcessStarted = Stopwatch.GetTimestamp();
@@ -268,7 +267,7 @@ internal sealed partial class CommandPaletteWindow : Window
     {
         query?.Cancel(); query?.Dispose(); query = new();
         var token = query.Token; long expected = ++generation; string text = SearchBox.Text;
-        if (!preserveSelection) { resultsCurrent = false; userSelected = false; UpdateHint(); }
+        if (!preserveSelection) { resultsCurrent = false; UpdateHint(); }
         try
         {
             BeforeQuery?.Invoke();
@@ -280,7 +279,7 @@ internal sealed partial class CommandPaletteWindow : Window
                 // A source finishing must not erase an already visible prompt or change its target.
                 if (executor.IsPending) { refreshAfterConfirmation = true; return; }
                 var rows = matches.Select(m => new PaletteResultRow(m)).ToArray();
-                string? selectedId = !first || (preserveSelection && userSelected) ? (Results.SelectedItem as PaletteResultRow)?.Match.Item.Id : null;
+                string? selectedId = !first || preserveSelection ? (Results.SelectedItem as PaletteResultRow)?.Match.Item.Id : null;
                 first = false;
                 resultsCurrent = true;
                 Results.ItemsSource = rows;
@@ -340,7 +339,7 @@ internal sealed partial class CommandPaletteWindow : Window
         int next = key switch { VirtualKey.Up => selected - 1, VirtualKey.Down => selected + 1,
             VirtualKey.PageUp => selected - 8, VirtualKey.PageDown => selected + 8, VirtualKey.Home => 0, VirtualKey.End => count - 1, _ => int.MinValue };
         if (next == int.MinValue) return false;
-        if (count > 0) { if (panel is null) userSelected = true; Results.SelectedIndex = Math.Clamp(next, 0, count - 1); Results.ScrollIntoView(Results.SelectedItem); }
+        if (count > 0) { Results.SelectedIndex = Math.Clamp(next, 0, count - 1); Results.ScrollIntoView(Results.SelectedItem); }
         return true;
     }
     private void ResizeForResults(int count)

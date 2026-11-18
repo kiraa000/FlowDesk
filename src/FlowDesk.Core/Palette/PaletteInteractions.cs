@@ -9,6 +9,7 @@ public static class PalettePrefixes
         new("w ", PaletteMode.Windows, "Windows", "Search open windows…", "Switch to an open window"),
         new("f ", PaletteMode.Files, "Files", "Search files and folders…", "Find indexed files and folders"),
         new(">", PaletteMode.Run, "Run", "Enter a command line…", "Run a command or choose from history"),
+        new("b ", PaletteMode.Bookmarks, "Bookmarks", "Search browser bookmarks…", "Open a bookmark in its browser profile"),
         new("=", PaletteMode.Calculator, "Calculator", "Enter an expression or conversion…", "Calculate, convert units or find a local time"),
         new("?", PaletteMode.Web, "Web", "Search or enter a URL…", "Search the web or open an address")
     });

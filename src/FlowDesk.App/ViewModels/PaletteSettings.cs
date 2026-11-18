@@ -16,6 +16,9 @@ public partial class SettingsViewModel
     [ObservableProperty] public partial string ClipboardStatus { get; set; } = "Off";
     [ObservableProperty] public partial bool PaletteWindowsEnabled { get; set; } = true;
     [ObservableProperty] public partial bool PaletteFilesEnabled { get; set; } = true;
+    [ObservableProperty] public partial bool PaletteEdgeBookmarks { get; set; } = true;
+    [ObservableProperty] public partial bool PaletteChromeBookmarks { get; set; } = true;
+    [ObservableProperty] public partial bool PaletteFirefoxBookmarks { get; set; } = true;
     [ObservableProperty] public partial string PaletteFileBackendStatus { get; set; } = "Checked when the palette opens";
     [ObservableProperty] public partial bool PaletteCalculatorEnabled { get; set; } = true;
     [ObservableProperty] public partial bool PaletteSystemEnabled { get; set; } = true;
@@ -30,6 +33,9 @@ public partial class SettingsViewModel
     internal Action? PaletteSourcesChanged { get; set; }
     partial void OnPaletteWindowsEnabledChanged(bool value) => SavePaletteSources();
     partial void OnPaletteFilesEnabledChanged(bool value) => SavePaletteSources();
+    partial void OnPaletteEdgeBookmarksChanged(bool value) => SavePaletteSources();
+    partial void OnPaletteChromeBookmarksChanged(bool value) => SavePaletteSources();
+    partial void OnPaletteFirefoxBookmarksChanged(bool value) => SavePaletteSources();
     partial void OnPaletteCalculatorEnabledChanged(bool value) => SavePaletteSources();
     partial void OnPaletteSystemEnabledChanged(bool value) => SavePaletteSources();
     partial void OnPaletteWebEnabledChanged(bool value) => SavePaletteSources();
@@ -50,6 +56,9 @@ public partial class SettingsViewModel
         var s = owner.Services.Settings;
         s.PaletteWindowsEnabled = PaletteWindowsEnabled;
         s.PaletteFilesEnabled = PaletteFilesEnabled;
+        s.PaletteEdgeBookmarks = PaletteEdgeBookmarks;
+        s.PaletteChromeBookmarks = PaletteChromeBookmarks;
+        s.PaletteFirefoxBookmarks = PaletteFirefoxBookmarks;
         s.PaletteCalculatorEnabled = PaletteCalculatorEnabled;
         s.PaletteSystemEnabled = PaletteSystemEnabled;
         s.PaletteWebEnabled = PaletteWebEnabled;
@@ -82,6 +91,9 @@ public partial class SettingsViewModel
         var s = owner.Services.Settings;
         PaletteWindowsEnabled = s.PaletteWindowsEnabled;
         PaletteFilesEnabled = s.PaletteFilesEnabled;
+        PaletteEdgeBookmarks = s.PaletteEdgeBookmarks;
+        PaletteChromeBookmarks = s.PaletteChromeBookmarks;
+        PaletteFirefoxBookmarks = s.PaletteFirefoxBookmarks;
         PaletteCalculatorEnabled = s.PaletteCalculatorEnabled;
         PaletteSystemEnabled = s.PaletteSystemEnabled;
         PaletteWebEnabled = s.PaletteWebEnabled;

@@ -55,10 +55,12 @@ public sealed class PaletteStreamingSearch(CommandSearch synchronous, IEnumerabl
 
 public static class PaletteResultMerge
 {
+    public static int Group(CommandMatch match, PaletteMode mode) => mode != PaletteMode.Commands ? 0 :
+        match.Score == WebSearch.FallbackScore ? 3 : match.Item.Kind == CommandKind.File ? 2 : match.Item.Kind == CommandKind.Bookmark ? 1 : 0;
     public static IReadOnlyList<CommandMatch> Merge(IEnumerable<CommandMatch> matches, PaletteMode mode)
     {
         var ranked = matches.DistinctBy(m => m.Item.Id)
-            .OrderBy(m => mode == PaletteMode.Commands ? m.Score == WebSearch.FallbackScore ? 2 : m.Item.Kind == CommandKind.File ? 1 : 0 : 0)
+            .OrderBy(m => Group(m, mode))
             .ThenByDescending(m => m.Score)
             .ThenBy(m => m.Item.Kind switch { CommandKind.Workspace or CommandKind.Action => 0, CommandKind.App => 1, CommandKind.Settings => 2, _ => 3 })
             .ThenBy(m => m.Item.Title, StringComparer.OrdinalIgnoreCase);
