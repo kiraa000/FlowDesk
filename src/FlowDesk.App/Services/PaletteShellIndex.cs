@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using FlowDesk.Core.Palette;
@@ -11,6 +12,7 @@ internal sealed class PaletteShellIndex : IDisposable
 {
     public CommandIndex Apps { get; } = new();
     public CommandIndex Recent { get; } = new();
+    public Func<string, Task>? CopyPath { get; set; }
     private readonly BlockingCollection<Action> queue = new(2);
     private readonly List<FileSystemWatcher> watchers = [];
     private readonly Timer timer;
@@ -91,8 +93,15 @@ internal sealed class PaletteShellIndex : IDisposable
                     if (string.IsNullOrWhiteSpace(target) && Path.IsPathFullyQualified(id)) target = id;
                     // Packaged apps need not expose an accessible executable. Do not label the virtual
                     // AppsFolder root as a file location: secondary exists only for real file targets.
-                    Func<Task>? secondary = !string.IsNullOrWhiteSpace(target) && Path.IsPathFullyQualified(target) ? () => OpenLocationAsync(target) : null;
-                    result.Add(new("app:" + id, name, "App", CommandKind.App, identity, () => LaunchAsync(identity), secondary));
+                    bool hasPath = !string.IsNullOrWhiteSpace(target) && Path.IsPathFullyQualified(target);
+                    Func<Task> open = () => LaunchAsync(identity), elevate = () => ElevateAsync(hasPath ? target! : identity);
+                    var actions = new List<PaletteAction> { new("Open", open, "\uE8E5", "Enter"), new("Run as administrator", elevate, "\uEA18", "Ctrl+Enter") };
+                    if (hasPath)
+                    {
+                        actions.Add(new("Open file location", () => OpenLocationAsync(target!), "\uE838"));
+                        actions.Add(new("Copy path", () => CopyPath?.Invoke(target!) ?? Task.CompletedTask, "\uE8C8"));
+                    }
+                    result.Add(new("app:" + id, name, "App", CommandKind.App, identity, open, elevate, NamedActions: actions.AsReadOnly()));
                 }
                 catch (Exception ex) { Log(ex); }
                 finally { Release(entry); }
@@ -115,13 +124,19 @@ internal sealed class PaletteShellIndex : IDisposable
                 finally { Release(link); }
             }
             return RecentFileCommandSource.Resolve(Directory.EnumerateFiles(folder, "*.lnk").Take(512), Resolve,
-                p => File.Exists(p) || Directory.Exists(p), LaunchAsync, OpenLocationAsync, Log);
+                p => File.Exists(p) || Directory.Exists(p), LaunchAsync, OpenLocationAsync, Log, p => CopyPath?.Invoke(p) ?? Task.CompletedTask);
         }
         finally { Release(shell); }
     }
     public static Task LaunchAsync(string target)
     {
         Process.Start(new ProcessStartInfo(target) { UseShellExecute = true }); return Task.CompletedTask;
+    }
+    private static Task ElevateAsync(string target)
+    {
+        try { using var process = Process.Start(new ProcessStartInfo(target) { UseShellExecute = true, Verb = "runas" }); }
+        catch (Win32Exception ex) when (ex.NativeErrorCode == 1223) { /* UAC cancelled */ }
+        return Task.CompletedTask;
     }
     private string? Property(object entry, string name)
     {

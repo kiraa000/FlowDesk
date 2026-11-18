@@ -30,6 +30,14 @@ internal sealed partial class PaletteResultRow(CommandMatch match) : ObservableO
     public Visibility IconFallbackVisibility => IconSource is null ? Visibility.Visible : Visibility.Collapsed;
     partial void OnIconSourceChanged(ImageSource? value) => OnPropertyChanged(nameof(IconFallbackVisibility));
     [ObservableProperty] public partial string Hint { get; set; } = "";
+    [ObservableProperty] public partial string? ConfirmationPrompt { get; set; }
+    public Visibility NormalTitleVisibility => ConfirmationPrompt is null ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility ConfirmationTitleVisibility => ConfirmationPrompt is null ? Visibility.Collapsed : Visibility.Visible;
+    partial void OnConfirmationPromptChanged(string? value)
+    {
+        OnPropertyChanged(nameof(NormalTitleVisibility));
+        OnPropertyChanged(nameof(ConfirmationTitleVisibility));
+    }
 }
 
 internal sealed partial class CommandPaletteWindow : Window
@@ -48,11 +56,19 @@ internal sealed partial class CommandPaletteWindow : Window
     private long openEpoch;
     private long openStarted;
     private bool shutdown, opening, running, activationPending;
+    private bool changingMode, resultsCurrent;
+    private PaletteActionPanel<PaletteResultRow>? panel;
+    private bool userSelected;
+    private bool refreshAfterPanel;
+    private readonly PaletteConfirmation confirmation = new();
+    private PaletteResultRow? confirmationRow;
+    private long confirmationVersion;
     public bool IsOpen { get; private set; }
     public Action? BeforeQuery { get; set; }
     public nint Handle => hwnd;
     public PaletteMode Mode { get; private set; }
     public Func<bool>? ClipboardEnabled { get; set; }
+    public Func<PaletteMode, bool> ModeEnabled { get; set; } = _ => true;
     public Func<string, CancellationToken, Task<IReadOnlyList<CommandMatch>>>? ClipboardQuery { get; set; }
     public Action? ClearClipboard { get; set; }
     public static nint Foreground => GetForegroundWindow();
@@ -100,11 +116,7 @@ internal sealed partial class CommandPaletteWindow : Window
         {
             if (IsOpen && GetForegroundWindow() == hwnd && SearchBox.Focus(FocusState.Programmatic)) TraceOpen(openStarted, true);
         };
-        SearchBox.PreviewKeyDown += (_, e) =>
-        {
-            if (e.Key == VirtualKey.Back && ClipboardModeRules.Backspace(Mode, SearchBox.Text) != Mode)
-            { e.Handled = true; SetMode(PaletteMode.Commands); }
-        };
+        Root.PreviewKeyDown += Root_KeyDown;
         Results.ContainerContentChanging += (_, e) =>
         {
             if (!e.InRecycleQueue && e.Item is PaletteResultRow row) AutomationProperties.SetName(e.ItemContainer, row.AutomationName);
@@ -148,6 +160,7 @@ internal sealed partial class CommandPaletteWindow : Window
     public void HidePalette()
     {
         IsOpen = false; activationPending = false; generation++; openEpoch++; query?.Cancel();
+        CancelConfirmation(); CloseActions(restore: false);
         acrylic.Update(false, Root.ActualTheme);
         AppWindow.Hide();
         Results.ItemsSource = null;
@@ -181,42 +194,79 @@ internal sealed partial class CommandPaletteWindow : Window
         StatusText.Text = text; AutomationProperties.SetName(StatusText, text);
         if (StatusText.IsLoaded) FrameworkElementAutomationPeer.CreatePeerForElement(StatusText)?.RaiseAutomationEvent(AutomationEvents.LiveRegionChanged);
     }
-    private void SearchBox_TextChanged(object sender, TextChangedEventArgs e) { if (IsOpen && !opening) QueueQuery(); }
-    public void SetMode(PaletteMode requested)
+    private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
     {
-        Mode = ClipboardModeRules.Resolve(requested, ClipboardEnabled?.Invoke() == true);
+        if (!IsOpen || opening || changingMode) return;
+        CancelConfirmation();
+        if (panel is not null) CloseActions();
+        string text = SearchBox.Text;
+        if (Mode == PaletteMode.Commands && PalettePrefixes.Match(text) is { } prefix && ModeEnabled(prefix.Mode))
+            SetMode(prefix.Mode, text[prefix.Prefix.Length..].TrimStart());
+        else if (Mode == PaletteMode.Commands && text.Equals("help", StringComparison.OrdinalIgnoreCase)) SetMode(PaletteMode.Help);
+        else QueueQuery();
+    }
+    public void SetMode(PaletteMode requested)
+        => SetMode(requested, "");
+    private void SetMode(PaletteMode requested, string text)
+    {
+        CancelConfirmation(); CloseActions(restore: false);
+        Mode = (requested == PaletteMode.Clipboard && ClipboardEnabled?.Invoke() != true) || !ModeEnabled(requested)
+            ? PaletteMode.Commands : requested;
+        var prefix = PalettePrefixes.All.FirstOrDefault(p => p.Mode == Mode);
         Results.ItemsSource = null;
-        ClipboardModeLabel.Visibility = ClearClipboardButton.Visibility = Mode == PaletteMode.Clipboard ? Visibility.Visible : Visibility.Collapsed;
-        SearchBox.PlaceholderText = Mode == PaletteMode.Clipboard ? "Search clipboard history…" : "Search workspaces, apps, actions…";
-        KeyboardHint.Text = Mode == PaletteMode.Clipboard ? "Backspace on empty search · Commands" : "↑ ↓ to select · Enter to open · Ctrl+Enter for more";
-        SearchBox.Text = "";
+        ClipboardModeLabel.Visibility = Mode == PaletteMode.Commands ? Visibility.Collapsed : Visibility.Visible;
+        ClearClipboardButton.Visibility = Mode == PaletteMode.Clipboard ? Visibility.Visible : Visibility.Collapsed;
+        ClipboardModeLabel.Text = prefix?.Label ?? (Mode == PaletteMode.Help ? "Help" : "Clipboard");
+        SearchBox.PlaceholderText = prefix?.Placeholder ?? (Mode switch { PaletteMode.Clipboard => "Search clipboard history…",
+            PaletteMode.Help => "Choose a search mode…", _ => "Search workspaces, apps, actions…" });
+        changingMode = true;
+        try { SearchBox.Text = text; SearchBox.SelectionStart = text.Length; }
+        finally { changingMode = false; }
+        UpdateHint();
         if (IsOpen && !opening) QueueQuery();
     }
     private void ClearClipboard_Click(object sender, RoutedEventArgs e) { ClearClipboard?.Invoke(); SearchBox.Focus(FocusState.Programmatic); }
-    public void RefreshResults() { if (IsOpen) { if (Mode == PaletteMode.Clipboard) Results.ItemsSource = null; QueueQuery(true); } }
+    public void RefreshResults()
+    {
+        if (!IsOpen) return;
+        if (panel is not null) { refreshAfterPanel = true; return; }
+        QueueQuery(true);
+    }
     private async void QueueQuery(bool preserveSelection = false)
     {
         query?.Cancel(); query?.Dispose(); query = new();
         var token = query.Token; long expected = ++generation; string text = SearchBox.Text;
+        if (!preserveSelection) { resultsCurrent = false; userSelected = false; UpdateHint(); }
         try
         {
             BeforeQuery?.Invoke();
             PaletteMode queryMode = Mode;
-            await Task.Delay(20, token);
-            var matches = queryMode == PaletteMode.Clipboard
-                ? ClipboardQuery is null ? [] : await ClipboardQuery(text, token)
-                : await Task.Run(() => search.Query(text, token), token);
+            var matches = queryMode switch
+            {
+                PaletteMode.Clipboard => ClipboardQuery is null ? [] : await ClipboardQuery(text, token),
+                PaletteMode.Help => PalettePrefixes.Help(ModeEnabled, mode => { SetMode(mode); return Task.CompletedTask; }),
+                _ => await Task.Run(() => search.Query(text, token, queryMode), token)
+            };
             if (!IsOpen || generation != expected || token.IsCancellationRequested) return;
             var rows = matches.Select(m => new PaletteResultRow(m)).ToArray();
-            string? selectedId = preserveSelection ? (Results.SelectedItem as PaletteResultRow)?.Match.Item.Id : null;
+            string? selectedId = preserveSelection && userSelected ? (Results.SelectedItem as PaletteResultRow)?.Match.Item.Id : null;
+            resultsCurrent = true;
             Results.ItemsSource = rows;
             int selectedIndex = Array.FindIndex(rows, r => r.Match.Item.Id == selectedId);
             Results.SelectedIndex = rows.Length > 0 ? Math.Max(0, selectedIndex) : -1;
+            UpdateHint();
             ResizeForResults(rows.Length);
             SetStatus(queryMode == PaletteMode.Clipboard
                 ? rows.Length == 0 ? (string.IsNullOrWhiteSpace(text) ? "No history yet · Copy text to get started" : "No matching clipboard items") : rows.Length == 1 ? "1 clipboard item" : $"{rows.Length} clipboard items"
-                : rows.Length == 0 ? (string.IsNullOrWhiteSpace(text) ? "Recent · Your recently used commands will appear here" : "No results")
-                : (string.IsNullOrWhiteSpace(text) ? "Recent · " : "") + $"{rows.Length} results");
+                : rows.Length == 0 ? (queryMode == PaletteMode.Commands && string.IsNullOrWhiteSpace(text)
+                    ? "Recent · Your recently used commands will appear here" : queryMode switch
+                    {
+                        PaletteMode.Calculator when text.Length == 0 => "Try 5 km to mi or time in Tokyo",
+                        PaletteMode.Web when text.Length == 0 => "Type a search or website address",
+                        PaletteMode.Windows when text.Length == 0 => "No open windows found",
+                        PaletteMode.Help => "Search modes are off in Settings", _ => "No results"
+                    }) : (queryMode == PaletteMode.Commands && string.IsNullOrWhiteSpace(text) ? "Recent · " : "") +
+                    (rows.Length == 1 ? "1 result" : $"{rows.Length} results"));
             foreach (var row in rows)
             {
                 if (row.Match.Item.Icon.Length == 1) continue;
@@ -234,22 +284,19 @@ internal sealed partial class CommandPaletteWindow : Window
         catch (OperationCanceledException) { }
         catch (Exception ex) { Log(ex); if (IsOpen && generation == expected) SetStatus("Search is unavailable. Try again."); }
     }
-    private void SearchBox_KeyDown(object sender, KeyRoutedEventArgs e)
+    private bool MoveSelection(VirtualKey key)
     {
         int count = Results.Items.Count;
         int selected = Results.SelectedIndex;
-        int next = e.Key switch { VirtualKey.Up => selected - 1, VirtualKey.Down => selected + 1,
+        int next = key switch { VirtualKey.Up => selected - 1, VirtualKey.Down => selected + 1,
             VirtualKey.PageUp => selected - 8, VirtualKey.PageDown => selected + 8, VirtualKey.Home => 0, VirtualKey.End => count - 1, _ => int.MinValue };
-        if (next != int.MinValue)
-        {
-            e.Handled = true;
-            if (count > 0) { Results.SelectedIndex = Math.Clamp(next, 0, count - 1); Results.ScrollIntoView(Results.SelectedItem); }
-        }
-        else Root_KeyDown(sender, e);
+        if (next == int.MinValue) return false;
+        if (count > 0) { if (panel is null) userSelected = true; Results.SelectedIndex = Math.Clamp(next, 0, count - 1); Results.ScrollIntoView(Results.SelectedItem); }
+        return true;
     }
     private void ResizeForResults(int count)
     {
-        double height = count == 0 ? 148 : Math.Min(540, 116 + Math.Min(8, count) * 52);
+        double height = count == 0 ? 152 : Math.Min(564, 144 + Math.Min(8, count) * 52);
         var rect = PalettePlacement.Place(workArea, monitorScale, height);
         AppWindow.MoveAndResize(new RectInt32(rect.X, rect.Y, rect.Width, rect.Height));
         EnsureBorderlessFrame();
@@ -257,30 +304,124 @@ internal sealed partial class CommandPaletteWindow : Window
     }
     private void Root_KeyDown(object sender, KeyRoutedEventArgs e)
     {
-        if (e.Handled) return;
-        if (e.Key == VirtualKey.Back && ClipboardModeRules.Backspace(Mode, SearchBox.Text) != Mode)
+        if (e.Handled || !IsOpen) return;
+        bool ctrl = (GetKeyState(0x11) & 0x8000) != 0;
+        if (e.Key != VirtualKey.Enter) CancelConfirmation();
+        if (ctrl && e.Key == VirtualKey.K)
+        { e.Handled = true; if (!e.KeyStatus.WasKeyDown) ToggleActions(); return; }
+        if (e.Key == VirtualKey.Escape)
+        { e.Handled = true; if (panel is not null) CloseActions(); else HidePalette(); return; }
+        if (panel is null && e.Key == VirtualKey.Back && PalettePrefixes.Backspace(Mode, SearchBox.Text) != Mode)
         { e.Handled = true; SetMode(PaletteMode.Commands); return; }
-        if (e.Key == VirtualKey.Escape) { e.Handled = true; HidePalette(); }
-        if (e.Key == VirtualKey.Enter && Results.SelectedItem is PaletteResultRow row)
-        { e.Handled = true; _ = RunAsync(row, (GetKeyState(0x11) & 0x8000) != 0); }
+        var focus = FocusManager.GetFocusedElement(Root.XamlRoot);
+        if (focus is Button) { CancelConfirmation(); return; }
+        if (MoveSelection(e.Key)) { e.Handled = true; return; }
+        if (e.Key == VirtualKey.Enter)
+        {
+            e.Handled = true;
+            if (e.KeyStatus.WasKeyDown) return;
+            bool plainEnter = !ctrl && (GetKeyState(0x10) & 0x8000) == 0 && (GetKeyState(0x12) & 0x8000) == 0;
+            if (panel is { } p) _ = RunAsync(p.Target, Results.SelectedIndex, isEnter: plainEnter);
+            else if (Results.SelectedItem is PaletteResultRow row) _ = RunAsync(row, ctrl ? 1 : 0, isEnter: plainEnter);
+        }
+        else if (panel is not null && e.Key != VirtualKey.Tab) e.Handled = true;
     }
-    private void Results_ItemClick(object sender, ItemClickEventArgs e) { if (e.ClickedItem is PaletteResultRow row) _ = RunAsync(row, false); }
+    private void Results_ItemClick(object sender, ItemClickEventArgs e)
+    {
+        if (e.ClickedItem is not PaletteResultRow row) return;
+        Results.SelectedItem = row;
+        SearchBox.Focus(FocusState.Programmatic);
+        if (panel is { } p) _ = RunAsync(p.Target, Results.Items.IndexOf(row), isEnter: false);
+        else _ = RunAsync(row, 0, isEnter: false);
+    }
     private void Results_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        foreach (var old in e.RemovedItems.OfType<PaletteResultRow>()) old.Hint = "";
-        foreach (var row in e.AddedItems.OfType<PaletteResultRow>()) row.Hint = row.Match.Item.Kind == CommandKind.Clipboard ? "Enter · Paste   Ctrl+Enter · Copy" : "Enter · " + row.Match.Item.ActionHint;
+        CancelConfirmation(); UpdateHint();
     }
-    private async Task RunAsync(PaletteResultRow row, bool secondary)
+    private void UpdateHint()
     {
-        if (running || !IsOpen) return;
-        var action = secondary ? row.Match.Item.Secondary : row.Match.Item.Primary;
-        if (action is null) { SetStatus("No secondary action for this item"); return; }
+        var row = Results.SelectedItem as PaletteResultRow;
+        KeyboardHint.Text = panel is not null ? "Enter · Run   Esc · Back" : resultsCurrent && row is not null
+            ? row.Match.Item.KeyboardHint : Mode == PaletteMode.Commands ? "↑ ↓ to select" : "Backspace on empty search · Commands";
+        ActionsButton.IsEnabled = panel is not null || (resultsCurrent && row?.Match.Item.Actions.Count > 0);
+        HelpButton.Visibility = panel is null && Mode == PaletteMode.Commands && SearchBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+    private void Actions_Click(object sender, RoutedEventArgs e) => ToggleActions();
+    private void Help_Click(object sender, RoutedEventArgs e) { SetMode(PaletteMode.Help); SearchBox.Focus(FocusState.Programmatic); }
+    private void ToggleActions()
+    {
+        CancelConfirmation();
+        if (panel is not null) { CloseActions(); return; }
+        if (!resultsCurrent || Results.SelectedItem is not PaletteResultRow row || row.Match.Item.Actions.Count == 0) return;
+        panel = new(row, Results.ItemsSource, Results.SelectedIndex, StatusText.Text);
+        query?.Cancel(); generation++;
+        Results.ItemsSource = row.Match.Item.Actions.Select((action, index) => new PaletteResultRow(new(new(
+            "action-panel:" + index, action.Title, action.Shortcut ?? "", CommandKind.Action, action.Glyph, action.Run), 1, []))).ToArray();
+        Results.SelectedIndex = 0;
+        AutomationProperties.SetName(Results, "Actions for " + row.Title);
+        ResizeForResults(Results.Items.Count); SetStatus("Actions · " + row.Title); UpdateHint();
+        SearchBox.Focus(FocusState.Programmatic);
+    }
+    private void CloseActions(bool restore = true)
+    {
+        if (panel is not { } previous) return;
+        panel = null; CancelConfirmation();
+        AutomationProperties.SetName(Results, "Command palette results");
+        if (restore)
+        {
+            Results.ItemsSource = previous.Results;
+            Results.SelectedIndex = previous.Selection;
+            if (Results.SelectedItem is { } selected) Results.ScrollIntoView(selected);
+            ResizeForResults(Results.Items.Count); SetStatus(previous.Status); UpdateHint();
+            SearchBox.Focus(FocusState.Programmatic);
+            if (refreshAfterPanel) QueueQuery(true);
+        }
+        refreshAfterPanel = false;
+    }
+    private void CancelConfirmation()
+    {
+        confirmation.Cancel(); confirmationVersion++;
+        if (confirmationRow is { } row) { row.ConfirmationPrompt = null; confirmationRow = null; }
+        if (ConfirmationText?.Visibility == Visibility.Visible)
+        {
+            ConfirmationText.Visibility = Visibility.Collapsed;
+            StatusText.Visibility = KeyboardHint.Visibility = Visibility.Visible;
+        }
+    }
+    private async Task ExpireConfirmationAsync(long version)
+    {
+        await Task.Delay(PaletteConfirmation.Duration);
+        if (version == confirmationVersion) CancelConfirmation();
+    }
+    private async Task RunAsync(PaletteResultRow row, int index, bool isEnter)
+    {
+        if (running || !IsOpen || !resultsCurrent) return;
+        var actions = row.Match.Item.Actions;
+        if (index < 0 || index >= actions.Count) { CancelConfirmation(); return; }
+        var action = actions[index];
+        if (action.NeedsConfirm)
+        {
+            if (!isEnter) CancelConfirmation();
+            if (!confirmation.Enter(row.Match.Item.Id, index, Stopwatch.GetElapsedTime(0)))
+            {
+                ConfirmationText.Text = action.ConfirmationPrompt ?? "Press Enter again to confirm";
+                confirmationRow = Results.SelectedItem as PaletteResultRow;
+                if (confirmationRow is not null) confirmationRow.ConfirmationPrompt = ConfirmationText.Text;
+                StatusText.Visibility = KeyboardHint.Visibility = Visibility.Collapsed;
+                ConfirmationText.Visibility = Visibility.Visible;
+                FrameworkElementAutomationPeer.CreatePeerForElement(ConfirmationText)?.RaiseAutomationEvent(AutomationEvents.LiveRegionChanged);
+                _ = ExpireConfirmationAsync(++confirmationVersion);
+                return;
+            }
+        }
+        CancelConfirmation();
         running = true;
-        if (!row.Match.Item.KeepsPaletteOpen) HidePalette();
+        if (!action.KeepsPaletteOpen) HidePalette();
+        else if (panel is not null) CloseActions();
         try
         {
-            await action();
-            if (row.Match.Item.RecordUsage)
+            await action.Run();
+            if (row.Match.Item.RecordUsage && !action.NeedsConfirm)
             {
                 usage.Record(row.Match.Item.Id, DateTimeOffset.UtcNow);
                 try { await Task.Run(usage.SaveAsync); } catch (Exception ex) { Log(ex); }

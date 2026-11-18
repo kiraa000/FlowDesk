@@ -100,6 +100,64 @@
                                   IsEnabled="{Binding PaletteCanToggle}"
                                   AutomationProperties.Name="Command palette" />
                 </settings:SettingsCard>
+                <settings:SettingsCard Header="Open windows"
+                    Description="Switch to another open window from the palette.">
+                    <ToggleSwitch IsOn="{Binding PaletteWindowsEnabled, Mode=TwoWay}"
+                                  IsEnabled="{Binding PaletteCanToggle}"
+                                  AutomationProperties.Name="Open windows in the command palette" />
+                </settings:SettingsCard>
+                <settings:SettingsCard Header="Calculator"
+                    Description="Math, unit conversion and time zones in the search box.">
+                    <ToggleSwitch IsOn="{Binding PaletteCalculatorEnabled, Mode=TwoWay}"
+                                  IsEnabled="{Binding PaletteCanToggle}"
+                                  AutomationProperties.Name="Calculator in the command palette" />
+                </settings:SettingsCard>
+                <settings:SettingsCard Header="System commands"
+                    Description="Lock, sleep and other Windows commands.">
+                    <ToggleSwitch IsOn="{Binding PaletteSystemEnabled, Mode=TwoWay}"
+                                  IsEnabled="{Binding PaletteCanToggle}"
+                                  AutomationProperties.Name="System commands in the command palette" />
+                </settings:SettingsCard>
+                <settings:SettingsCard Header="Web search"
+                    Description="Search the web from the palette.">
+                    <ToggleSwitch IsOn="{Binding PaletteWebEnabled, Mode=TwoWay}"
+                                  IsEnabled="{Binding PaletteCanToggle}"
+                                  AutomationProperties.Name="Web search in the command palette" />
+                </settings:SettingsCard>
+                <settings:SettingsCard Header="Search engine">
+                    <settings:SettingsCard.Description>
+                        <TextBlock Text="Used by the web search row and the ? prefix."
+                                   Style="{StaticResource CaptionTextBlockStyle}"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   TextWrapping="Wrap" />
+                    </settings:SettingsCard.Description>
+                    <StackPanel Spacing="8" Width="260">
+                        <ComboBox SelectedIndex="{Binding PaletteWebEngineIndex, Mode=TwoWay}"
+                                  AutomationProperties.Name="Web search engine">
+                            <ComboBoxItem Content="Google" />
+                            <ComboBoxItem Content="Bing" />
+                            <ComboBoxItem Content="DuckDuckGo" />
+                            <ComboBoxItem Content="Brave" />
+                            <ComboBoxItem Content="Custom" />
+                        </ComboBox>
+                        <TextBox Text="{Binding PaletteWebTemplate, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 Visibility="{Binding PaletteCustomVisibility}"
+                                 MinHeight="32"
+                                 MaxLength="2048" PlaceholderText="https://example.com/search?q=%s"
+                                 AutomationProperties.Name="Custom search URL template" />
+                        <TextBlock Text="{Binding PaletteWebTemplateError}"
+                                   Visibility="{Binding PaletteWebTemplateErrorVisibility}"
+                                   Style="{StaticResource CaptionTextBlockStyle}"
+                                   Foreground="{ThemeResource SystemFillColorCautionBrush}"
+                                   TextWrapping="Wrap" />
+                    </StackPanel>
+                </settings:SettingsCard>
+                <settings:SettingsCard Header="Search the web while typing"
+                    Description="Add a web search row at the bottom of mixed results. Nothing is sent until you open it.">
+                    <ToggleSwitch IsOn="{Binding PaletteWebFallback, Mode=TwoWay}"
+                                  IsEnabled="{Binding PaletteCanToggle}"
+                                  AutomationProperties.Name="Show web search while typing" />
+                </settings:SettingsCard>
                 <settings:SettingsCard Header="Clipboard history">
                     <settings:SettingsCard.Description>
                         <StackPanel Spacing="2">

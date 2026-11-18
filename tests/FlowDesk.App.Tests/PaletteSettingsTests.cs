@@ -6,6 +6,19 @@ namespace FlowDesk.App.Tests;
 
 public sealed class PaletteSettingsTests
 {
+    [Fact] public void SourceSettingsDefaultOnAndRoundTripThroughAppSerializer()
+    {
+        var previous = AppSettings.FromJson("{\"Theme\":\"Dark\"}");
+        Assert.True(previous.PaletteWindowsEnabled && previous.PaletteCalculatorEnabled && previous.PaletteSystemEnabled && previous.PaletteWebEnabled && previous.PaletteWebFallback);
+        Assert.Equal(FlowDesk.Core.Palette.WebEngine.Google, previous.PaletteWebEngine);
+        previous.PaletteWindowsEnabled = previous.PaletteCalculatorEnabled = previous.PaletteSystemEnabled = previous.PaletteWebEnabled = previous.PaletteWebFallback = false;
+        previous.PaletteWebEngine = FlowDesk.Core.Palette.WebEngine.Custom;
+        previous.PaletteWebTemplate = "https://example.com/?q=%s";
+        var loaded = AppSettings.FromJson(previous.ToJson());
+        Assert.False(loaded.PaletteWindowsEnabled || loaded.PaletteCalculatorEnabled || loaded.PaletteSystemEnabled || loaded.PaletteWebEnabled || loaded.PaletteWebFallback);
+        Assert.Equal(previous.PaletteWebEngine, loaded.PaletteWebEngine);
+        Assert.Equal(previous.PaletteWebTemplate, loaded.PaletteWebTemplate);
+    }
     [Fact] public void OlderSettingsDefaultPaletteOnIndependentlyOfWindowShortcuts()
     {
         var settings = JsonSerializer.Deserialize<AppSettings>("{\"WindowShortcutsEnabled\":false}")!;

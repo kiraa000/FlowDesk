@@ -19,7 +19,14 @@ internal sealed class CommandPaletteService : IDisposable
     private readonly PaletteUsageStore usage;
     private readonly CommandPaletteWindow window;
     private readonly ClipboardHistoryService clipboard;
+    private readonly PaletteWindowSwitcher switcher;
+    private readonly IPaletteSystem system;
     private CommandItem[] workspaces = [], actions = [];
+    private CommandItem[] openWindows = [], systemCommands = [];
+    private WebOptions web = new(true, true, WebEngine.Google, "");
+    private volatile bool calculatorEnabled = true;
+    private long snapshotEpoch;
+    private Task<CommandItem[]>? windowsRead, systemRead;
     private nint capturedTarget;
     private uint capturedProcess;
     private bool disposed;
@@ -32,16 +39,24 @@ internal sealed class CommandPaletteService : IDisposable
         usage = new(Path.Combine(services.Store.Folder, "palette-usage.json"));
         var search = new CommandSearch([
             new WorkspaceCommandSource(() => Volatile.Read(ref workspaces)), new ActionCommandSource(() => Volatile.Read(ref actions)),
-            new AppCommandSource(index.Apps), new SettingsCommandSource(PaletteShellIndex.LaunchAsync), new RecentFileCommandSource(index.Recent)
+             new AppCommandSource(index.Apps), new SettingsCommandSource(PaletteShellIndex.LaunchAsync), new RecentFileCommandSource(index.Recent),
+             new SnapshotCommandSource("Open windows", () => Volatile.Read(ref openWindows), PaletteMode.Windows),
+             new SnapshotCommandSource("System commands", () => Volatile.Read(ref systemCommands)),
+             new CalculatorCommandSource(() => calculatorEnabled, CopyAsync),
+             new WebCommandSource(() => Volatile.Read(ref web), PaletteShellIndex.LaunchAsync)
         ], usage, (_, ex) => Log(ex));
         window = new(search, usage, this.notify);
         clipboard = new(window.Handle, () => window.RefreshResults());
+        switcher = new(services, CopyAsync, this.notify, window.HidePalette);
+        system = new PaletteWindowsSystem(services);
+        index.CopyPath = CopyAsync;
+        window.ModeEnabled = ModeEnabled;
         window.ClipboardEnabled = () => clipboard.History.Enabled;
         window.ClipboardQuery = QueryClipboard;
         window.ClearClipboard = clipboard.Clear;
         vm.Settings.ApplyClipboardHistory = SetClipboardAsync;
         vm.Settings.ClearClipboardHistory = clipboard.Clear;
-        window.BeforeQuery = () => Snapshot(capturedTarget, capturedProcess);
+        vm.Settings.PaletteSourcesChanged = SourcesChanged;
         index.Apps.Changed += IndexChanged; index.Recent.Changed += IndexChanged;
     }
     private void IndexChanged() => dispatcher.TryEnqueue(() => { if (!disposed && window.IsOpen) window.RefreshResults(); });
@@ -99,11 +114,20 @@ internal sealed class CommandPaletteService : IDisposable
                 if (!ClipboardHistory.Matches(e, query)) continue;
                 string title = e.Display.Length > 512 ? e.Display[..512] + "…" : e.Display;
                 var item = new CommandItem("clipboard:" + e.Id, title, e.Subtitle(DateTimeOffset.UtcNow), CommandKind.Clipboard, "\uE8A5",
-                    () => UseClipboardAsync(e, paste: true), () => UseClipboardAsync(e, paste: false), ActionHint: "Paste", RecordUsage: false);
+                    () => UseClipboardAsync(e, paste: true), () => UseClipboardAsync(e, paste: false), ActionHint: "Paste", RecordUsage: false,
+                    NamedActions: [new("Paste", () => UseClipboardAsync(e, true), "\uE77F", "Enter"),
+                        new("Copy", () => UseClipboardAsync(e, false), "\uE8C8", "Ctrl+Enter"),
+                        new("Delete from history", () => { clipboard.History.Delete(e.Id); window.RefreshResults(); return Task.CompletedTask; }, "\uE74D", KeepsPaletteOpen: true)]);
                 matches.Add(new(item, 1, CommandMatcher.Match(item.Title, query, allowFuzzy: false).Highlights));
             }
             return matches;
         }, token);
+    }
+    private Task CopyAsync(string text)
+    {
+        try { clipboard.Copy(text); notifyNotice(PaletteNotice.Copied(pasteFallback: false)); }
+        catch { notify("Clipboard is busy. Try again."); }
+        return Task.CompletedTask;
     }
     private async Task UseClipboardAsync(ClipboardEntry entry, bool paste)
     {
@@ -126,8 +150,58 @@ internal sealed class CommandPaletteService : IDisposable
             return;
         }
         capturedTarget = target; capturedProcess = CommandPaletteWindow.ProcessOf(target);
+        StartSourceSnapshots(mode);
         Snapshot(capturedTarget, capturedProcess);
         window.Open(target, services.Settings.Theme, started, mode);
+    }
+    private bool ModeEnabled(PaletteMode mode) => mode switch
+    {
+        PaletteMode.Windows => services.Settings.PaletteWindowsEnabled,
+        PaletteMode.Calculator => services.Settings.PaletteCalculatorEnabled,
+        PaletteMode.Web => services.Settings.PaletteWebEnabled,
+        _ => true
+    };
+    private void SourcesChanged()
+    {
+        StartSourceSnapshots(window.IsOpen ? PaletteMode.Commands : PaletteMode.Clipboard);
+        if (!window.IsOpen) return;
+        if (!ModeEnabled(window.Mode)) window.SetMode(PaletteMode.Commands);
+        else window.RefreshResults();
+    }
+    private void StartSourceSnapshots(PaletteMode mode)
+    {
+        var settings = services.Settings;
+        calculatorEnabled = settings.PaletteCalculatorEnabled;
+        Volatile.Write(ref web, new(settings.PaletteWebEnabled, settings.PaletteWebFallback, settings.PaletteWebEngine, settings.PaletteWebTemplate ?? ""));
+        Volatile.Write(ref openWindows, []);
+        Volatile.Write(ref systemCommands, []);
+        long epoch = ++snapshotEpoch;
+        if (mode == PaletteMode.Clipboard && !window.IsOpen) return;
+        if (settings.PaletteWindowsEnabled)
+        {
+            if (windowsRead is not { IsCompleted: false }) windowsRead = Task.Run(() => switcher.Snapshot(index.Apps.Snapshot));
+            _ = PublishAsync(windowsRead, isWindows: true, epoch);
+        }
+        if (settings.PaletteSystemEnabled)
+        {
+            if (systemRead is not { IsCompleted: false }) systemRead = Task.Run(async () => SystemCommands.Create(system, await system.ReadAsync()).ToArray());
+            _ = PublishAsync(systemRead, isWindows: false, epoch);
+        }
+    }
+    private async Task PublishAsync(Task<CommandItem[]> load, bool isWindows, long epoch)
+    {
+        try
+        {
+            var items = await load.ConfigureAwait(false);
+            dispatcher.TryEnqueue(() =>
+            {
+                if (disposed || !window.IsOpen || epoch != snapshotEpoch) return;
+                if (isWindows) Volatile.Write(ref openWindows, items);
+                else Volatile.Write(ref systemCommands, items);
+                if (window.Mode == PaletteMode.Commands || (isWindows && window.Mode == PaletteMode.Windows)) window.RefreshResults();
+            });
+        }
+        catch (Exception ex) { Log(ex); }
     }
     private void Snapshot(nint target, uint targetProcess)
     {
@@ -136,7 +210,7 @@ internal sealed class CommandPaletteService : IDisposable
         CommandItem[] workspaceItems = vm.IsBusy ? [] : vm.WorkspacesCollection.Select(w => new CommandItem("workspace:" + w.Model.Id,
             "Switch to " + w.Name, $"Workspace · {w.Model.Items.Count} apps", CommandKind.Workspace, "\uE8A1",
             async () => { EnsureIdle(); await vm.OpenAsync(w); NotifyProblem(); },
-            () => { EnsureIdle(); showMain(); vm.Edit(w); return Task.CompletedTask; }, w.Name, "Switch")).ToArray();
+            () => { EnsureIdle(); showMain(); vm.Edit(w); return Task.CompletedTask; }, w.Name)).ToArray();
         Volatile.Write(ref workspaces, workspaceItems);
         var list = new List<CommandItem>();
         if (clipboard.History.Enabled)
@@ -219,7 +293,7 @@ internal sealed class CommandPaletteService : IDisposable
     {
         if (disposed) return; disposed = true;
         index.Apps.Changed -= IndexChanged; index.Recent.Changed -= IndexChanged;
-        vm.Settings.ApplyClipboardHistory = null; vm.Settings.ClearClipboardHistory = null;
+        vm.Settings.ApplyClipboardHistory = null; vm.Settings.ClearClipboardHistory = null; vm.Settings.PaletteSourcesChanged = null;
         clipboard.Dispose(); window.Shutdown(); index.Dispose();
     }
 }

@@ -53,6 +53,13 @@ public sealed class AppSettings
     public bool QuickLookEnabled { get; set; }
     /// <summary>Opt-in, memory-only clipboard history; absent in old files means off.</summary>
     public bool ClipboardHistoryEnabled { get; set; }
+    public bool PaletteWindowsEnabled { get; set; } = true;
+    public bool PaletteCalculatorEnabled { get; set; } = true;
+    public bool PaletteSystemEnabled { get; set; } = true;
+    public bool PaletteWebEnabled { get; set; } = true;
+    public bool PaletteWebFallback { get; set; } = true;
+    public FlowDesk.Core.Palette.WebEngine PaletteWebEngine { get; set; }
+    public string PaletteWebTemplate { get; set; } = "";
     public bool HotCornersEnabled { get; set; }
     public FlowDesk.Core.HotCorners.HotCornerAction HotCornerTopLeft { get; set; } = FlowDesk.Core.HotCorners.HotCornerAction.TaskView;
     public FlowDesk.Core.HotCorners.HotCornerAction HotCornerTopRight { get; set; }

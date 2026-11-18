@@ -80,6 +80,48 @@ public sealed class AudioOutputService : IAudioOutput
         catch (Exception ex) { log(ex); return false; }
     }
     private static object Create(string clsid) => Activator.CreateInstance(Type.GetTypeFromCLSID(new(clsid), true)!)!;
+    internal async Task<bool?> ReadMuteAsync()
+    {
+        try { return await calls.RunAsync(token => AccessMute(token, null)).ConfigureAwait(false); }
+        catch (Exception ex) { log(ex); return null; }
+    }
+    internal Task<bool> SetMuteAsync(bool mute) => calls.RunAsync(token => AccessMute(token, mute) == mute);
+    private static bool AccessMute(CancellationToken token, bool? set)
+    {
+        IMMDeviceEnumerator? enumerator = null; IMMDevice? device = null; IEndpointVolume? endpoint = null;
+        try
+        {
+            enumerator = (IMMDeviceEnumerator)Create("BCDE0395-E52F-467C-8E3D-C4579291692E");
+            Check(enumerator.GetDefaultAudioEndpoint(0, 1, out device));
+            Guid iid = typeof(IEndpointVolume).GUID;
+            Check(device.Activate(ref iid, 23, 0, out nint ptr));
+            try { endpoint = (IEndpointVolume)Marshal.GetObjectForIUnknown(ptr); }
+            finally { Marshal.Release(ptr); }
+            token.ThrowIfCancellationRequested();
+            if (set is bool value) Check(endpoint.SetMute(value, 0));
+            Check(endpoint.GetMute(out bool muted));
+            return muted;
+        }
+        finally { ContextNativeCall.Release(endpoint); ContextNativeCall.Release(device); ContextNativeCall.Release(enumerator); }
+    }
+    [ComImport, Guid("5CDF2C82-841E-4546-9722-0CF74078229A"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IEndpointVolume
+    {
+        // Unused slots precede SetMute and GetMute in IAudioEndpointVolume.
+        void RegisterControlChangeNotify(nint callback);
+        void UnregisterControlChangeNotify(nint callback);
+        void GetChannelCount(out uint count);
+        void SetMasterVolumeLevel(float value, nint context);
+        void SetMasterVolumeLevelScalar(float value, nint context);
+        void GetMasterVolumeLevel(out float value);
+        void GetMasterVolumeLevelScalar(out float value);
+        void SetChannelVolumeLevel(uint channel, float value, nint context);
+        void SetChannelVolumeLevelScalar(uint channel, float value, nint context);
+        void GetChannelVolumeLevel(uint channel, out float value);
+        void GetChannelVolumeLevelScalar(uint channel, out float value);
+        [PreserveSig] int SetMute([MarshalAs(UnmanagedType.Bool)] bool mute, nint context);
+        [PreserveSig] int GetMute([MarshalAs(UnmanagedType.Bool)] out bool mute);
+    }
     private static void Check(int hr) => Marshal.ThrowExceptionForHR(hr);
     private static string? DefaultId(IMMDeviceEnumerator enumerator, int role)
     {

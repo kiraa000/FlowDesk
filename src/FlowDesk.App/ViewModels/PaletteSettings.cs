@@ -1,6 +1,8 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using FlowDesk.Core.Hotkeys;
+using FlowDesk.Core.Palette;
+using Microsoft.UI.Xaml;
 
 namespace FlowDesk.App.ViewModels;
 
@@ -11,6 +13,46 @@ public partial class SettingsViewModel
     [ObservableProperty] public partial string PaletteStatus { get; set; } = "";
     [ObservableProperty] public partial bool ClipboardHistory { get; set; }
     [ObservableProperty] public partial string ClipboardStatus { get; set; } = "Off";
+    [ObservableProperty] public partial bool PaletteWindowsEnabled { get; set; } = true;
+    [ObservableProperty] public partial bool PaletteCalculatorEnabled { get; set; } = true;
+    [ObservableProperty] public partial bool PaletteSystemEnabled { get; set; } = true;
+    [ObservableProperty] public partial bool PaletteWebEnabled { get; set; } = true;
+    [ObservableProperty] public partial bool PaletteWebFallback { get; set; } = true;
+    [ObservableProperty] public partial int PaletteWebEngineIndex { get; set; }
+    [ObservableProperty] public partial string PaletteWebTemplate { get; set; } = "";
+    public Visibility PaletteCustomVisibility => PaletteWebEngineIndex == (int)WebEngine.Custom ? Visibility.Visible : Visibility.Collapsed;
+    public string PaletteWebTemplateError => PaletteCustomVisibility == Visibility.Visible && !WebSearch.IsValidTemplate(PaletteWebTemplate)
+        ? "Enter an HTTPS URL with %s where the search terms go." : "";
+    public Visibility PaletteWebTemplateErrorVisibility => PaletteWebTemplateError.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+    internal Action? PaletteSourcesChanged { get; set; }
+    partial void OnPaletteWindowsEnabledChanged(bool value) => SavePaletteSources();
+    partial void OnPaletteCalculatorEnabledChanged(bool value) => SavePaletteSources();
+    partial void OnPaletteSystemEnabledChanged(bool value) => SavePaletteSources();
+    partial void OnPaletteWebEnabledChanged(bool value) => SavePaletteSources();
+    partial void OnPaletteWebFallbackChanged(bool value) => SavePaletteSources();
+    partial void OnPaletteWebEngineIndexChanged(int value)
+    {
+        OnPropertyChanged(nameof(PaletteCustomVisibility)); OnPropertyChanged(nameof(PaletteWebTemplateError));
+        OnPropertyChanged(nameof(PaletteWebTemplateErrorVisibility));
+        if (Enum.IsDefined((WebEngine)value)) SavePaletteSources();
+    }
+    partial void OnPaletteWebTemplateChanged(string value)
+    {
+        OnPropertyChanged(nameof(PaletteWebTemplateError)); OnPropertyChanged(nameof(PaletteWebTemplateErrorVisibility)); SavePaletteSources();
+    }
+    private void SavePaletteSources()
+    {
+        if (loading || paletteLoading || !Enum.IsDefined((WebEngine)PaletteWebEngineIndex)) return;
+        var s = owner.Services.Settings;
+        s.PaletteWindowsEnabled = PaletteWindowsEnabled;
+        s.PaletteCalculatorEnabled = PaletteCalculatorEnabled;
+        s.PaletteSystemEnabled = PaletteSystemEnabled;
+        s.PaletteWebEnabled = PaletteWebEnabled;
+        s.PaletteWebFallback = PaletteWebFallback;
+        s.PaletteWebEngine = (WebEngine)PaletteWebEngineIndex;
+        s.PaletteWebTemplate = PaletteWebTemplate;
+        owner.Services.Changed(); PaletteSourcesChanged?.Invoke();
+    }
     internal Func<bool, Task>? ApplyClipboardHistory { get; set; }
     internal Action? ClearClipboardHistory { get; set; }
     [RelayCommand] private void ClearClipboard() => ClearClipboardHistory?.Invoke();
@@ -24,6 +66,14 @@ public partial class SettingsViewModel
         paletteLoading = true;
         CommandPalette = owner.Services.Settings.CommandPaletteEnabled;
         ClipboardHistory = owner.Services.Settings.ClipboardHistoryEnabled;
+        var s = owner.Services.Settings;
+        PaletteWindowsEnabled = s.PaletteWindowsEnabled;
+        PaletteCalculatorEnabled = s.PaletteCalculatorEnabled;
+        PaletteSystemEnabled = s.PaletteSystemEnabled;
+        PaletteWebEnabled = s.PaletteWebEnabled;
+        PaletteWebFallback = s.PaletteWebFallback;
+        PaletteWebEngineIndex = Enum.IsDefined(s.PaletteWebEngine) ? (int)s.PaletteWebEngine : 0;
+        PaletteWebTemplate = s.PaletteWebTemplate ?? "";
         paletteLoading = false;
         var runtime = owner.Services.Hotkeys.ShortcutRuntime;
         string clipboardShortcut = owner.Services.Settings.EffectiveShortcut(HotkeyCatalog.ClipboardId).Shortcut;

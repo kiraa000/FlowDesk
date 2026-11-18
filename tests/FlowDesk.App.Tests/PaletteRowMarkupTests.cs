@@ -12,6 +12,17 @@ internal static class PaletteMarkupFixture
 // Structural regression guards only: these do not claim native rendering/visual verification.
 public sealed class PaletteRowMarkupTests
 {
+    [Fact] public void ActionPanelReusesResultsAndConfirmationHasAVisibleTextAlternative()
+    {
+        var doc = PaletteMarkupFixture.Load();
+        Assert.Single(doc.Descendants(PaletteMarkupFixture.Xaml + "ListView"));
+        var actions = doc.Descendants(PaletteMarkupFixture.Xaml + "Button")
+            .Single(e => (string?)e.Attribute(PaletteMarkupFixture.X + "Name") == "ActionsButton");
+        Assert.Contains("Ctrl+K", (string?)actions.Attribute("Content"));
+        var caution = doc.Descendants(PaletteMarkupFixture.Xaml + "TextBlock")
+            .Single(e => (string?)e.Attribute("Text") == "{Binding ConfirmationPrompt}");
+        Assert.Equal("{ThemeResource SystemFillColorCautionBrush}", (string?)caution.Attribute("Foreground"));
+    }
     [Fact] public void TitlesAndPathsOverrideWrappingInheritedFromWinUiTypeRamp()
     {
         var blocks = PaletteMarkupFixture.Load().Descendants(PaletteMarkupFixture.Xaml + "TextBlock").ToArray();
