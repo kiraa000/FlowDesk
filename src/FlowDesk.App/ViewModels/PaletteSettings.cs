@@ -15,6 +15,8 @@ public partial class SettingsViewModel
     [ObservableProperty] public partial bool ClipboardHistory { get; set; }
     [ObservableProperty] public partial string ClipboardStatus { get; set; } = "Off";
     [ObservableProperty] public partial bool PaletteWindowsEnabled { get; set; } = true;
+    [ObservableProperty] public partial bool PaletteFilesEnabled { get; set; } = true;
+    [ObservableProperty] public partial string PaletteFileBackendStatus { get; set; } = "Checked when the palette opens";
     [ObservableProperty] public partial bool PaletteCalculatorEnabled { get; set; } = true;
     [ObservableProperty] public partial bool PaletteSystemEnabled { get; set; } = true;
     [ObservableProperty] public partial bool PaletteWebEnabled { get; set; } = true;
@@ -27,6 +29,7 @@ public partial class SettingsViewModel
     public Visibility PaletteWebTemplateErrorVisibility => PaletteWebTemplateError.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
     internal Action? PaletteSourcesChanged { get; set; }
     partial void OnPaletteWindowsEnabledChanged(bool value) => SavePaletteSources();
+    partial void OnPaletteFilesEnabledChanged(bool value) => SavePaletteSources();
     partial void OnPaletteCalculatorEnabledChanged(bool value) => SavePaletteSources();
     partial void OnPaletteSystemEnabledChanged(bool value) => SavePaletteSources();
     partial void OnPaletteWebEnabledChanged(bool value) => SavePaletteSources();
@@ -46,6 +49,7 @@ public partial class SettingsViewModel
         if (loading || paletteLoading || !Enum.IsDefined((WebEngine)PaletteWebEngineIndex)) return;
         var s = owner.Services.Settings;
         s.PaletteWindowsEnabled = PaletteWindowsEnabled;
+        s.PaletteFilesEnabled = PaletteFilesEnabled;
         s.PaletteCalculatorEnabled = PaletteCalculatorEnabled;
         s.PaletteSystemEnabled = PaletteSystemEnabled;
         s.PaletteWebEnabled = PaletteWebEnabled;
@@ -75,6 +79,7 @@ public partial class SettingsViewModel
         ClipboardHistory = owner.Services.Settings.ClipboardHistoryEnabled;
         var s = owner.Services.Settings;
         PaletteWindowsEnabled = s.PaletteWindowsEnabled;
+        PaletteFilesEnabled = s.PaletteFilesEnabled;
         PaletteCalculatorEnabled = s.PaletteCalculatorEnabled;
         PaletteSystemEnabled = s.PaletteSystemEnabled;
         PaletteWebEnabled = s.PaletteWebEnabled;

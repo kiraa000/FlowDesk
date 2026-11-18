@@ -124,6 +124,23 @@
                                   IsEnabled="{Binding PaletteCanToggle}"
                                   AutomationProperties.Name="Open windows in the command palette" />
                 </settings:SettingsCard>
+                <settings:SettingsCard Header="File search">
+                    <settings:SettingsCard.Description>
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="Search indexed files and folders with f or in mixed results."
+                                       Style="{StaticResource CaptionTextBlockStyle}"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding PaletteFileBackendStatus}"
+                                       Style="{StaticResource CaptionTextBlockStyle}"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       TextWrapping="Wrap" />
+                        </StackPanel>
+                    </settings:SettingsCard.Description>
+                    <ToggleSwitch IsOn="{Binding PaletteFilesEnabled, Mode=TwoWay}"
+                                  IsEnabled="{Binding PaletteCanToggle}"
+                                  AutomationProperties.Name="File search in the command palette" />
+                </settings:SettingsCard>
                 <settings:SettingsCard Header="Calculator"
                     Description="Math, unit conversion and time zones in the search box.">
                     <ToggleSwitch IsOn="{Binding PaletteCalculatorEnabled, Mode=TwoWay}"

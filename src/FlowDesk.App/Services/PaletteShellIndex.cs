@@ -13,6 +13,7 @@ internal sealed class PaletteShellIndex : IDisposable
     public CommandIndex Apps { get; } = new();
     public CommandIndex Recent { get; } = new();
     public Func<string, Task>? CopyPath { get; set; }
+    public Func<PaletteFile, CommandItem>? FileItem { get; set; }
     private readonly BlockingCollection<Action> queue = new(2);
     private readonly List<FileSystemWatcher> watchers = [];
     private readonly Timer timer;
@@ -124,7 +125,8 @@ internal sealed class PaletteShellIndex : IDisposable
                 finally { Release(link); }
             }
             return RecentFileCommandSource.Resolve(Directory.EnumerateFiles(folder, "*.lnk").Take(512), Resolve,
-                p => File.Exists(p) || Directory.Exists(p), LaunchAsync, OpenLocationAsync, Log, p => CopyPath?.Invoke(p) ?? Task.CompletedTask);
+                p => File.Exists(p) || Directory.Exists(p), LaunchAsync, OpenLocationAsync, Log, p => CopyPath?.Invoke(p) ?? Task.CompletedTask)
+                .Select(i => FileItem?.Invoke(new(i.Synonyms, Directory.Exists(i.Synonyms))) ?? i).ToArray();
         }
         finally { Release(shell); }
     }

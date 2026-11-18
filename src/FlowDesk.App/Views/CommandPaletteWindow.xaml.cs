@@ -43,7 +43,7 @@ internal sealed partial class PaletteResultRow(CommandMatch match) : ObservableO
 
 internal sealed partial class CommandPaletteWindow : Window
 {
-    private readonly CommandSearch search;
+    private readonly PaletteStreamingSearch search;
     private readonly PaletteUsageStore usage;
     private readonly Action<string> notify;
     private readonly QuickLookShell icons = new();
@@ -78,7 +78,7 @@ internal sealed partial class CommandPaletteWindow : Window
     public static nint Foreground => GetForegroundWindow();
     public static uint ProcessOf(nint window) { GetWindowThreadProcessId(window, out uint process); return process; }
     public static string ClassOf(nint window) { var text = new StringBuilder(256); GetClassNameW(window, text, text.Capacity); return text.ToString(); }
-    public CommandPaletteWindow(CommandSearch search, PaletteUsageStore usage, Action<string> notify)
+    public CommandPaletteWindow(PaletteStreamingSearch search, PaletteUsageStore usage, Action<string> notify)
     {
         this.search = search; this.usage = usage; this.notify = notify;
         InitializeComponent();
@@ -273,24 +273,21 @@ internal sealed partial class CommandPaletteWindow : Window
         {
             BeforeQuery?.Invoke();
             PaletteMode queryMode = Mode;
-            var matches = queryMode switch
+            bool first = true;
+            await foreach (var matches in QueryMatchesAsync(text, queryMode, token))
             {
-                PaletteMode.Clipboard => ClipboardQuery is null ? [] : await ClipboardQuery(text, token),
-                PaletteMode.Help => PalettePrefixes.Help(ModeEnabled, mode => { SetMode(mode); return Task.CompletedTask; }),
-                _ => await Task.Run(() => search.Query(text, token, queryMode), token)
-            };
-            if (!IsOpen || generation != expected || token.IsCancellationRequested) return;
-            // A source finishing must not erase an already visible prompt or change its target.
-            if (executor.IsPending) { refreshAfterConfirmation = true; return; }
-            var rows = matches.Select(m => new PaletteResultRow(m)).ToArray();
-            string? selectedId = preserveSelection && userSelected ? (Results.SelectedItem as PaletteResultRow)?.Match.Item.Id : null;
-            resultsCurrent = true;
-            Results.ItemsSource = rows;
-            int selectedIndex = Array.FindIndex(rows, r => r.Match.Item.Id == selectedId);
-            Results.SelectedIndex = rows.Length > 0 ? Math.Max(0, selectedIndex) : -1;
-            UpdateHint();
-            ResizeForResults(rows.Length);
-            SetStatus(queryMode == PaletteMode.Clipboard
+                if (!IsOpen || generation != expected || token.IsCancellationRequested) return;
+                // A source finishing must not erase an already visible prompt or change its target.
+                if (executor.IsPending) { refreshAfterConfirmation = true; return; }
+                var rows = matches.Select(m => new PaletteResultRow(m)).ToArray();
+                string? selectedId = !first || (preserveSelection && userSelected) ? (Results.SelectedItem as PaletteResultRow)?.Match.Item.Id : null;
+                first = false;
+                resultsCurrent = true;
+                Results.ItemsSource = rows;
+                Results.SelectedIndex = PaletteResultMerge.Selection(matches, selectedId);
+                UpdateHint();
+                ResizeForResults(rows.Length);
+                SetStatus(queryMode == PaletteMode.Clipboard
                 ? rows.Length == 0 ? (string.IsNullOrWhiteSpace(text) ? "No history yet · Copy text to get started" : "No matching clipboard items") : rows.Length == 1 ? "1 clipboard item" : $"{rows.Length} clipboard items"
                 : rows.Length == 0 ? (queryMode == PaletteMode.Commands && string.IsNullOrWhiteSpace(text)
                     ? "Recent · Your recently used commands will appear here" : queryMode switch
@@ -298,9 +295,27 @@ internal sealed partial class CommandPaletteWindow : Window
                         PaletteMode.Calculator when text.Length == 0 => "Try 5 km to mi or time in Tokyo",
                         PaletteMode.Web when text.Length == 0 => "Type a search or website address",
                         PaletteMode.Windows when text.Length == 0 => "No open windows found",
+                        PaletteMode.Files when text.Length == 0 => "Type a file or folder name",
                         PaletteMode.Help => "Search modes are off in Settings", _ => "No results"
                     }) : (queryMode == PaletteMode.Commands && string.IsNullOrWhiteSpace(text) ? "Recent · " : "") +
                     (rows.Length == 1 ? "1 result" : $"{rows.Length} results"));
+                _ = LoadIconsAsync(rows, token, expected);
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { Log(ex); if (IsOpen && generation == expected) SetStatus("Search is unavailable. Try again."); }
+    }
+    private async IAsyncEnumerable<IReadOnlyList<CommandMatch>> QueryMatchesAsync(string text, PaletteMode mode,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken token)
+    {
+        if (mode == PaletteMode.Clipboard) yield return ClipboardQuery is null ? [] : await ClipboardQuery(text, token);
+        else if (mode == PaletteMode.Help) yield return PalettePrefixes.Help(ModeEnabled, requested => { SetMode(requested); return Task.CompletedTask; });
+        else await foreach (var batch in search.QueryAsync(text, mode, token)) yield return batch;
+    }
+    private async Task LoadIconsAsync(IEnumerable<PaletteResultRow> rows, CancellationToken token, long expected)
+    {
+        try
+        {
             foreach (var row in rows)
             {
                 if (row.Match.Item.Icon.Length == 1) continue;
@@ -316,7 +331,7 @@ internal sealed partial class CommandPaletteWindow : Window
             }
         }
         catch (OperationCanceledException) { }
-        catch (Exception ex) { Log(ex); if (IsOpen && generation == expected) SetStatus("Search is unavailable. Try again."); }
+        catch (Exception ex) { Log(ex); }
     }
     private bool MoveSelection(VirtualKey key)
     {

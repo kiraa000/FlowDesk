@@ -24,6 +24,11 @@ public sealed class PaletteSettingsTests
         Assert.Equal(previous.PaletteWebEngine, loaded.PaletteWebEngine);
         Assert.Equal(previous.PaletteWebTemplate, loaded.PaletteWebTemplate);
     }
+    [Fact] public void OlderSettingsDefaultFileSearchOn()
+    {
+        var settings = JsonSerializer.Deserialize<AppSettings>("{\"Theme\":\"Dark\"}")!;
+        Assert.True(settings.PaletteFilesEnabled);
+    }
     [Fact] public void OlderSettingsDefaultPaletteOnIndependentlyOfWindowShortcuts()
     {
         var settings = JsonSerializer.Deserialize<AppSettings>("{\"WindowShortcutsEnabled\":false}")!;

@@ -120,6 +120,33 @@ internal sealed class ClipboardHistoryService : IDisposable
         try { Marshal.Copy((text + '\0').ToCharArray(), 0, p, text.Length + 1); } finally { GlobalUnlock(h); }
         return h;
     }
+    public void CopyFile(string path)
+    {
+        // CF_HDROP: DROPFILES header followed by a double-NUL terminated UTF-16 file list.
+        byte[] names = System.Text.Encoding.Unicode.GetBytes(path + "\0\0");
+        nint value = GlobalAlloc(0x42, (nuint)(20 + names.Length));
+        if (value == 0) throw new InvalidOperationException("Clipboard unavailable.");
+        try
+        {
+            nint p = GlobalLock(value);
+            if (p == 0) throw new InvalidOperationException("Clipboard unavailable.");
+            try { Marshal.WriteInt32(p, 20); Marshal.WriteInt32(p, 16, 1); Marshal.Copy(names, 0, p + 20, names.Length); }
+            finally { GlobalUnlock(value); }
+            writing = true;
+            try
+            {
+                if (!OpenClipboard(hwnd)) throw new InvalidOperationException("Clipboard busy.");
+                try
+                {
+                    if (!EmptyClipboard() || SetClipboardData(15, value) == 0) throw new InvalidOperationException("Clipboard unavailable.");
+                    value = 0; ownSequence = GetClipboardSequenceNumber();
+                }
+                finally { CloseClipboard(); }
+            }
+            finally { writing = false; }
+        }
+        finally { if (value != 0) GlobalFree(value); }
+    }
     public void Dispose() { SetEnabled(false); History.Clear(); }
     private delegate nint SubclassProc(nint hwnd, uint msg, nuint wp, nint lp, nuint id, nuint data);
     [DllImport("comctl32.dll")] private static extern bool SetWindowSubclass(nint hwnd, SubclassProc proc, nuint id, nuint data);

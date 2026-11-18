@@ -55,6 +55,7 @@ public sealed class AppSettings
     public bool ClipboardHistoryEnabled { get; set; }
     public bool PaletteWindowsKey { get; set; }
     public bool PaletteWindowsEnabled { get; set; } = true;
+    public bool PaletteFilesEnabled { get; set; } = true;
     public bool PaletteCalculatorEnabled { get; set; } = true;
     public bool PaletteSystemEnabled { get; set; } = true;
     public bool PaletteWebEnabled { get; set; } = true;

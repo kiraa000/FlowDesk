@@ -21,10 +21,13 @@ internal sealed class CommandPaletteService : IDisposable
     private readonly ClipboardHistoryService clipboard;
     private readonly PaletteWindowSwitcher switcher;
     private readonly IPaletteSystem system;
+    private readonly PaletteFileSource files;
+    private long fileDetectionEpoch;
     private CommandItem[] workspaces = [], actions = [];
     private CommandItem[] openWindows = [], systemCommands = [];
     private WebOptions web = new(true, true, WebEngine.Google, "");
     private volatile bool calculatorEnabled = true;
+    private volatile bool fileSearchEnabled = true;
     private long snapshotEpoch;
     private Task<CommandItem[]>? windowsRead, systemRead;
     private nint capturedTarget;
@@ -39,14 +42,20 @@ internal sealed class CommandPaletteService : IDisposable
         usage = new(Path.Combine(services.Store.Folder, "palette-usage.json"));
         var search = new CommandSearch([
             new WorkspaceCommandSource(() => Volatile.Read(ref workspaces)), new ActionCommandSource(() => Volatile.Read(ref actions)),
-             new AppCommandSource(index.Apps), new SettingsCommandSource(PaletteShellIndex.LaunchAsync), new RecentFileCommandSource(index.Recent),
+              new AppCommandSource(index.Apps), new SettingsCommandSource(PaletteShellIndex.LaunchAsync),
+              new SnapshotCommandSource("Recent files", () => fileSearchEnabled ? index.Recent.Snapshot : []),
              new SnapshotCommandSource("Open windows", () => Volatile.Read(ref openWindows), PaletteMode.Windows),
              new SnapshotCommandSource("System commands", () => Volatile.Read(ref systemCommands)),
              new CalculatorCommandSource(() => calculatorEnabled, CopyAsync),
              new WebCommandSource(() => Volatile.Read(ref web), PaletteShellIndex.LaunchAsync)
         ], usage, (_, ex) => Log(ex));
-        window = new(search, usage, this.notify);
+        var slowSources = new List<IAsyncCommandSource>();
+        window = new(new PaletteStreamingSearch(search, slowSources, (_, ex) => Log(ex)), usage, this.notify);
         clipboard = new(window.Handle, () => window.RefreshResults());
+        files = new(usage, CopyAsync, path => clipboard.CopyFile(path), () =>
+        { showMain(); vm.OpenAdvancedFromCalm(); return Task.CompletedTask; }, () => window.Handle);
+        slowSources.Add(files);
+        index.FileItem = files.Item;
         switcher = new(services, CopyAsync, this.notify, window.HidePalette);
         system = new PaletteWindowsSystem(services);
         index.CopyPath = CopyAsync;
@@ -152,6 +161,7 @@ internal sealed class CommandPaletteService : IDisposable
             return;
         }
         capturedTarget = target; capturedProcess = CommandPaletteWindow.ProcessOf(target);
+        StartFileDetection();
         StartSourceSnapshots(mode);
         Snapshot(capturedTarget, capturedProcess);
         window.Open(target, services.Settings.Theme, started, mode);
@@ -161,14 +171,36 @@ internal sealed class CommandPaletteService : IDisposable
         PaletteMode.Windows => services.Settings.PaletteWindowsEnabled,
         PaletteMode.Calculator => services.Settings.PaletteCalculatorEnabled,
         PaletteMode.Web => services.Settings.PaletteWebEnabled,
+        PaletteMode.Files => services.Settings.PaletteFilesEnabled,
         _ => true
     };
     private void SourcesChanged()
     {
+        StartFileDetection();
         StartSourceSnapshots(window.IsOpen ? PaletteMode.Commands : PaletteMode.Clipboard);
         if (!window.IsOpen) return;
         if (!ModeEnabled(window.Mode)) window.SetMode(PaletteMode.Commands);
         else window.RefreshResults();
+    }
+    private void StartFileDetection()
+    {
+        long epoch = ++fileDetectionEpoch;
+        bool enabled = services.Settings.PaletteFilesEnabled;
+        fileSearchEnabled = enabled;
+        var detected = files.BeginOpen(enabled);
+        vm.Settings.PaletteFileBackendStatus = enabled ? "Checking file search…" : "Off";
+        _ = PublishFileStatusAsync(detected, epoch, enabled);
+    }
+    private async Task PublishFileStatusAsync(Task<IPaletteFileBackend?> detected, long epoch, bool enabled)
+    {
+        IPaletteFileBackend? backend;
+        try { backend = await detected.ConfigureAwait(false); }
+        catch (Exception) { backend = null; }
+        dispatcher.TryEnqueue(() =>
+        {
+            if (!disposed && epoch == fileDetectionEpoch)
+                vm.Settings.PaletteFileBackendStatus = !enabled ? "Off" : backend?.Name ?? "File search needs Everything or Windows Search";
+        });
     }
     private void StartSourceSnapshots(PaletteMode mode)
     {
