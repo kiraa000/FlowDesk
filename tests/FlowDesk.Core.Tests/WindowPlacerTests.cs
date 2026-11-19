@@ -412,13 +412,22 @@ public class WindowPlacerTests
         Assert.True(show < firstMove, "expected Show(" + command + ") before the first move; ops: " + string.Join(", ", api.Ops));
     }
 
-    [Fact]
-    public void Clamped_rectangle_is_failed_even_after_retry()
+    [Theory]
+    [InlineData(WindowShow.Normal)]
+    [InlineData(WindowShow.Maximized)]
+    [InlineData(WindowShow.Minimized)]
+    public void Clamped_rectangle_after_successful_retry_preserves_requested_show_state(WindowShow show)
     {
         var api = new FakePlacementApi { ClampRect = true };
-        Assert.Equal(PlaceOutcome.Failed, WindowPlacer.Place(api, Target, WindowShow.Normal));
+        Assert.Equal(PlaceOutcome.Ok, WindowPlacer.Place(api, Target, show));
         Assert.Equal(2, api.RectMoves().Count());
         Assert.Equal(1, api.Pauses);
+        Assert.NotEqual(Target, api.RestoreRect);
+        Assert.Equal(show == WindowShow.Maximized, api.Maximized);
+        Assert.Equal(show == WindowShow.Minimized, api.Iconic);
+        if (show == WindowShow.Maximized) Assert.Contains("Show" + ShowMaximized, api.Ops);
+        else if (show == WindowShow.Minimized) Assert.Contains("Show" + ShowMinNoActivate, api.Ops);
+        else Assert.DoesNotContain(api.Ops, o => o.StartsWith("Show"));
     }
 
     [Theory]

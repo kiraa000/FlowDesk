@@ -59,7 +59,8 @@ internal static class WindowPlacer
             api.Pause();
             if (!api.SetRect(target))
                 return api.LastError == 5 ? PlaceOutcome.AccessDenied : PlaceOutcome.Failed;
-            if (!api.RectMatches(target)) return PlaceOutcome.Failed;
+            // Apps may clamp to a minimum size or character grid. A successful retry is
+            // accepted; still apply the saved show state, and let autosave capture the real rect.
         }
         switch (show)
         {
