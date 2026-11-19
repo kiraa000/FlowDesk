@@ -32,6 +32,12 @@
                                 Visibility="{Binding CanPause, Converter={StaticResource BoolVisibility}}" />
                         <Button Content="End session" Command="{Binding EndCommand}" AccessKey="E" />
                     </StackPanel>
+                    <StackPanel Spacing="8" Visibility="{Binding CanAllowLastBlocked, Converter={StaticResource BoolVisibility}}">
+                        <TextBlock Text="{Binding LastBlockedApp}" Style="{StaticResource BodyStrongTextBlockStyle}"
+                                   Foreground="{ThemeResource TextFillColorPrimaryBrush}" TextWrapping="Wrap" />
+                        <Button Content="Allow 5 minutes" Command="{Binding AllowLastBlockedCommand}"
+                                AutomationProperties.Name="Allow last blocked app for 5 minutes" />
+                    </StackPanel>
                 </StackPanel>
             </Border>
 

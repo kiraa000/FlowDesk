@@ -32,15 +32,31 @@ public sealed class PaletteSafetyTests
         var item = Item(new("Restart", () => { runs++; return Task.CompletedTask; }, NeedsConfirm: true));
         var state = panel ? new PaletteActionPanel<CommandItem>(item, new object(), 2, "3 results") : null;
         var executor = new PaletteActionExecutor(() => TimeSpan.Zero);
-        Task<PaletteExecution> Invoke() => executor.InvokeAsync(state?.Target ?? item, 0, input, _ => { }, _ => hides++);
-        Assert.Equal(PaletteExecution.Prompted, await Invoke());
+        Task<PaletteExecution> Invoke(PaletteInvocation gesture) => executor.InvokeAsync(state?.Target ?? item, 0, gesture, _ => { }, _ => hides++);
+        Assert.Equal(PaletteExecution.Prompted, await Invoke(input));
         Assert.Equal(0, runs);
-        Assert.Equal(PaletteExecution.Executed, await Invoke());
+        Assert.Equal(PaletteExecution.Executed, await Invoke(PaletteInvocation.Enter));
         Assert.Equal(1, runs);
         Assert.Equal(1, hides);
         Assert.False(executor.IsPending);
-        Assert.Equal(PaletteExecution.Prompted, await Invoke());
+        Assert.Equal(PaletteExecution.Prompted, await Invoke(input));
         Assert.Equal(1, runs);
+    }
+
+    [Fact]
+    public async Task ClickClickOnlyRepromptsAndExpiredClickCannotAuthorizeEnter()
+    {
+        int runs = 0, prompts = 0;
+        var now = TimeSpan.Zero;
+        var item = Item(new("Restart", () => { runs++; return Task.CompletedTask; }, NeedsConfirm: true));
+        var executor = new PaletteActionExecutor(() => now);
+        Task<PaletteExecution> Invoke(PaletteInvocation input) => executor.InvokeAsync(item, 0, input, _ => prompts++, _ => { });
+        Assert.Equal(PaletteExecution.Prompted, await Invoke(PaletteInvocation.Pointer));
+        Assert.Equal(PaletteExecution.Prompted, await Invoke(PaletteInvocation.Pointer));
+        now = PaletteConfirmation.Duration;
+        Assert.Equal(PaletteExecution.Prompted, await Invoke(PaletteInvocation.Enter));
+        Assert.Equal(0, runs);
+        Assert.Equal(3, prompts);
     }
 
     [Fact]

@@ -57,7 +57,7 @@ public sealed class FocusNotifications : IDisposable
             var token = Guid.NewGuid().ToString("N"); allowances[token] = e.Window;
             actions = $"<actions><action content=\"Allow 5 minutes\" arguments=\"allow={token}\" activationType=\"foreground\"/></actions>";
         }
-        Show(message, actions);
+        if (!Show(message, actions)) error(message); // Keep the actual block reason, not only a platform failure.
     }
     public void Complete() { ClearSession(); Show("Focus session complete"); }
 
@@ -100,8 +100,11 @@ public sealed class FocusNotifications : IDisposable
     internal async Task HandleActivationAsync(string argument)
     {
         activate();
-        if (argument.StartsWith("allow=", StringComparison.Ordinal) && allowances.Remove(argument[6..], out var window))
-            await allow(window);
+        if (argument.StartsWith("allow=", StringComparison.Ordinal))
+        {
+            if (allowances.Remove(argument[6..], out var window)) await allow(window);
+            else error("That allowance is no longer available.");
+        }
     }
     public void Dispose()
     {

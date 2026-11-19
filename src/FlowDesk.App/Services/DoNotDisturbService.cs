@@ -11,12 +11,32 @@ public sealed class DoNotDisturbService : IDoNotDisturb
     private readonly ContextNativeCall calls;
     private readonly object probeGate = new();
     private Task<bool>? probe;
+    private TimeSpan retryAfter;
+    private readonly Func<TimeSpan> clock = () => TimeSpan.FromMilliseconds(Environment.TickCount64);
+    private readonly Func<Task<bool>>? probeOverride;
     private readonly Action<Exception> log;
     public DoNotDisturbService(Action<Exception>? log = null)
     {
         this.log = log ?? (_ => { }); calls = new(this.log);
     }
-    private Task<bool> ProbeAsync() { lock (probeGate) return probe ??= ProbeCoreAsync(); }
+    internal DoNotDisturbService(Func<Task<bool>> probe, Func<TimeSpan> clock) : this()
+    { probeOverride = probe; this.clock = clock; }
+    internal Task<bool> ProbeAsync()
+    {
+        lock (probeGate)
+        {
+            if (probe is { IsCompletedSuccessfully: true } && !probe.Result && clock() >= retryAfter) probe = null;
+            return probe ??= ProbeWithBackoffAsync();
+        }
+    }
+    private async Task<bool> ProbeWithBackoffAsync()
+    {
+        bool available;
+        try { available = await (probeOverride?.Invoke() ?? ProbeCoreAsync()).ConfigureAwait(false); }
+        catch (Exception ex) { log(ex); available = false; }
+        if (!available) lock (probeGate) retryAfter = clock() + TimeSpan.FromSeconds(5);
+        return available;
+    }
     private async Task<bool> ProbeCoreAsync()
     {
         try

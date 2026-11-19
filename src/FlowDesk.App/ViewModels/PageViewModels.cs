@@ -264,6 +264,8 @@ public partial class SettingsViewModel(AppViewModels owner) : ObservableObject
         {
             if (owner.Services.QuickLook is { } service) await service.SetEnabledAsync(value);
             string conflict = value ? await Task.Run(QuickLookService.DetectConflicts) : "";
+            if (value && owner.Services.Hotkeys.KeyboardHookWarning is { Length: > 0 } warning)
+                conflict = string.IsNullOrEmpty(conflict) ? warning : conflict + " " + warning;
             if (change == quickLookChange) QuickLookConflict = conflict;
         }
         catch (Exception)
@@ -313,7 +315,8 @@ public partial class SettingsViewModel(AppViewModels owner) : ObservableObject
         if (hotkeys.IsRunning && !hotkeys.WheelAvailable)
             status += " Wheel shortcuts (Win+Wheel, Win+Shift+Wheel, Win+Alt+Wheel and Alt+Shift+Wheel) are not available: the mouse hook could not be installed.";
         else if (hotkeys.IsRunning && !hotkeys.WinWheelAvailable)
-            status += " Win+Wheel, Win+Shift+Wheel and Win+Alt+Wheel are not available: the keyboard hook could not be installed. Alt+Shift+Wheel resize remains available.";
+            status += " Win+Wheel, Win+Shift+Wheel and Win+Alt+Wheel are not available. Alt+Shift+Wheel resize remains available.";
+        if (hotkeys.KeyboardHookWarning.Length > 0) status += " " + hotkeys.KeyboardHookWarning;
         WindowShortcutsStatus = status;
         WindowShortcutsDesktopUnavailable = !hotkeys.DesktopsAvailable;
         var conflicts = hotkeys.Conflicts;
@@ -353,22 +356,20 @@ public partial class SettingsViewModel(AppViewModels owner) : ObservableObject
     private async Task ChooseShortcutsDllAsync()
     {
         if (WindowShortcutsBusy) return;
-        var source = await owner.Ui.PickFileAsync(".dll");
-        if (string.IsNullOrEmpty(source)) return;
-
-        string nativeFolder = Path.Combine(owner.Services.Store.Folder, "native");
-        string target = Path.Combine(nativeFolder, FlowDesk.Core.Desktops.VirtualDesktopAccessor.DllName);
-        if (File.Exists(target) && !await owner.Ui.ConfirmAsync(
-                "Replace VirtualDesktopAccessor.dll?",
-                "A desktop shortcut file already exists in the FlowDesk data folder. Replace it with the one you chose?",
-                "Replace"))
-        {
-            return;
-        }
-
         WindowShortcutsBusy = true;
         try
         {
+            var source = await owner.Ui.PickFileAsync(".dll");
+            if (string.IsNullOrEmpty(source)) return;
+            string nativeFolder = Path.Combine(owner.Services.Store.Folder, "native");
+            string target = Path.Combine(nativeFolder, FlowDesk.Core.Desktops.VirtualDesktopAccessor.DllName);
+            if (File.Exists(target) && !await owner.Ui.ConfirmAsync(
+                "Replace VirtualDesktopAccessor.dll?",
+                "A desktop shortcut file already exists in the FlowDesk data folder. Replace it with the one you chose?",
+                "Replace"))
+            {
+                return;
+            }
             await Task.Run(() =>
             {
                 Directory.CreateDirectory(nativeFolder);

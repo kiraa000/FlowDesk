@@ -7,6 +7,7 @@ namespace FlowDesk.App.Services;
 public interface IUserInteraction
 {
     void Enqueue(Action action);
+    bool TryEnqueue(Action action);
     Task<bool> ConfirmAsync(string title, string message, string primary);
     Task<string?> PickPathAsync(ItemKind kind);
     Task<string?> PickFileAsync(string extension);

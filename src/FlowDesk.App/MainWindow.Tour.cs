@@ -162,6 +162,7 @@ public sealed partial class MainWindow
             completion.TrySetResult(true);
             return;
         }
+        if (TourTip.IsOpen) return; // A delayed close from before hiding must not skip a reopened tour.
         if (!tourActive) return;
         App.ViewModels.Tour.Skip();
         HideTour();
@@ -200,5 +201,12 @@ public sealed partial class MainWindow
         return completion.Task;
     }
 
-    private void StopTour() => HideTour();
+    private void StopTour()
+    {
+        HideTour();
+        // A hidden/unloaded window need not deliver TeachingTip.Closed. No replay may wait on it.
+        var completion = tourTipClosed;
+        tourTipClosed = null;
+        completion?.TrySetResult(true);
+    }
 }
