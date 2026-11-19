@@ -68,6 +68,7 @@ public sealed class WorkspaceRestorer(IWindowSystem windows, IAppLauncher launch
         var claimed = new HashSet<long>();
         var specs = new Dictionary<string, MatchSpec>();
         var deferredBrowserReports = new HashSet<string>();
+        bool desktopCreationAttempted = false; // one side-effect budget shared by every item/settle pass in this restore
         string? browser = null;
 
         void Report(WorkspaceItem item, ItemOutcome o, string? detail = null)
@@ -87,7 +88,8 @@ public sealed class WorkspaceRestorer(IWindowSystem windows, IAppLauncher launch
 
         SavedWindow? Placement(WorkspaceItem item) =>
             opt.Overrides is not null && opt.Overrides.TryGetValue(item.Id, out var s) ? s : item.Window;
-        string? DesktopFailure(WindowInfo w, SavedWindow saved) => RestoreDesktop(w, saved, opt.LaunchTimeout, ct);
+        string? DesktopFailure(WindowInfo w, SavedWindow saved) => RestoreDesktop(w, saved, opt.LaunchTimeout, ct,
+            ref desktopCreationAttempted);
 
         bool IsBrowserItem(WorkspaceItem item) => item.Kind is ItemKind.App or ItemKind.Website
             && ShellLauncher.IsBrowser(item.App?.ExePath is { Length: > 0 } exe ? exe
@@ -405,7 +407,8 @@ public sealed class WorkspaceRestorer(IWindowSystem windows, IAppLauncher launch
         return true;
     }
 
-    private string? RestoreDesktop(WindowInfo original, SavedWindow saved, TimeSpan createTimeout, CancellationToken ct)
+    private string? RestoreDesktop(WindowInfo original, SavedWindow saved, TimeSpan createTimeout, CancellationToken ct,
+        ref bool creationAttempted)
     {
         if (saved.DesktopIndex is null && (saved.DesktopId is null || saved.DesktopId == Guid.Empty)) return null;
         const string prefix = "The window was placed, but its saved desktop could not be restored: ";
@@ -422,18 +425,20 @@ public sealed class WorkspaceRestorer(IWindowSystem windows, IAppLauncher launch
         if (desktops?.IsAvailable != true)
             return prefix + "desktop moves are unavailable (the desktop DLL is missing or incompatible); the window stays on its current desktop.";
         if (desktops.GetCount() is not { } count || count < 1) return prefix + "the desktop list is unavailable.";
-        // A corrupt/hand-edited JSON integer must not create hundreds of user desktops in a fast loop.
-        // Existing high-numbered desktops remain valid; only automatic creation has a safety budget.
-        if ((long)target + 1 - count > 32)
-            return prefix + "more than 32 desktops would need creating; create them manually first.";
-        var timer = Stopwatch.StartNew();
-        while (count <= target)
+        // Restore may recover one missing adjacent desktop, never fill a gap or create one per item.
+        // Existing desktops (including the one another item just created) do not consume the budget.
+        if (target > count || (target == count && creationAttempted))
+            return prefix + $"Desktop {(long)target + 1} does not exist (you have {count}); the window stays on its current desktop. " +
+                "Add desktops in Task View to restore it there.";
+        if (target == count)
         {
+            var timer = Stopwatch.StartNew();
             ct.ThrowIfCancellationRequested();
-            if (timer.Elapsed >= createTimeout) return prefix + "creating the missing desktops timed out.";
+            if (timer.Elapsed >= createTimeout) return prefix + "creating the missing desktop timed out.";
+            creationAttempted = true;
             int? next = desktops.Create();
             if (next is null || next <= count) return prefix + "Windows could not create a missing desktop.";
-            count = next.Value;
+            if (timer.Elapsed >= createTimeout) return prefix + "creating the missing desktop timed out.";
         }
         ct.ThrowIfCancellationRequested();
         if (!desktops.MoveWindow(w.Handle, target)) return prefix + "Windows refused the desktop move.";

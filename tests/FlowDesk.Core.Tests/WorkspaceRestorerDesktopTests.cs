@@ -7,7 +7,7 @@ namespace FlowDesk.Core.Tests;
 
 /// <summary>
 /// Restore keeps each window's saved virtual desktop: it moves matched and newly launched windows,
-/// creates only the missing desktops, never switches the user's desktop, and reports an honest
+/// creates at most one missing adjacent desktop per restore, never switches the user's desktop, and reports an honest
 /// PlaceDenied when the move cannot be made or cannot be verified.
 /// </summary>
 public class WorkspaceRestorerDesktopTests
@@ -389,19 +389,61 @@ public class WorkspaceRestorerDesktopTests
     }
 
     [Fact]
-    public async Task Missing_desktops_are_created_up_to_the_saved_index_only()
+    public async Task One_missing_adjacent_desktop_is_created()
     {
         var w = _sys.Add(Code, CodeTitle, desktopIndex: 0, isOnCurrentDesktop: true);
         var desktops = new FakeVirtualDesktops { Count = 1, Current = 0 };
         desktops.DesktopNumbers[w.Handle] = 0;
         var item = Build.App(Code, CodeTitle);
-        item.Window!.DesktopIndex = 3;
+        item.Window!.DesktopIndex = 1;
 
         var report = await Restorer(desktops).RestoreAsync(Workspace(item), Build.Fast());
 
         Assert.Equal(ItemOutcome.Reused, report.Items[0].Outcome);
-        Assert.Equal(3, desktops.CreateCalls); // 1 -> 2 -> 3 -> 4
-        Assert.Equal([3], desktops.Moves);
+        Assert.Equal(1, desktops.CreateCalls);
+        Assert.Equal([1], desktops.Moves);
+        Assert.Empty(desktops.Gotos);
+    }
+
+    [Theory]
+    [InlineData(3)] // count + 1 needs two new desktops
+    [InlineData(5)]
+    public async Task Missing_desktop_beyond_adjacent_creates_none_and_reports_manual_recovery(int target)
+    {
+        var w = _sys.Add(Code, CodeTitle, desktopIndex: 0, isOnCurrentDesktop: true);
+        var desktops = new FakeVirtualDesktops { Count = 2 };
+        desktops.DesktopNumbers[w.Handle] = 0;
+        var item = Build.App(Code, CodeTitle);
+        item.Window!.DesktopIndex = target;
+        var report = await Restorer(desktops).RestoreAsync(Workspace(item), Build.Fast());
+        Assert.Equal(ItemOutcome.PlaceDenied, report.Items[0].Outcome);
+        Assert.Contains($"Desktop {target + 1} does not exist (you have 2)", report.Items[0].Detail);
+        Assert.Contains("Add desktops in Task View", report.Items[0].Detail);
+        Assert.Equal(0, desktops.CreateCalls);
+        Assert.Empty(desktops.Moves);
+        Assert.Empty(desktops.Gotos);
+        Assert.Equal(0, desktops.DesktopNumbers[w.Handle]);
+    }
+
+    [Theory]
+    [InlineData(1, false)] // both items share the single created desktop
+    [InlineData(2, false)] // cannot grow a chain of adjacent desktops, one per item
+    [InlineData(1, true)]  // a failed creation also consumes the attempt budget
+    public async Task Desktop_creation_budget_is_shared_by_all_items(int secondTarget, bool createFails)
+    {
+        var a = _sys.Add(Code, CodeTitle, desktopIndex: 0, isOnCurrentDesktop: true);
+        var b = _sys.Add(Notes, "Notes", desktopIndex: 0, isOnCurrentDesktop: true);
+        var desktops = new FakeVirtualDesktops { Count = 1, CreateFails = createFails };
+        desktops.DesktopNumbers[a.Handle] = desktops.DesktopNumbers[b.Handle] = 0;
+        var first = Build.App(Code, CodeTitle);
+        var second = Build.App(Notes, "Notes");
+        first.Window!.DesktopIndex = 1;
+        second.Window!.DesktopIndex = secondTarget;
+        var report = await Restorer(desktops).RestoreAsync(Workspace(first, second), Build.Fast());
+        Assert.Equal(1, desktops.CreateCalls);
+        Assert.Equal(createFails ? ItemOutcome.PlaceDenied : ItemOutcome.Reused, report.Items[0].Outcome);
+        Assert.Equal(!createFails && secondTarget == 1 ? ItemOutcome.Reused : ItemOutcome.PlaceDenied, report.Items[1].Outcome);
+        Assert.Equal(createFails ? Array.Empty<int>() : secondTarget == 1 ? new[] { 1, 1 } : new[] { 1 }, desktops.Moves);
         Assert.Empty(desktops.Gotos);
     }
 
