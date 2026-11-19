@@ -89,9 +89,11 @@ internal sealed class PaletteBookmarkReader
             }
         return name; // ShellExecute also resolves registered App Paths and PATH.
     }
+    /// <summary>Snapshots live under the app's own temp folder, never a fixed development path.</summary>
+    internal static string SnapshotRoot() => System.IO.Path.Combine(System.IO.Path.GetTempPath(), "FlowDesk", "bookmarks");
     internal static IReadOnlyList<BookmarkEntry> ReadFirefoxSnapshot(string live, BookmarkProfile profile)
     {
-        string root = Directory.Exists(@"D:\Workspace\_tmp") ? @"D:\Workspace\_tmp\FlowDesk\bookmarks" : System.IO.Path.Combine(System.IO.Path.GetTempPath(), "FlowDesk", "bookmarks");
+        string root = SnapshotRoot();
         string directory = System.IO.Path.Combine(root, Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory); string copy = System.IO.Path.Combine(directory, "places.sqlite");
         nint database = 0, statement = 0;

@@ -36,6 +36,12 @@ public sealed class PaletteBookmarkReaderTests
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
         using var bytes = new MemoryStream(); stream.CopyTo(bytes); return bytes.ToArray();
     }
+    [Fact] public void SnapshotRootUsesTheAppTempFolder()
+    {
+        string root = PaletteBookmarkReader.SnapshotRoot();
+        Assert.Equal(Path.GetFullPath(Path.Combine(Path.GetTempPath(), "FlowDesk", "bookmarks")), Path.GetFullPath(root));
+        Assert.DoesNotContain(@"D:\Workspace\_tmp\FlowDesk", root, StringComparison.OrdinalIgnoreCase);
+    }
     [Fact] public void OlderSettingsEnableAllBookmarkBrowsers()
     {
         var settings = AppSettings.FromJson("{}"); Assert.True(settings.PaletteEdgeBookmarks); Assert.True(settings.PaletteChromeBookmarks); Assert.True(settings.PaletteFirefoxBookmarks);
