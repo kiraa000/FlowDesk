@@ -6,6 +6,7 @@ using FlowDesk.Core.Focus;
 using FlowDesk.Core.Model;
 using FlowDesk.Core.Storage;
 using FlowDesk.App.Services;
+using FlowDesk.Core.Windows;
 
 namespace FlowDesk.App.ViewModels;
 
@@ -41,10 +42,50 @@ public partial class FocusViewModel : ObservableObject, IContextFocus
     public bool CanStart => UxDecisions.CanStartFocus(IsRunning, BlockAll, Blocked.Count);
     public string StartDisabledReason => IsRunning ? "" : CanStart ? "" : "Add a blocked app or turn on Block every app.";
     public event Action? SessionChanged;
+    private WindowInfo? lastBlockedWindow;
+    private int allowanceGeneration;
+    [ObservableProperty] public partial string LastBlockedApp { get; set; } = "";
+    [ObservableProperty] public partial bool CanAllowLastBlocked { get; set; }
     public FocusViewModel(AppViewModels owner)
     {
         this.owner = owner;
         Blocked.CollectionChanged += (_, _) => UpdateStart();
+        SessionChanged += ClearLastBlocked;
+        owner.Services.Focus.AppBlocked += (_, e) =>
+        {
+            int generation = Volatile.Read(ref allowanceGeneration);
+            owner.Ui.Enqueue(() =>
+            {
+                if (generation != allowanceGeneration) return;
+                // Available even when Windows notifications are disabled or silently fail.
+                lastBlockedWindow = e.CanAllowTemporarily ? e.Window : null;
+                LastBlockedApp = e.AppName;
+                CanAllowLastBlocked = e.CanAllowTemporarily;
+            });
+        };
+    }
+    private void ClearLastBlocked()
+    {
+        Interlocked.Increment(ref allowanceGeneration);
+        lastBlockedWindow = null;
+        LastBlockedApp = "";
+        CanAllowLastBlocked = false;
+    }
+    [RelayCommand]
+    private async Task AllowLastBlockedAsync()
+    {
+        var window = lastBlockedWindow;
+        ClearLastBlocked();
+        int generation = allowanceGeneration;
+        await operations.WaitAsync();
+        try
+        {
+            bool allowed = generation == allowanceGeneration && window is not null &&
+                await Task.Run(() => owner.Services.Focus.AllowTemporarily(window));
+            owner.ShowStatus(allowed ? "App allowed for 5 minutes. Open it again to continue." : "That allowance is no longer available.");
+        }
+        catch (Exception ex) { owner.ShowStatus("The app could not be allowed: " + ex.Message, StatusKind.Warning); }
+        finally { operations.Release(); }
     }
     internal void Load()
     {
@@ -195,6 +236,7 @@ public partial class FocusViewModel : ObservableObject, IContextFocus
         var sample = await Task.Run(() => (state: owner.Services.Focus.State, remaining: owner.Services.Focus.Remaining));
         if (!IsRunning && sample.state is { } started) totalSeconds = (started.EndsAt - started.StartedAt).TotalSeconds;
         IsRunning = sample.state is not null; CanPause = IsRunning && sample.state?.Strictness != FocusStrictness.Strict;
+        if (sample.state is null || sample.state.Strictness != FocusStrictness.Normal) ClearLastBlocked();
         PauseLabel = sample.state?.Paused == true ? "Resume" : "Pause";
         SessionDescription = sample.state?.Paused == true ? "Session paused. Apps are not being blocked."
             : sample.state?.Strictness == FocusStrictness.Gentle ? "Gentle reminders are active. Apps stay open. Closing this window keeps the session running in the tray."

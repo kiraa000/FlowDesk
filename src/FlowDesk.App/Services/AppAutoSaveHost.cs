@@ -99,7 +99,13 @@ public sealed class AppAutoSaveHost : IAutoSaveHost
             foreach (var saved in clone.Items)
             {
                 var item = current.Items.FirstOrDefault(i => i.Id == saved.Id);
-                if (item is not null) item.Window = saved.Window?.Clone();
+                if (item is not null && saved.Window is { } placement)
+                {
+                    var applied = placement.Clone();
+                    applied.DesktopIndex ??= item.Window?.DesktopIndex;
+                    applied.DesktopId ??= item.Window?.DesktopId;
+                    item.Window = applied;
+                }
             }
             DateTimeOffset? previousSavedAt = current.LayoutSavedAt;
             current.LayoutSavedAt = clone.LayoutSavedAt;
@@ -201,25 +207,7 @@ public sealed class AppAutoSaveHost : IAutoSaveHost
         }
     }
 
-    private Task<T> OnUiAsync<T>(Func<T> func)
-    {
-        var tcs = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _ui.Enqueue(() =>
-        {
-            try { tcs.TrySetResult(func()); }
-            catch (Exception ex) { tcs.TrySetException(ex); }
-        });
-        return tcs.Task;
-    }
+    private Task<T> OnUiAsync<T>(Func<T> func) => UiDispatchTask.Run(_ui.TryEnqueue, func);
 
-    private Task<T> OnUiAsync<T>(Func<Task<T>> func)
-    {
-        var tcs = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _ui.Enqueue(async () =>
-        {
-            try { tcs.TrySetResult(await func()); }
-            catch (Exception ex) { tcs.TrySetException(ex); }
-        });
-        return tcs.Task;
-    }
+    private Task<T> OnUiAsync<T>(Func<Task<T>> func) => UiDispatchTask.RunAsync(_ui.TryEnqueue, func);
 }

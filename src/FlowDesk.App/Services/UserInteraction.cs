@@ -12,7 +12,9 @@ namespace FlowDesk.App.Services;
 // Presentation-only interactions. All workspace decisions remain in the view models.
 public sealed class UserInteraction(Window window, FrameworkElement root) : IUserInteraction
 {
-    public void Enqueue(Action action) => window.DispatcherQueue.TryEnqueue(() => action());
+    // Fire-and-forget status updates may be dropped at shutdown; awaited work must use TryEnqueue.
+    public void Enqueue(Action action) => TryEnqueue(action);
+    public bool TryEnqueue(Action action) => window.DispatcherQueue.TryEnqueue(() => action());
     private ContentDialog Dialog(string title, UIElement content, string primary = "", string close = "Cancel") => new()
     {
         XamlRoot = root.XamlRoot, RequestedTheme = root.RequestedTheme,

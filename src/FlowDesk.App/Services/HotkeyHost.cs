@@ -129,6 +129,8 @@ public sealed class HotkeyHost : IDisposable
     public bool WheelHookAvailable { get; private set; }
     public bool WinWheelHookAvailable { get; private set; }
     public bool KeyboardHookAvailable => _keyboardHook != 0;
+    internal bool KeyboardHookRequired => InputHookRequirements.For(_windowShortcuts, _quickLook is not null,
+        _hotCorners is not null, _palette is not null || _clipboard is not null, _paletteWindowsKey).Keyboard;
     public bool PaletteWindowsKeyAvailable => KeyboardHookAvailable && !Volatile.Read(ref _windowsMouseFailed);
     public void SetQuickLook(IQuickLookInput? input) => Volatile.Write(ref _quickLook, input);
     public ShortcutRegistrationSnapshot BindingStatus => Volatile.Read(ref _bindingStatus);

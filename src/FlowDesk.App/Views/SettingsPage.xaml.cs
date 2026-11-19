@@ -6,7 +6,7 @@ namespace FlowDesk.App.Views;
 
 public sealed partial class SettingsPage : Page
 {
-    private bool ready, changing;
+    private bool ready, changing, dialogOpen;
     public SettingsPage()
     {
         InitializeComponent();
@@ -48,10 +48,21 @@ public sealed partial class SettingsPage : Page
             });
         }
     }
-    private async void AddCustomCommand_Click(object sender, RoutedEventArgs e) => await EditCustomAsync(null);
+    private async void AddCustomCommand_Click(object sender, RoutedEventArgs e)
+    {
+        if (dialogOpen) return;
+        dialogOpen = true;
+        try { await EditCustomAsync(null); }
+        catch (Exception ex) { App.ViewModels.ShowStatus("The custom command could not be added: " + ex.Message, ViewModels.StatusKind.Warning); }
+        finally { dialogOpen = false; }
+    }
     private async void EditCustomCommand_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is Button { Tag: FlowDesk.Core.Palette.CustomCommandDefinition command }) await EditCustomAsync(command);
+        if (dialogOpen || sender is not Button { Tag: FlowDesk.Core.Palette.CustomCommandDefinition command }) return;
+        dialogOpen = true;
+        try { await EditCustomAsync(command); }
+        catch (Exception ex) { App.ViewModels.ShowStatus("The custom command could not be edited: " + ex.Message, ViewModels.StatusKind.Warning); }
+        finally { dialogOpen = false; }
     }
     private async Task EditCustomAsync(FlowDesk.Core.Palette.CustomCommandDefinition? command)
     {
@@ -68,34 +79,48 @@ public sealed partial class SettingsPage : Page
     }
     private async void DeleteCustomCommand_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button { Tag: FlowDesk.Core.Palette.CustomCommandDefinition command }) return;
-        var dialog = new ContentDialog { XamlRoot = XamlRoot, Title = "Delete custom command?", Content = command.Name,
-            PrimaryButtonText = "Delete", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close };
-        if (await dialog.ShowAsync() == ContentDialogResult.Primary) App.ViewModels.Settings.DeleteCustomCommand(command.Id);
+        if (dialogOpen || sender is not Button { Tag: FlowDesk.Core.Palette.CustomCommandDefinition command }) return;
+        dialogOpen = true;
+        try
+        {
+            var dialog = new ContentDialog { XamlRoot = XamlRoot, Title = "Delete custom command?", Content = command.Name,
+                PrimaryButtonText = "Delete", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close };
+            if (await dialog.ShowAsync() == ContentDialogResult.Primary) App.ViewModels.Settings.DeleteCustomCommand(command.Id);
+        }
+        catch (Exception ex) { App.ViewModels.ShowStatus("The custom command could not be deleted: " + ex.Message, ViewModels.StatusKind.Warning); }
+        finally { dialogOpen = false; }
     }
     private async void TestCustomCommand_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button { Tag: FlowDesk.Core.Palette.CustomCommandDefinition command }) return;
-        var query = new TextBox { Header = "Query (optional)", PlaceholderText = "Text for {query}" };
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(query, "Test command query");
-        var dialog = new ContentDialog { XamlRoot = XamlRoot, Title = "Test " + command.Name, Content = query,
-            PrimaryButtonText = "Run", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close };
-        if (await dialog.ShowAsync() == ContentDialogResult.Primary) await App.ViewModels.Settings.TestCustomCommandAsync(command, query.Text);
+        if (dialogOpen || sender is not Button { Tag: FlowDesk.Core.Palette.CustomCommandDefinition command }) return;
+        dialogOpen = true;
+        try
+        {
+            var query = new TextBox { Header = "Query (optional)", PlaceholderText = "Text for {query}" };
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(query, "Test command query");
+            var dialog = new ContentDialog { XamlRoot = XamlRoot, Title = "Test " + command.Name, Content = query,
+                PrimaryButtonText = "Run", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close };
+            if (await dialog.ShowAsync() == ContentDialogResult.Primary) await App.ViewModels.Settings.TestCustomCommandAsync(command, query.Text);
+        }
+        catch (Exception ex) { App.ViewModels.ShowStatus("The custom command could not be tested: " + ex.Message, ViewModels.StatusKind.Warning); }
+        finally { dialogOpen = false; }
     }
     private async void ExportTransfer_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button button || App.ViewModels.Settings.ExportTransfer is not { } export) return;
+        if (dialogOpen || sender is not Button button || App.ViewModels.Settings.ExportTransfer is not { } export) return;
+        dialogOpen = true;
         var returnFocus = new DialogFocusReturn(this, button);
         try { await export(); }
         catch (Exception ex) { App.ViewModels.ShowStatus("Settings could not be exported: " + ex.Message, ViewModels.StatusKind.Warning); }
-        finally { returnFocus.RestoreAfterDialog(); }
+        finally { dialogOpen = false; returnFocus.RestoreAfterDialog(); }
     }
     private async void ImportTransfer_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button button || App.ViewModels.Settings.ImportTransfer is not { } import) return;
+        if (dialogOpen || sender is not Button button || App.ViewModels.Settings.ImportTransfer is not { } import) return;
+        dialogOpen = true;
         var returnFocus = new DialogFocusReturn(this, button);
         try { await import(); }
         catch (Exception ex) { App.ViewModels.ShowStatus("Settings could not be imported: " + ex.Message, ViewModels.StatusKind.Warning); }
-        finally { returnFocus.RestoreAfterDialog(); }
+        finally { dialogOpen = false; returnFocus.RestoreAfterDialog(); }
     }
 }

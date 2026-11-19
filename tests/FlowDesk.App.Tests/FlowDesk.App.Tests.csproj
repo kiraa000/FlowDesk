@@ -47,6 +47,7 @@
     <Compile Include="..\..\src\FlowDesk.App\Services\ContextNativeCall.cs" Link="ContextNativeCall.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\AudioOutputService.cs" Link="AudioOutputService.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\DoNotDisturbService.cs" Link="DoNotDisturbService.cs" />
+    <Compile Include="..\..\src\FlowDesk.App\Services\UiDispatchTask.cs" Link="UiDispatchTask.cs" />
     <Compile Include="..\..\src\FlowDesk.App\ViewModels\ContextEditorViewModel.cs" Link="ContextEditorViewModel.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\NewWindowEligibility.cs" Link="NewWindowEligibility.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\BrowserNoticeSelection.cs" Link="BrowserNoticeSelection.cs" />
