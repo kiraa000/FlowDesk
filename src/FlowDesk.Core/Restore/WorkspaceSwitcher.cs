@@ -20,13 +20,17 @@ public sealed class WorkspaceSwitcher(IWindowSystem windows, SessionTracker trac
         IProgress<ItemResult>? progress = null, CancellationToken ct = default, RestoreOptions? options = null)
     {
         // options: caller's settings (e.g. LaunchTimeout from app settings); Overrides is always the session snapshot.
-        HashSet<long> currentHandles = [];
+        WindowInfo[] outgoing = [];
         if (current is not null && current.Id != target.Id)
         {
             tracker.SetSession(current.Id, capture.SnapshotSession(current));
-            currentHandles = tracker.LiveWindows(windows, current).Values.Select(w => w.Handle).ToHashSet();
+            outgoing = tracker.LiveWindows(windows, current).Values.ToArray();
         }
 
+        // An existing session describes the last departure, not subsequent live edits. Preserve
+        // ResetSession's explicit saved-layout request (no session), but never replay a stale one.
+        if (current?.Id == target.Id && tracker.GetSession(target.Id) is not null)
+            tracker.SetSession(target.Id, capture.SnapshotSession(target));
         var session = tracker.GetSession(target.Id);
         var o = options ?? new RestoreOptions();
         var effective = new RestoreOptions
@@ -36,11 +40,16 @@ public sealed class WorkspaceSwitcher(IWindowSystem windows, SessionTracker trac
         };
         var report = await restorer.RestoreAsync(target, effective, progress, ct).ConfigureAwait(false);
 
-        if (leave == LeaveAction.Minimize && currentHandles.Count > 0)
+        if (leave == LeaveAction.Minimize && outgoing.Length > 0)
         {
             var targetHandles = tracker.HandlesOf(target.Id).ToHashSet();
-            foreach (var h in currentHandles.Where(h => !targetHandles.Contains(h)))
-                windows.Minimize(h);
+            foreach (var old in outgoing.Where(w => !targetHandles.Contains(w.Handle)))
+            {
+                // Restore may await launches for seconds; a recycled HWND is not our outgoing app.
+                if (windows.IsAlive(old.Handle) && windows.Get(old.Handle) is { } live &&
+                    live.ProcessId == old.ProcessId && live.AppKey == old.AppKey)
+                    windows.Minimize(old.Handle);
+            }
         }
 
         target.LastUsed = DateTimeOffset.Now;

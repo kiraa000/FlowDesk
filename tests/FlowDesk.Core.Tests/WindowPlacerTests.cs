@@ -412,6 +412,24 @@ public class WindowPlacerTests
         Assert.True(show < firstMove, "expected Show(" + command + ") before the first move; ops: " + string.Join(", ", api.Ops));
     }
 
+    [Fact]
+    public void Clamped_rectangle_is_failed_even_after_retry()
+    {
+        var api = new FakePlacementApi { ClampRect = true };
+        Assert.Equal(PlaceOutcome.Failed, WindowPlacer.Place(api, Target, WindowShow.Normal));
+        Assert.Equal(2, api.RectMoves().Count());
+        Assert.Equal(1, api.Pauses);
+    }
+
+    [Theory]
+    [InlineData(5, PlaceOutcome.AccessDenied)]
+    [InlineData(87, PlaceOutcome.Failed)]
+    public void Failed_retry_reports_native_failure(int error, PlaceOutcome expected)
+    {
+        var api = new FakePlacementApi { ClampRect = true, FailRetry = true, LastError = error };
+        Assert.Equal(expected, WindowPlacer.Place(api, Target, WindowShow.Normal));
+    }
+
     /// <summary>
     /// State machine for the SHOW categories FlowDesk uses. By default SHOWNOACTIVATE normalizes iconic and
     /// maximized state like SHOWNORMAL (docs: same size/position, no activation). Setting
@@ -439,6 +457,8 @@ public class WindowPlacerTests
         public int? VanishAfterPauses { get; set; }
         public bool OnTargetMonitor { get; set; } = true;
         public bool MoveSucceeds { get; set; } = true;
+        public bool ClampRect { get; set; }
+        public bool FailRetry { get; set; }
         public int LastError { get; set; }
         public uint Dpi { get; set; } = 96;
         public PixelRect RestoreRect { get; private set; } = new(10, 10, 800, 600);
@@ -457,9 +477,9 @@ public class WindowPlacerTests
         {
             Ops.Add(asynchronous ? "SetRect:async" : "SetRect");
             LastRequestedRect = target;
-            if (!WindowExists || !MoveSucceeds) return false;
+            if (!WindowExists || !MoveSucceeds || (FailRetry && Ops.Count(o => o.StartsWith("SetRect")) > 1)) return false;
             // Moving a minimized/hidden window changes its restore rect; it does not show the window.
-            RestoreRect = target;
+            RestoreRect = ClampRect ? target with { Width = target.Width + 100 } : target;
             return true;
         }
 

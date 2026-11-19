@@ -81,7 +81,7 @@ public sealed class WorkspaceCapture(IWindowSystem windows, SessionTracker track
         foreach (var item in ws.Items)
         {
             if (!live.TryGetValue(item.Id, out var w)) continue;
-            item.Window = ToSaved(w, z.GetValueOrDefault(w.Handle, 999), monitors);
+            item.Window = ToSaved(w, z.GetValueOrDefault(w.Handle, 999), monitors, item.Window);
             updated.Add(item.Id);
         }
         if (updated.Count > 0) ws.LayoutSavedAt = DateTimeOffset.Now;
@@ -94,7 +94,8 @@ public sealed class WorkspaceCapture(IWindowSystem windows, SessionTracker track
         var monitors = windows.GetMonitors();
         var z = windows.GetAllAppWindows().Select((w, i) => (w.Handle, i)).ToDictionary(p => p.Handle, p => p.i);
         return LiveWindowsFor(ws, bindNewMatches: false)
-            .ToDictionary(kv => kv.Key, kv => ToSaved(kv.Value, z.GetValueOrDefault(kv.Value.Handle, 999), monitors));
+            .ToDictionary(kv => kv.Key, kv => ToSaved(kv.Value, z.GetValueOrDefault(kv.Value.Handle, 999), monitors,
+                tracker.GetSession(ws.Id)?.GetValueOrDefault(kv.Key) ?? ws.Items.First(i => i.Id == kv.Key).Window));
     }
 
     /// <summary>Bound windows first; unbound items are matched against open windows (and then bound).</summary>
@@ -117,7 +118,7 @@ public sealed class WorkspaceCapture(IWindowSystem windows, SessionTracker track
         return live;
     }
 
-    public static SavedWindow ToSaved(WindowInfo w, int zOrder, IReadOnlyList<MonitorInfo> monitors)
+    public static SavedWindow ToSaved(WindowInfo w, int zOrder, IReadOnlyList<MonitorInfo> monitors, SavedWindow? previous = null)
     {
         var m = monitors.FirstOrDefault(x => x.Device == w.MonitorDevice) ?? DisplayMapper.BestOverlap(w.NormalRect, monitors);
         return new SavedWindow
@@ -125,7 +126,7 @@ public sealed class WorkspaceCapture(IWindowSystem windows, SessionTracker track
             Rect = w.NormalRect, Show = w.Show, MonitorDevice = m?.Device ?? w.MonitorDevice,
             MonitorBounds = m?.Bounds ?? default, MonitorWorkArea = m?.WorkArea ?? default,
             Title = w.Title, ClassName = w.ClassName, ZOrder = zOrder,
-            DesktopIndex = w.DesktopIndex, DesktopId = w.DesktopId,
+            DesktopIndex = w.DesktopIndex ?? previous?.DesktopIndex, DesktopId = w.DesktopId ?? previous?.DesktopId,
         };
     }
 

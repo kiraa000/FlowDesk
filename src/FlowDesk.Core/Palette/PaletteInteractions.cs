@@ -60,8 +60,8 @@ public sealed class PaletteActionExecutor(Func<TimeSpan> clock)
         if (action.NeedsConfirm)
         {
             var now = clock();
-            bool confirmed = input != PaletteInvocation.ModifiedEnter && pending is { } p &&
-                p.Item == item.Id && p.Index == index && p.Action == action && p.Input == input &&
+            bool confirmed = input == PaletteInvocation.Enter && pending is { } p && p.Input != PaletteInvocation.ModifiedEnter &&
+                p.Item == item.Id && p.Index == index && p.Action == action &&
                 now >= p.Started && now - p.Started < PaletteConfirmation.Duration;
             if (!confirmed)
             {

@@ -57,7 +57,9 @@ internal static class WindowPlacer
         if (api.Dpi != dpiBefore || !api.RectMatches(target))
         {
             api.Pause();
-            api.SetRect(target);
+            if (!api.SetRect(target))
+                return api.LastError == 5 ? PlaceOutcome.AccessDenied : PlaceOutcome.Failed;
+            if (!api.RectMatches(target)) return PlaceOutcome.Failed;
         }
         switch (show)
         {
