@@ -584,21 +584,21 @@ public sealed class HotkeyHost : IDisposable
                 var policy = Volatile.Read(ref _policy);
                 if (!policy.AllowsWheel(WheelGestures.Route(modifiers.Win, modifiers.Alt, modifiers.Shift, modifiers.Control), _desktopBindingsAvailable))
                     return HotkeyNativeMethods.CallNextHookEx(_hook, nCode, wParam, lParam);
-                var decision = _wheel.Accept(modifiers.Win, modifiers.Alt, modifiers.Shift, modifiers.Control, Environment.TickCount64);
+                var decision = _wheel.Accept(modifiers.Win, modifiers.Alt, modifiers.Shift, modifiers.Control, Environment.TickCount64, delta);
                 if (decision.Gesture != WheelGesture.None)
                 {
-                    if (decision.Accepted)
+                    if (modifiers.Win)
                     {
-                        if (modifiers.Win)
-                        {
-                            _keyboard.AcceptWinGesture();
-                            TraceWinInput($"gesture={decision.Gesture} accepted=true leftHold={_keyboard.LeftHoldId} rightHold={_keyboard.RightHoldId}");
-                        }
-                        // Alt may be released BEFORE Win. Keep the early mask for search only;
-                        // the definitive Win mask is immediately adjacent to the replacement Win-up.
-                        if (decision.MaskMenu && modifiers.Alt) SendAltMenuMask();
-                        QueueWheel(decision.Gesture, delta > 0, policy);
+                        // Partial high-resolution swipes are swallowed too: Win-up must not open Start
+                        // just because no full notch was accumulated before the user released Win.
+                        _keyboard.AcceptWinGesture();
+                        if (decision.Accepted || decision.MaskMenu)
+                            TraceWinInput($"gesture={decision.Gesture} accepted={decision.Accepted} leftHold={_keyboard.LeftHoldId} rightHold={_keyboard.RightHoldId}");
                     }
+                    // Alt may be released BEFORE Win. Keep the early mask for search only;
+                    // the definitive Win mask is immediately adjacent to the replacement Win-up.
+                    if (decision.MaskMenu && modifiers.Alt) SendAltMenuMask();
+                    if (decision.Accepted) QueueWheel(decision.Gesture, delta > 0, policy);
                     return 1;
                 }
             }
