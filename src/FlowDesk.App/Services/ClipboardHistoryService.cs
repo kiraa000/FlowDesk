@@ -99,15 +99,13 @@ internal sealed class ClipboardHistoryService : IDisposable
             if (!OpenClipboard(hwnd)) throw new InvalidOperationException("Clipboard busy.");
             try
             {
-                ClipboardReplacement.Write(CaptureBackup, EmptyOrThrow, () =>
-                {
+                if (!EmptyClipboard()) throw new InvalidOperationException("Clipboard unavailable.");
                 // Set the exclusion before text; if it fails, do not expose text without its privacy flag.
                 if (SetClipboardData(exclude, marker) == 0) throw new InvalidOperationException("Clipboard unavailable.");
                 marker = 0;
                 if (SetClipboardData(13, value) == 0) throw new InvalidOperationException("Clipboard unavailable.");
                 value = 0;
                 ownSequence = GetClipboardSequenceNumber();
-                });
             }
             finally { CloseClipboard(); }
         }
@@ -140,11 +138,8 @@ internal sealed class ClipboardHistoryService : IDisposable
                 if (!OpenClipboard(hwnd)) throw new InvalidOperationException("Clipboard busy.");
                 try
                 {
-                    ClipboardReplacement.Write(CaptureBackup, EmptyOrThrow, () =>
-                    {
-                        if (SetClipboardData(15, value) == 0) throw new InvalidOperationException("Clipboard unavailable.");
-                        value = 0; ownSequence = GetClipboardSequenceNumber();
-                    });
+                    if (!EmptyClipboard() || SetClipboardData(15, value) == 0) throw new InvalidOperationException("Clipboard unavailable.");
+                    value = 0; ownSequence = GetClipboardSequenceNumber();
                 }
                 finally { CloseClipboard(); }
             }
@@ -153,75 +148,6 @@ internal sealed class ClipboardHistoryService : IDisposable
         finally { if (value != 0) GlobalFree(value); }
     }
     public void Dispose() { SetEnabled(false); History.Clear(); }
-    private static void EmptyOrThrow()
-    {
-        if (!EmptyClipboard()) throw new InvalidOperationException("Clipboard unavailable.");
-    }
-    private static IClipboardBackup CaptureBackup()
-    {
-        var backup = new ClipboardBackup();
-        try
-        {
-            long total = 0;
-            for (uint format = EnumClipboardFormats(0); format != 0; format = EnumClipboardFormats(format))
-            {
-                // Owner-display/private formats have application-specific ownership rules. Standard
-                // GDI formats are duplicated by OLE and freed with their matching native API.
-                if (format is not (1 or 2 or 3 or 4 or 5 or 6 or 7 or 9 or 10 or 11 or 12 or 13 or 14 or 15 or 16 or 17 or 0x81 or 0x82 or 0x83 or 0x8E) && format < 0xC000)
-                    throw new InvalidOperationException("The current clipboard cannot be safely backed up.");
-                nint source = GetClipboardData(format);
-                bool gdi = format is 2 or 3 or 9 or 14 or 0x82 or 0x83 or 0x8E;
-                nuint size = source == 0 || gdi ? 0 : GlobalSize(source);
-                if (source == 0 || (!gdi && size == 0) || size > 32 * 1024 * 1024 || (total += (long)size) > 32 * 1024 * 1024)
-                    throw new InvalidOperationException("The current clipboard cannot be safely backed up.");
-                nint copy = ClipboardBackupFormat.EnhancedMetafile(format)
-                    ? CopyEnhMetaFileW(source, null)
-                    : OleDuplicateData(source, ClipboardBackupFormat.OleFormat(format), 0);
-                if (copy == 0) throw new InvalidOperationException("Clipboard unavailable.");
-                backup.Handles.Add((format, copy));
-            }
-            if (Marshal.GetLastWin32Error() != 0) throw new InvalidOperationException("Clipboard enumeration failed.");
-            return backup;
-        }
-        catch { backup.Dispose(); throw; }
-    }
-    private sealed class ClipboardBackup : IClipboardBackup
-    {
-        internal readonly List<(uint Format, nint Handle)> Handles = [];
-        public void Restore()
-        {
-            EmptyOrThrow();
-            for (int i = 0; i < Handles.Count; i++)
-            {
-                var entry = Handles[i];
-                if (SetClipboardData(entry.Format, entry.Handle) == 0) throw new InvalidOperationException("Clipboard restore failed.");
-                Handles[i] = (entry.Format, 0);
-            }
-        }
-        public void Dispose()
-        {
-            foreach (var entry in Handles)
-            {
-                if (entry.Handle == 0) continue;
-                if (entry.Format is 2 or 9 or 0x82) DeleteObject(entry.Handle);
-                else if (entry.Format is 14 or 0x8E) DeleteEnhMetaFile(entry.Handle);
-                else
-                {
-                    if (entry.Format is 3 or 0x83)
-                    {
-                        nint pointer = GlobalLock(entry.Handle);
-                        if (pointer != 0)
-                        {
-                            // METAFILEPICT: three LONGs, then pointer-aligned HMETAFILE.
-                            DeleteMetaFile(Marshal.ReadIntPtr(pointer, IntPtr.Size == 8 ? 16 : 12));
-                            GlobalUnlock(entry.Handle);
-                        }
-                    }
-                    GlobalFree(entry.Handle);
-                }
-            }
-        }
-    }
     private delegate nint SubclassProc(nint hwnd, uint msg, nuint wp, nint lp, nuint id, nuint data);
     [DllImport("comctl32.dll")] private static extern bool SetWindowSubclass(nint hwnd, SubclassProc proc, nuint id, nuint data);
     [DllImport("comctl32.dll")] private static extern bool RemoveWindowSubclass(nint hwnd, SubclassProc proc, nuint id);
@@ -237,13 +163,7 @@ internal sealed class ClipboardHistoryService : IDisposable
     [DllImport("user32.dll")] private static extern bool EmptyClipboard();
     [DllImport("user32.dll")] private static extern bool IsClipboardFormatAvailable(uint format);
     [DllImport("user32.dll")] private static extern nint GetClipboardData(uint format);
-    [DllImport("user32.dll", SetLastError = true)] private static extern uint EnumClipboardFormats(uint format);
     [DllImport("user32.dll")] private static extern nint SetClipboardData(uint format, nint value);
-    [DllImport("ole32.dll")] private static extern nint OleDuplicateData(nint source, uint format, uint flags);
-    [DllImport("gdi32.dll")] private static extern bool DeleteObject(nint handle);
-    [DllImport("gdi32.dll")] private static extern bool DeleteEnhMetaFile(nint handle);
-    [DllImport("gdi32.dll", CharSet = CharSet.Unicode)] private static extern nint CopyEnhMetaFileW(nint handle, string? fileName);
-    [DllImport("gdi32.dll")] private static extern bool DeleteMetaFile(nint handle);
     [DllImport("kernel32.dll")] private static extern nint GlobalAlloc(uint flags, nuint bytes);
     [DllImport("kernel32.dll")] private static extern nint GlobalFree(nint memory);
     [DllImport("kernel32.dll")] private static extern nint GlobalLock(nint memory);

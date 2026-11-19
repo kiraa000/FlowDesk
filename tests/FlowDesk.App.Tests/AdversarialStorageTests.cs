@@ -62,37 +62,4 @@ public sealed class AdversarialStorageTests
     [Theory]
     [InlineData(0u, 0)] [InlineData(5u, 5)] [InlineData(1000u, 1000)] [InlineData(1001u, 1000)] [InlineData(uint.MaxValue, 1000)]
     public void PdfCountIsBoundedBeforeAllocation(uint input, int expected) => Assert.Equal(expected, PdfPreviewLimits.PageCount(input));
-    private sealed class Backup(Action restore) : IClipboardBackup
-    {
-        public bool Disposed;
-        public void Restore() => restore();
-        public void Dispose() => Disposed = true;
-    }
-    [Theory]
-    [InlineData(2u, 2u, false)] [InlineData(3u, 3u, false)] [InlineData(9u, 9u, false)]
-    [InlineData(0x82u, 2u, false)] [InlineData(0x83u, 3u, false)]
-    [InlineData(14u, 14u, true)] [InlineData(0x8Eu, 0x8Eu, true)] [InlineData(13u, 13u, false)]
-    public void ClipboardNativeBackupUsesCorrectHandleSemantics(uint format, uint oleFormat, bool enhanced)
-    {
-        Assert.Equal(oleFormat, ClipboardBackupFormat.OleFormat(format));
-        Assert.Equal(enhanced, ClipboardBackupFormat.EnhancedMetafile(format));
-    }
-    [Fact] public void FailedClipboardWriteRestoresOldContent()
-    {
-        string clipboard = "old"; var backup = new Backup(() => clipboard = "old");
-        Assert.Throws<IOException>(() => ClipboardReplacement.Write(() => backup, () => clipboard = "", () => { clipboard = "partial"; throw new IOException(); }));
-        Assert.Equal("old", clipboard); Assert.True(backup.Disposed);
-    }
-    [Fact] public void FailedClipboardBackupNeverEmptiesOldContent()
-    {
-        bool emptied = false;
-        Assert.Throws<IOException>(() => ClipboardReplacement.Write(() => throw new IOException(), () => emptied = true, () => { }));
-        Assert.False(emptied);
-    }
-    [Fact] public void SuccessfulClipboardWriteDoesNotRestore()
-    {
-        bool restored = false; var backup = new Backup(() => restored = true); string clipboard = "old";
-        ClipboardReplacement.Write(() => backup, () => clipboard = "", () => clipboard = "new");
-        Assert.Equal("new", clipboard); Assert.False(restored); Assert.True(backup.Disposed);
-    }
 }
