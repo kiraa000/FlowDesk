@@ -40,6 +40,11 @@ public sealed class AppServices : ObservableObject, IDisposable
     private string SettingsPath => Path.Combine(Store.Folder, "app-settings.json");
     private bool disposed;
     private bool transferring;
+    private RecoverableJsonFile? settingsRecovery;
+    private readonly ImportUndoState<ImportUndo> importUndoState = new();
+    public event Action? ImportUndoInvalidated { add => importUndoState.Invalidated += value; remove => importUndoState.Invalidated -= value; }
+    private void InvalidateImportUndo() => importUndoState.Invalidate();
+    internal void ArmImportUndo(ImportUndo undo) => importUndoState.Arm(undo);
 
     public AppServices()
     {
@@ -81,13 +86,14 @@ public sealed class AppServices : ObservableObject, IDisposable
             AppSettings settings = new();
             string? warning = recovered is null ? null
                 : "Your data file was damaged; the last good copy was loaded where available. Check your workspaces.";
-            try
-            {
-                if (File.Exists(SettingsPath))
-                    settings = AppSettings.FromJson(File.ReadAllText(SettingsPath));
-            }
-            catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
-            { warning = "App settings could not be loaded. Defaults are in use; your workspaces are unchanged."; }
+            if (!Store.CanSave) warning += " Saving is disabled because the unreadable data file could not be backed up.";
+            settingsRecovery = new(SettingsPath);
+            settings = settingsRecovery.Load(p => AppSettings.FromJson(File.ReadAllText(p)), () => new AppSettings(), out var settingsRecovered);
+            if (settingsRecovered is not null)
+                warning = (warning is null ? "" : warning + "\n") +
+                    "Your app settings file was damaged; the last good copy was loaded where available. Check Settings.";
+            if (!settingsRecovery.CanSave)
+                warning += " Saving is disabled because the unreadable settings file could not be backed up.";
             return (data, settings, warning);
         });
         Data = loaded.data; Settings = loaded.settings; RecoveryMessage = loaded.warning;
@@ -105,6 +111,7 @@ public sealed class AppServices : ObservableObject, IDisposable
     public void Changed(bool immediate = false)
     {
         if (transferring) return;
+        InvalidateImportUndo();
         debounce?.Cancel(); debounce = new();
         pending = PersistAsync(SnapshotData(), JsonSerializer.Serialize(Settings, JsonStore.Options), immediate, debounce.Token);
     }
@@ -116,6 +123,7 @@ public sealed class AppServices : ObservableObject, IDisposable
     public Task<bool> SaveNowAsync()
     {
         if (transferring) return Task.FromResult(false);
+        InvalidateImportUndo();
         // Drop a pending debounced write (its snapshot is older) but never cancel a save already in flight:
         // a later Changed write queues behind it on the same writer, so the newest snapshot still wins.
         debounce?.Cancel(); debounce = null;
@@ -136,6 +144,7 @@ public sealed class AppServices : ObservableObject, IDisposable
                 token.ThrowIfCancellationRequested();
                 await Task.Run(async () =>
                 {
+                    settingsRecovery?.EnsureCanSave();
                     await Store.SaveAsync(snapshot);
                     var tmp = SettingsPath + ".tmp";
                     await File.WriteAllTextAsync(tmp, settings);
@@ -147,7 +156,7 @@ public sealed class AppServices : ObservableObject, IDisposable
             }
             finally { writer.Release(); }
         }
-        catch (OperationCanceledException) { return false; }
+        catch (OperationCanceledException) { LastSaveSucceeded = false; return false; }
         catch (Exception ex)
         {
             bool wasSucceeding = LastSaveSucceeded;
@@ -175,6 +184,7 @@ public sealed class AppServices : ObservableObject, IDisposable
             {
                 await Task.Run(async () =>
                 {
+                    settingsRecovery?.EnsureCanSave();
                     await Store.SaveAsync(plan.Data);
                     ImportBackup.AtomicWrite(SettingsPath, System.Text.Encoding.UTF8.GetBytes(plan.Settings.ToJson()));
                 });
@@ -192,11 +202,13 @@ public sealed class AppServices : ObservableObject, IDisposable
     internal async Task UndoImportAsync(ImportUndo undo)
     {
         if (transferring) throw new InvalidOperationException("An import is already in progress.");
+        if (!importUndoState.IsCurrent(undo)) throw new InvalidOperationException("Import undo expired after a later change.");
         transferring = true; debounce?.Cancel();
         await writer.WaitAsync();
         try
         {
             await Task.Run(undo.Backup.Restore);
+            InvalidateImportUndo();
             Data = undo.Data; Settings = undo.Settings;
         }
         finally { writer.Release(); transferring = false; }

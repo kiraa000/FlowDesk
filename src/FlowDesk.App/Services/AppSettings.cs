@@ -83,8 +83,20 @@ public sealed class AppSettings
     /// Reads app-settings.json with the same options it is written with (enums as strings, e.g. hot corner
     /// actions). Reading with default options failed on every file saved since hot corners existed.
     /// </summary>
-    public static AppSettings FromJson(string json) =>
-        System.Text.Json.JsonSerializer.Deserialize<AppSettings>(json, FlowDesk.Core.Storage.JsonStore.Options) ?? new();
+    public static AppSettings FromJson(string json)
+    {
+        var settings = System.Text.Json.JsonSerializer.Deserialize<AppSettings>(json, FlowDesk.Core.Storage.JsonStore.Options)
+            ?? throw new System.Text.Json.JsonException("Empty settings file");
+        settings.FocusIconPaths ??= [];
+        settings.AutosaveOff ??= []; settings.AlwaysAddNewWindows ??= [];
+        settings.BrowserRestoreNoticesSeen ??= []; settings.DisabledShortcuts ??= [];
+        settings.ShortcutOverrides ??= [];
+        settings.CustomCommands ??= new(); settings.CustomCommands.Entries ??= [];
+        settings.CustomCommands.Entries.RemoveAll(e => e is null);
+        settings.Ai ??= new();
+        settings.Theme ??= "System"; settings.TerminalProgram ??= ""; settings.PaletteWebTemplate ??= "";
+        return settings;
+    }
 
     public string ToJson() => System.Text.Json.JsonSerializer.Serialize(this, FlowDesk.Core.Storage.JsonStore.Options);
 

@@ -174,7 +174,9 @@ public static class SettingsTransfer
     }
 
     private static bool DrivePath(string path) => path.Length >= 3 && char.IsAsciiLetter(path[0]) && path[1] == ':' && path[2] is '\\' or '/';
-    private static bool ExistsLocal(string path)
+    private static bool ExistsLocal(string path) => LocalPath(path, allowMissing: false);
+    private static bool SafeWorkspacePath(string path) => LocalPath(path, allowMissing: true);
+    private static bool LocalPath(string path, bool allowMissing)
     {
         // Never authenticate to an imported UNC/device/mapped-network path. Also refuse reparse ancestors
         // (junctions/symlinks/cloud placeholders) before traversing them: a local-looking path may lead to SMB.
@@ -186,7 +188,9 @@ public static class SettingsTransfer
             foreach (string part in full[root.Length..].Split(['\\', '/'], StringSplitOptions.RemoveEmptyEntries))
             {
                 cursor = Path.Combine(cursor, part);
-                if ((File.GetAttributes(cursor) & FileAttributes.ReparsePoint) != 0) return false;
+                try { if ((File.GetAttributes(cursor) & FileAttributes.ReparsePoint) != 0) return false; }
+                catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+                { return allowMissing; } // Existing ancestors were local and non-reparse; keep portable/missing items.
             }
             return File.Exists(full) || Directory.Exists(full);
         }
@@ -203,6 +207,9 @@ public static class SettingsTransfer
             var overlay = Object(settings);
             foreach (var pair in importedSettings) overlay[pair.Key] = pair.Value?.DeepClone();
             settings = overlay.Deserialize<AppSettings>(JsonStore.Options)!;
+            if (settings.Ai.Provider != local.Ai.Provider || settings.Ai.BaseUrl != local.Ai.BaseUrl)
+                warnings.Add("AI endpoint was not imported; set it in Settings if you want it");
+            settings.Ai = settings.Ai with { Provider = local.Ai.Provider, BaseUrl = local.Ai.BaseUrl };
             settings.LaunchTimeoutSeconds = AppSettings.ClampLaunchTimeout(settings.LaunchTimeoutSeconds);
             settings.DisabledShortcuts = new ShortcutPolicy(settings.DisabledShortcuts).DisabledIds.ToList();
             settings.ShortcutOverrides = ResolveShortcuts(importedSettings["ShortcutOverrides"] as JsonObject ?? Object(settings)["ShortcutOverrides"] as JsonObject, settings, warnings);
@@ -215,6 +222,16 @@ public static class SettingsTransfer
             foreach (var source in workspaces.Items)
             {
                 var w = source.Clone();
+                w.Items.RemoveAll(item =>
+                {
+                    var paths = new List<string>();
+                    if (!string.IsNullOrEmpty(item.App?.ExePath)) paths.Add(item.App.ExePath);
+                    if (!string.IsNullOrEmpty(item.App?.WorkingDirectory)) paths.Add(item.App.WorkingDirectory);
+                    if (item.Kind is ItemKind.File or ItemKind.Folder) paths.Add(item.Path ?? "");
+                    if (paths.All(p => DrivePath(Environment.ExpandEnvironmentVariables(p)) && SafeWorkspacePath(Environment.ExpandEnvironmentVariables(p)))) return false;
+                    warnings.Add($"Workspace item '{item.Name}' skipped: its path is not a safe local path.");
+                    return true;
+                });
                 while (!ids.Add(w.Id)) w.Id = WorkspaceItem.NewId();
                 if (!names.Add(w.Name))
                 {

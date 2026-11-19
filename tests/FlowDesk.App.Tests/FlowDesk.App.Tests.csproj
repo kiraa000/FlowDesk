@@ -34,6 +34,10 @@
     <Compile Include="..\..\src\FlowDesk.App\Services\LaunchTimeoutValue.cs" Link="LaunchTimeoutValue.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\FocusReturnPolicy.cs" Link="FocusReturnPolicy.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\AppSettings.cs" Link="AppSettings.cs" />
+    <Compile Include="..\..\src\FlowDesk.App\Services\ImportUndoState.cs" Link="ImportUndoState.cs" />
+    <Compile Include="..\..\src\FlowDesk.App\Services\PdfPreviewLimits.cs" Link="PdfPreviewLimits.cs" />
+    <Compile Include="..\..\src\FlowDesk.App\Services\ClipboardReplacement.cs" Link="ClipboardReplacement.cs" />
+    <Compile Include="..\..\src\FlowDesk.App\Services\ClipboardBackupFormat.cs" Link="ClipboardBackupFormat.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\SettingsTransfer.cs" Link="SettingsTransfer.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\ImportBackup.cs" Link="ImportBackup.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\ImportedShortcuts.cs" Link="ImportedShortcuts.cs" />

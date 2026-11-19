@@ -29,28 +29,17 @@ public sealed class JsonStore(string? folder = null)
     };
 
     private readonly SemaphoreSlim _lock = new(1, 1);
+    private RecoverableJsonFile? recovery;
 
     public string Folder { get; } = folder ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FlowDesk");
     public string FilePath => Path.Combine(Folder, "flowdesk.json");
+    public bool CanSave => recovery?.CanSave ?? true;
 
     /// <summary>Loads the data; a missing file gives defaults. <paramref name="recoveredFrom"/> is set when the main file was unreadable.</summary>
     public FlowDeskData Load(out string? recoveredFrom)
     {
-        recoveredFrom = null;
-        if (!File.Exists(FilePath)) return new FlowDeskData();
-        try
-        {
-            return Read(FilePath);
-        }
-        catch (Exception ex) when (ex is JsonException or IOException or InvalidDataException)
-        {
-            string aside = FilePath + $".corrupt-{DateTime.Now:yyyyMMdd-HHmmss}";
-            File.Copy(FilePath, aside, overwrite: true);
-            recoveredFrom = aside;
-            string bak = FilePath + ".bak";
-            try { return File.Exists(bak) ? Read(bak) : new FlowDeskData(); }
-            catch (Exception e2) when (e2 is JsonException or IOException or InvalidDataException) { return new FlowDeskData(); }
-        }
+        recovery ??= new(FilePath);
+        return recovery.Load(Read, () => new FlowDeskData(), out recoveredFrom);
     }
 
     private static FlowDeskData Read(string path)
@@ -59,6 +48,17 @@ public sealed class JsonStore(string? folder = null)
         var data = JsonSerializer.Deserialize<FlowDeskData>(fs, Options) ?? throw new InvalidDataException("Empty file");
         if (data.Version > FlowDeskData.CurrentVersion)
             throw new InvalidDataException($"File is from a newer FlowDesk (version {data.Version})");
+        data.Workspaces ??= [];
+        data.Workspaces.RemoveAll(w => w is null);
+        data.Focus ??= new();
+        data.Focus.Blocked ??= []; data.Focus.Allowed ??= [];
+        data.Focus.Blocked.RemoveAll(r => r is null); data.Focus.Allowed.RemoveAll(r => r is null);
+        foreach (var workspace in data.Workspaces)
+        {
+            workspace.Items ??= [];
+            workspace.Items.RemoveAll(i => i is null);
+            foreach (var item in workspace.Items) item.Urls ??= [];
+        }
         return data;
     }
 
@@ -67,6 +67,7 @@ public sealed class JsonStore(string? folder = null)
         await _lock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
+            recovery?.EnsureCanSave();
             Directory.CreateDirectory(Folder);
             string tmp = FilePath + ".tmp";
             await using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None, 4096, FileOptions.WriteThrough))

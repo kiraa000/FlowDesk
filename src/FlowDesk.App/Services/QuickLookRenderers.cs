@@ -236,7 +236,9 @@ internal sealed class PdfQuickLookRenderer : QuickLookRenderer
             }
         }
         // Hook before assigning items, so initial realization cannot miss its render callback.
-        list.ItemsSource = Enumerable.Range(0, checked((int)loaded.PageCount)).ToArray();
+        int previewCount = PdfPreviewLimits.PageCount(loaded.PageCount);
+        if (loaded.PageCount > previewCount) Note = $"Preview limited to the first {previewCount:N0} pages. Choose Open to read the full PDF.";
+        list.ItemsSource = Enumerable.Range(0, previewCount).ToArray();
         return list;
     }
     /// <summary>A page that is neither drawn nor failed must not stay silently empty.</summary>

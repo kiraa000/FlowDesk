@@ -292,21 +292,41 @@ public sealed partial class MainWindow : Window
             App.ViewModels.ShowStatus("Close the open dialog before exiting FlowDesk.", StatusKind.Warning); return;
         }
         // Do not let a new focus session or autosave tick start while the final persistence await is in flight.
-        PageFrame.IsEnabled = false; Navigation.IsEnabled = false; focusTimer.Stop(); autosaveTimer.Stop();
-        await App.ViewModels.AutoSave.StopAsync();
-        RememberWindow();
-        await services.FlushAsync();
-        if (!services.LastSaveSucceeded)
+        bool tearingDown = false;
+        try
         {
-            closing = false; exitRequested = false; PageFrame.IsEnabled = true; Navigation.IsEnabled = true;
-            focusTimer.Start(); autosaveTimer.Start(); App.ViewModels.AutoSave.Start(); return;
+            PageFrame.IsEnabled = false; Navigation.IsEnabled = false; focusTimer.Stop(); autosaveTimer.Stop();
+            await App.ViewModels.AutoSave.StopAsync();
+            RememberWindow();
+            await services.FlushAsync();
+            if (!services.LastSaveSucceeded)
+            {
+                ResumeAfterFailedClose(); return;
+            }
+            // Once teardown starts, finish it even if one service fails. Never reopen an interactive
+            // window with half its dependencies disposed or skip the later hook cleanup.
+            tearingDown = true;
+            void Cleanup(Action action) { try { action(); } catch (Exception ex) { services.LogContextFailure(ex); } }
+            Cleanup(() => services.HotCorners?.Dispose());
+            Cleanup(() => palette?.Dispose());
+            try { await Task.Run(() => services.Focus.Dispose()); } catch (Exception ex) { services.LogContextFailure(ex); }
+            Cleanup(() => services.QuickLook?.Dispose());
+            try { await services.Hotkeys.StopAllAsync(); } catch (Exception ex) { services.LogContextFailure(ex); }
+            allowClose = true; Close();
         }
-        services.HotCorners?.Dispose();
-        palette?.Dispose();
-        await Task.Run(() => services.Focus.Dispose());
-        services.QuickLook?.Dispose();
-        await services.Hotkeys.StopAllAsync();
-        allowClose = true; Close();
+        catch (Exception ex)
+        {
+            services.LogContextFailure(ex);
+            if (!tearingDown) ResumeAfterFailedClose();
+            else { allowClose = true; closing = false; } // A second Close retries without touching disposed services.
+            App.ViewModels.ShowStatus("FlowDesk could not finish exiting. Your window stayed open; try Exit again.", StatusKind.Error);
+        }
+    }
+    private void ResumeAfterFailedClose()
+    {
+        allowClose = false; closing = false; exitRequested = false;
+        PageFrame.IsEnabled = true; Navigation.IsEnabled = true;
+        focusTimer.Start(); autosaveTimer.Start(); App.ViewModels.AutoSave.Start();
     }
     private void RememberWindow()
     {
@@ -344,10 +364,12 @@ public sealed partial class MainWindow : Window
             TrayIcon.ToolTipText = vm.IsRunning ? $"FlowDesk · {vm.RemainingText} remaining" : "FlowDesk";
             TrayPause.Text = vm.PauseLabel; TrayPause.Visibility = vm.CanPause ? Visibility.Visible : Visibility.Collapsed;
         }
+        catch (Exception ex) { services.LogContextFailure(ex); }
         finally { sampling = false; }
     }
     private async Task ExitFromTrayAsync()
     {
+        if (allowClose) { Close(); return; }
         BringForward();
         if (App.ViewModels.IsBusy) { App.ViewModels.ShowStatus("Wait for the current operation to finish before exiting."); return; }
         if (closing || endingSession) return;

@@ -28,6 +28,7 @@ public sealed partial class MainWindow
         };
         actions.Children.Add(undo); actions.Children.Add(folder); transferBar.Content = actions;
         TransferStatusHost.Children.Add(transferBar);
+        services.ImportUndoInvalidated += () => { importUndo = null; transferBar.IsOpen = false; };
     }
     private async Task ExportSettingsAsync()
     {
@@ -79,6 +80,7 @@ public sealed partial class MainWindow
                 try { warnings.AddRange(await App.ViewModels.Settings.ApplyTransferredSettingsAsync()); }
                 catch (Exception) { warnings.Add("Some input settings could not be applied. Check Settings before using shortcuts."); }
                 if (!await services.SaveNowAsync()) warnings.Add("Live settings changes could not be saved. Your backup is still available.");
+                services.ArmImportUndo(importUndo!);
                 if (warnings.Count > 0) App.ViewModels.ShowStatus(string.Join(Environment.NewLine, warnings), StatusKind.Warning);
                 else App.ViewModels.StatusOpen = false;
             });

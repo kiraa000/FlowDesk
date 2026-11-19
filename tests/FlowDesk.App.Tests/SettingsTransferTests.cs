@@ -35,7 +35,7 @@ public sealed class SettingsTransferTests
         var (source, settings) = Sample();
         var json = SettingsTransfer.Export(source, settings, new(), "test"); var preview = Parse(json);
         Assert.Null(preview.Error); Assert.All(preview.Sections, s => Assert.Null(s.Error));
-        var local = new AppSettings { Width = 777, X = 88, TrayCloseNoticeShown = true };
+        var local = new AppSettings { Width = 777, X = 88, TrayCloseNoticeShown = true, Ai = settings.Ai };
         var plan = SettingsTransfer.Merge(new() { TourCompleted = false }, local, preview, new(Replace: true), _ => true);
         Assert.Equal(JsonSerializer.Serialize(source.Workspaces, JsonStore.Options), JsonSerializer.Serialize(plan.Data.Workspaces, JsonStore.Options));
         Assert.Equal(JsonSerializer.Serialize(source.Focus, JsonStore.Options), JsonSerializer.Serialize(plan.Data.Focus, JsonStore.Options));
@@ -256,6 +256,35 @@ public sealed class SettingsTransferTests
     {
         var json = SettingsTransfer.Export(new(), new() { Ai = null! }, new(), "test");
         var preview = Parse(json); Assert.Null(preview.Error); Assert.All(preview.Sections, row => Assert.Null(row.Error));
+    }
+    [Theory]
+    [InlineData(AiProviderKind.OpenAICompatible, "https://attacker.example/v1")]
+    [InlineData(AiProviderKind.Anthropic, "https://attacker.example/v1")]
+    [InlineData(AiProviderKind.Anthropic, "https://local.example/v1")]
+    public void AiImportKeepsLocalCredentialDestination(AiProviderKind provider, string url)
+    {
+        var local = new AppSettings { Ai = new() { Provider = AiProviderKind.OpenAICompatible, BaseUrl = "https://local.example/v1" } };
+        var imported = new AppSettings { Ai = new() { Provider = provider, BaseUrl = url, Model = "imported-model", ShowFallback = false } };
+        var plan = SettingsTransfer.Merge(new(), local, Parse(SettingsTransfer.Export(new(), imported, new(), "test")), new());
+        Assert.Equal(local.Ai.Provider, plan.Settings.Ai.Provider); Assert.Equal(local.Ai.BaseUrl, plan.Settings.Ai.BaseUrl);
+        Assert.Equal("imported-model", plan.Settings.Ai.Model); Assert.False(plan.Settings.Ai.ShowFallback);
+        Assert.Contains("AI endpoint was not imported; set it in Settings if you want it", plan.Warnings);
+    }
+    [Theory]
+    [InlineData(@"\\server\share\a")]
+    [InlineData(@"\\?\UNC\server\share\a")]
+    [InlineData(@"\\?\D:\a")]
+    [InlineData("//server/share/a")]
+    public void WorkspaceNetworkAndDevicePathsAreDroppedWithoutProbing(string path)
+    {
+        var data = new FlowDeskData { Workspaces = [new() { Name = "Imported", Items = [
+            new() { Name = "App", App = new() { ExePath = path } },
+            new() { Name = "File", Kind = ItemKind.File, Path = path },
+            new() { Name = "Folder", Kind = ItemKind.Folder, Path = path },
+            new() { Name = "Site", Kind = ItemKind.Website, Urls = ["https://example.org"] }] }] };
+        int probes = 0;
+        var plan = SettingsTransfer.Merge(new(), new(), Parse(SettingsTransfer.Export(data, new(), new(), "test")), new(), _ => { probes++; return true; });
+        Assert.Equal(0, probes); Assert.Equal("Site", Assert.Single(plan.Data.Workspaces[0].Items).Name); Assert.Equal(3, plan.Warnings.Count);
     }
     [Fact] public void ReplaceOnlyReplacesCustomCommandsWhenTheirSectionIsSelected()
     {
