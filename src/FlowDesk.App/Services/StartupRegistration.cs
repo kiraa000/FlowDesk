@@ -27,9 +27,10 @@ public static class StartupRegistration
     public static bool LaunchHidden(IEnumerable<string> arguments) =>
         arguments.Any(a => string.Equals(a, "--tray", StringComparison.OrdinalIgnoreCase));
 
-    /// <summary>Upgrade an enabled legacy Run entry, including a previous install path; never change approval.</summary>
-    public static bool UpgradeLegacyCommand() => UpgradeLegacyCommand(new WindowsRegistryAccess(), Command);
-    public static bool UpgradeLegacyCommand(IRegistryAccess registry, string command)
+    /// <summary>Add --tray to an enabled legacy Run entry. Keep its exe path (launching another build must not
+    /// take over sign-in) and never change approval.</summary>
+    public static bool UpgradeLegacyCommand() => UpgradeLegacyCommand(new WindowsRegistryAccess());
+    public static bool UpgradeLegacyCommand(IRegistryAccess registry)
     {
         try
         {
@@ -37,7 +38,9 @@ public static class StartupRegistration
             var address = new RegistryAddress(RunKeyPath, ValueName);
             var stored = registry.Read(address);
             string? text = stored is null ? null : System.Text.Json.JsonSerializer.Deserialize<string>(stored.Data);
-            if (string.IsNullOrWhiteSpace(text) || LaunchHidden(FlowDesk.Core.Restore.BrowserSession.Tokenize(text).Skip(1))) return false;
+            var tokens = FlowDesk.Core.Restore.BrowserSession.Tokenize(text);
+            if (text is null || tokens.Count == 0 || string.IsNullOrWhiteSpace(tokens[0]) || LaunchHidden(tokens.Skip(1))) return false;
+            string command = text.TrimEnd() + " --tray";
             registry.Write(address, new((int)RegistryValueKind.String, System.Text.Json.JsonSerializer.Serialize(command)));
             return true;
         }

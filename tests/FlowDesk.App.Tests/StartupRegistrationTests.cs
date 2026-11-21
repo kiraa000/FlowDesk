@@ -62,16 +62,16 @@ public sealed class StartupRegistrationTests
         var registry = new FakeRegistry();
         var run = new RegistryAddress(StartupCatalog.Run, "FlowDesk");
         var approval = new RegistryAddress(StartupCatalog.Approved + "Run", "FlowDesk");
-        const string command = "\"D:\\FlowDesk.exe\" --tray";
+        const string command = "\"D:\\previous-build\\FlowDesk.exe\" --tray";
         registry.Write(run, new(1, System.Text.Json.JsonSerializer.Serialize("\"D:\\previous-build\\FlowDesk.exe\"")));
-        Assert.True(StartupRegistration.UpgradeLegacyCommand(registry, command));
+        Assert.True(StartupRegistration.UpgradeLegacyCommand(registry));
         Assert.Equal(command, System.Text.Json.JsonSerializer.Deserialize<string>(registry.Read(run)!.Data));
         Assert.Null(registry.Read(approval));
-        Assert.False(StartupRegistration.UpgradeLegacyCommand(registry, command));
+        Assert.False(StartupRegistration.UpgradeLegacyCommand(registry));
         var disabled = RegistryValue.Binary([3, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8]);
         registry.Write(approval, disabled);
         registry.Write(run, new(1, System.Text.Json.JsonSerializer.Serialize("\"D:\\FlowDesk.exe\"")));
-        Assert.False(StartupRegistration.UpgradeLegacyCommand(registry, command));
+        Assert.False(StartupRegistration.UpgradeLegacyCommand(registry));
         Assert.Equal(disabled, registry.Read(approval));
     }
 }
