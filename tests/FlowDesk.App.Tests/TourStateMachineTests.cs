@@ -14,7 +14,7 @@ public sealed class TourStateMachineTests
             steps.Select(s => s.Id));
         Assert.Equal([null, TourPage.Workspaces, TourPage.Workspaces, TourPage.Layouts, TourPage.Focus,
             TourPage.Settings, TourPage.Settings, TourPage.Settings], steps.Select(s => s.Page));
-        Assert.Equal([null, "NewWorkspace", "OpenWorkspace", "LayoutsNav", "FocusNav", null, null, null],
+        Assert.Equal([null, "NewWorkspace", "OpenWorkspace", "LayoutsNav", "FocusNav", "PaletteOptions", "CalmNav", null],
             steps.Select(s => s.TargetId));
         Assert.All(steps, step =>
         {
@@ -32,13 +32,13 @@ public sealed class TourStateMachineTests
 
         var palette = Assert.Single(steps, step => step.Id == "palette");
         Assert.Equal(TourPage.Settings, palette.Page);
-        Assert.Null(palette.TargetId);
+        Assert.Equal("PaletteOptions", palette.TargetId);
         Assert.Contains("prefix", palette.Body, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("available prefixes", palette.Body, StringComparison.OrdinalIgnoreCase);
 
         var combined = Assert.Single(steps, step => step.Id == "quick-look-calm");
         Assert.Equal(TourPage.Settings, combined.Page);
-        Assert.Null(combined.TargetId);
+        Assert.Equal("CalmNav", combined.TargetId);
         Assert.Contains("Quick Look", combined.Body, StringComparison.Ordinal);
         Assert.Contains("Hot corners", combined.Body, StringComparison.Ordinal);
         Assert.Contains("Calm", combined.Body, StringComparison.Ordinal);

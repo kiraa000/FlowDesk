@@ -37,6 +37,18 @@ public static class UxDecisions
     public static bool SelectWindow(bool selectAll, bool canSelect) => selectAll && canSelect;
     public static bool CanStartFocus(bool running, bool blockAll, int blockedCount) =>
         !running && (blockAll || blockedCount > 0);
+    /// <summary>Calm offer: the first check offers every finding; later checks offer only findings that were not
+    /// there at the last offer (e.g. Windows turned a suggestion back on). An install that never recorded the set
+    /// takes today's findings as its baseline without an offer.</summary>
+    public static (int Offer, bool New, List<string> Store) CalmOffer(bool firstDone, IReadOnlyCollection<string>? offered,
+        IReadOnlyCollection<string> current)
+    {
+        var store = current.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
+        if (!firstDone) return (store.Count, false, store);
+        if (offered is null) return (0, false, store);
+        var known = offered.ToHashSet(StringComparer.Ordinal);
+        return (store.Count(id => !known.Contains(id)), true, store);
+    }
     public static bool ConfirmFocusEnd(bool hasSession, bool strict, bool exiting) =>
         hasSession && (strict || exiting);
 }

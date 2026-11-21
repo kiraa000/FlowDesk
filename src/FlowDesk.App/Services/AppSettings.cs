@@ -79,6 +79,8 @@ public sealed class AppSettings
     public string TerminalProgram { get; set; } = "";
     public bool TrayCloseNoticeShown { get; set; }
     public bool FirstCalmCheckDone { get; set; }
+    /// <summary>Calm findings at the last offer; null = not recorded yet (installs from before this setting).</summary>
+    public List<string>? CalmOfferedFindings { get; set; }
 
     public static int ClampLaunchTimeout(int seconds) => LaunchTimeoutValue.Clamp(seconds);
 

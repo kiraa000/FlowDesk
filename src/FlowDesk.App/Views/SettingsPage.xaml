@@ -96,7 +96,7 @@
                 </settings:SettingsCard>
             </StackPanel>
             <TextBlock Text="Command palette" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,24,0,8" />
-            <settings:SettingsExpander Header="Command palette options"
+            <settings:SettingsExpander x:Name="PaletteOptions" Header="Command palette options"
                 Description="Activation, search sources, calculator and web search.">
                 <settings:SettingsExpander.Items>
                 <settings:SettingsCard Header="Command palette">

@@ -38,11 +38,11 @@ public sealed class TourStateMachine
         new("palette", "Command palette",
             "Open the command palette with its shortcut and type to switch windows, find files, run a command or search the web. " +
             "Start with a prefix such as w for windows or f for files; the palette lists the available prefixes.",
-            TourPage.Settings, null),
+            TourPage.Settings, "PaletteOptions"),
         new("quick-look-calm", "Quick Look, hot corners and Calm",
             "Quick Look previews the file selected in File Explorer when you press Space. Hot corners run an action when you rest in a screen corner. " +
             "Calm turns off Windows suggestions you do not want. All three are opt-in; find them in Settings and on the Calm page.",
-            TourPage.Settings, null),
+            TourPage.Settings, "CalmNav"),
         new("settings", "Make it yours",
             "Settings has appearance, startup, the command palette, Quick Look and hot corners, the data folder, and this tour. " +
             "Calm has its own page in the navigation pane. You can replay the tour from Settings at any time.", TourPage.Settings, null),

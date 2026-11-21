@@ -62,7 +62,7 @@ public sealed class GameModeTests
     [InlineData(true, false, true)] [InlineData(true, true, false)] [InlineData(false, false, false)]
     public void HookRouting(bool game, bool lonePalette, bool passthrough) => Assert.Equal(passthrough, GameModeRules.PassHooks(game, lonePalette));
     [Theory]
-    [InlineData(1, 240, 72, 48)] [InlineData(1.5, 360, 108, 72)] [InlineData(2, 480, 144, 96)]
+    [InlineData(1, 320, 64, 48)] [InlineData(1.5, 480, 96, 72)] [InlineData(2, 640, 128, 96)]
     public void FlyoutUsesPhysicalWorkAreaAndCursorMonitorScale(double scale, int width, int height, int bottom)
     {
         var rect = GameModeFlyoutRules.Place(-2560, 100, 2560, 1400, scale);
@@ -126,6 +126,6 @@ public sealed class GameModeTests
     {
         Assert.Equal(56, GameModeFlyoutRules.Place(0, 0, 1920, 1040, 1, false).Height);
         var large = GameModeFlyoutRules.Place(0, 0, 1920, 1040, 1.5, true, 2);
-        Assert.Equal(720, large.Width); Assert.Equal(216, large.Height);
+        Assert.Equal(960, large.Width); Assert.Equal(192, large.Height);
     }
 }

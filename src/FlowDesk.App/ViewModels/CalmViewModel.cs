@@ -43,14 +43,19 @@ public sealed partial class CalmViewModel : ObservableObject
     {
         try { HasUndo = await Task.Run(() => changes.HasAnyUndo); }
         catch { Error = "The undo journal could not be read. Windows changes are disabled until the journal is recovered."; ErrorOpen = true; return; }
-        if (parent.Services.Settings.FirstCalmCheckDone) return;
         await EnsureScanForVisitAsync();
         if (!HasScan) return;
-        parent.Services.Settings.FirstCalmCheckDone = true;
-        parent.Services.Changed();
-        int count = readings.Count(r => r.IsFinding);
-        OfferText = $"Check-up found {CountText.Format(count, "thing")} you can calm down.";
-        OfferOpen = count > 0;
+        var settings = parent.Services.Settings;
+        var decision = UxDecisions.CalmOffer(settings.FirstCalmCheckDone, settings.CalmOfferedFindings,
+            readings.Where(r => r.IsFinding).Select(r => r.Setting.Id).ToArray());
+        bool changed = !settings.FirstCalmCheckDone || settings.CalmOfferedFindings is null ||
+            !settings.CalmOfferedFindings.SequenceEqual(decision.Store, StringComparer.Ordinal);
+        settings.FirstCalmCheckDone = true; settings.CalmOfferedFindings = decision.Store;
+        if (changed) parent.Services.Changed();
+        OfferText = decision.New
+            ? $"Check-up found {CountText.Format(decision.Offer, "new thing")} you can calm down."
+            : $"Check-up found {CountText.Format(decision.Offer, "thing")} you can calm down.";
+        OfferOpen = decision.Offer > 0;
     }
     [RelayCommand] private void Review() { OfferOpen = false; parent.Navigate(AppPage.Calm); }
     internal Task EnsureScanForVisitAsync() => scanSession.EnsureAsync(() => HasScan, RunCheckAsync);

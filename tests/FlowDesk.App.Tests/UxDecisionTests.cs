@@ -113,4 +113,16 @@ public sealed class UxDecisionTests
         Assert.False(LayoutSelection.Includes(Window with { IsOnCurrentDesktop = null, CloakReason = -1 }, "DISPLAY1", 99));
         Assert.True(LayoutSelection.Includes(Window with { IsOnCurrentDesktop = null, CloakReason = 0 }, "DISPLAY1", 99));
     }
+    [Fact]
+    public void CalmOffersEverythingFirstThenOnlyNewFindings()
+    {
+        var first = UxDecisions.CalmOffer(false, null, ["tips", "ads", "ads"]);
+        Assert.Equal((2, false), (first.Offer, first.New)); Assert.Equal(["ads", "tips"], first.Store);
+        var baseline = UxDecisions.CalmOffer(true, null, ["ads"]);
+        Assert.Equal(0, baseline.Offer); Assert.Equal(["ads"], baseline.Store);
+        var same = UxDecisions.CalmOffer(true, ["ads", "tips"], ["tips"]);
+        Assert.Equal(0, same.Offer); Assert.Equal(["tips"], same.Store);
+        var back = UxDecisions.CalmOffer(true, ["tips"], ["tips", "ads", "widgets"]);
+        Assert.Equal((2, true), (back.Offer, back.New));
+    }
 }

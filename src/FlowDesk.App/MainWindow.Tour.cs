@@ -62,6 +62,7 @@ public sealed partial class MainWindow
 
         FrameworkElement? target = null;
         if (step.TargetId is { } targetId) target = await WaitForTourTargetAsync(targetId, token);
+        target?.StartBringIntoView();
         if (!tourActive || token != tourGeneration || !tour.IsRunning) return;
 
         bool usingEmptyState = target is not null && target == PageElement("EmptyStateButton");
@@ -99,6 +100,8 @@ public sealed partial class MainWindow
     {
         "LayoutsNav" => FindNavItem("Layouts"),
         "FocusNav" => FindNavItem("Focus"),
+        "CalmNav" => FindNavItem("Calm"),
+        "PaletteOptions" => PageElement("PaletteOptions"),
         "NewWorkspace" => IsUsable(PageElement("NewWorkspace")) ? PageElement("NewWorkspace") : PageElement("EmptyStateButton"),
         "OpenWorkspace" => FindFirstOpenButton() ?? PageElement("EmptyStateButton"),
         _ => null,

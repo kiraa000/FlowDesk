@@ -58,8 +58,8 @@ public static class GameModeFlyoutRules
     {
         scale = double.IsFinite(scale) && scale > 0 ? scale : 1;
         textScale = double.IsFinite(textScale) ? Math.Clamp(textScale, 1, 3) : 1;
-        int w = Math.Min(width, (int)Math.Round(240 * scale * textScale));
-        int h = Math.Min(height, (int)Math.Round((gameMode ? 72 : 56) * scale * textScale));
+        int w = Math.Min(width, (int)Math.Round(320 * scale * textScale));
+        int h = Math.Min(height, (int)Math.Round((gameMode ? 64 : 56) * scale * textScale));
         return new(x + (width - w) / 2, y + Math.Max(0, height - h - (int)Math.Round(48 * scale)), w, h);
     }
 }
