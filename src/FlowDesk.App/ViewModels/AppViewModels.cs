@@ -75,6 +75,7 @@ public partial class AppViewModels : ObservableObject
         Workspaces = new(this); Details = new(this); Capture = new(this); Settings = new(this);
         Layouts = new(this); Focus = new(this); BrowserNotice = new(this); AutoSave = new(this);
         Hotkeys = new(this); Calm = new(this); Advanced = new(this);
+        Services.StateChanged += Workspaces.InvalidateDeleteUndo;
         Services.SaveFailed += message => Ui.Enqueue(() => ShowStatus(message, StatusKind.Error));
         Tour.Finished += () =>
         {
@@ -231,11 +232,25 @@ public partial class AppViewModels : ObservableObject
         }
     }
     internal void ApplyTheme() => ThemeChanged?.Invoke();
+    internal string NextWorkspaceName() => UxDecisions.NextWorkspaceName(WorkspacesCollection.Select(w => w.Name));
+    internal void RefreshDuplicateNames()
+    {
+        foreach (var workspace in WorkspacesCollection) workspace.RefreshDuplicateName();
+    }
+    internal void RestoreDeletedWorkspace(Workspace model, int index)
+    {
+        if (FindWorkspace(model.Id) is not null) return;
+        index = Math.Clamp(index, 0, Services.Data.Workspaces.Count);
+        Services.Data.Workspaces.Insert(index, model);
+        WorkspacesCollection.Insert(index, new(model, this));
+        Workspaces.UpdateEmpty(); RefreshDuplicateNames(); Services.Changed();
+    }
     internal WorkspaceViewModel Add(Workspace workspace)
     {
         Services.Data.Workspaces.Add(workspace);
         var vm = new WorkspaceViewModel(workspace, this);
         WorkspacesCollection.Add(vm); Workspaces.UpdateEmpty(); Services.Changed();
+        RefreshDuplicateNames();
         return vm;
     }
     internal void Edit(WorkspaceViewModel workspace)
@@ -247,6 +262,8 @@ public partial class AppViewModels : ObservableObject
     {
         statusLifetime.Invalidate();
         StatusMessage = message; StatusKind = kind; StatusOpen = true;
+        if (kind is StatusKind.Success or StatusKind.Information)
+            _ = statusLifetime.DismissAsync(statusLifetime.Generation, () => Task.Delay(TimeSpan.FromSeconds(6)), Ui.Enqueue, () => StatusOpen = false);
     }
     internal void ShowPaletteNotice(PaletteNotice notice)
     {
@@ -403,6 +420,8 @@ public partial class AppViewModels : ObservableObject
     {
         if (!await Ui.ConfirmAsync("Delete workspace?",
             $"Delete {workspace.Name}? Your apps and files will not be deleted.", "Delete workspace")) return;
+        int deletedIndex = Services.Data.Workspaces.IndexOf(workspace.Model);
+        var deleted = workspace.Model.Clone();
         Services.Data.Workspaces.Remove(workspace.Model); WorkspacesCollection.Remove(workspace);
         Services.Tracker.ForgetWorkspace(workspace.Model.Id);
         Services.Switcher.ResetSession(workspace.Model.Id);
@@ -415,6 +434,7 @@ public partial class AppViewModels : ObservableObject
             BrowserNotice.Hide();
         }
         Workspaces.UpdateEmpty(); Services.Changed(); Navigate(AppPage.Workspaces);
+        RefreshDuplicateNames(); Workspaces.OfferDeleteUndo(deleted, deletedIndex);
     });
     [RelayCommand]
     private async Task ShowReportAsync()

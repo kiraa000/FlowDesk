@@ -9,8 +9,19 @@
                      AutomationProperties.Name="Command name" />
             <TextBox x:Name="KeywordsBox" Header="Keywords" PlaceholderText="e.g. yt"
                      AutomationProperties.Name="Keywords" />
-            <TextBox x:Name="TargetBox" Header="Target"
-                     AutomationProperties.Name="Target" />
+            <Grid ColumnSpacing="8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBox x:Name="TargetBox" Header="Target"
+                         AutomationProperties.Name="Target" />
+                <Button x:Name="BrowseTargetButton" Grid.Column="1"
+                        Content="Browse…" MinHeight="32" Padding="12,0"
+                        VerticalAlignment="Bottom"
+                        AutomationProperties.Name="Browse for target"
+                        Click="BrowseTarget_Click" />
+            </Grid>
             <StackPanel Spacing="2">
                 <TextBox x:Name="ArgumentsBox" Header="Arguments"
                          AutomationProperties.Name="Arguments" />
@@ -19,8 +30,19 @@
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                            TextWrapping="Wrap" />
             </StackPanel>
-            <TextBox x:Name="IconBox" Header="Icon path (optional)"
-                     AutomationProperties.Name="Icon path" />
+            <Grid ColumnSpacing="8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBox x:Name="IconBox" Header="Icon path (optional)"
+                         AutomationProperties.Name="Icon path" />
+                <Button x:Name="BrowseIconButton" Grid.Column="1"
+                        Content="Browse…" MinHeight="32" Padding="12,0"
+                        VerticalAlignment="Bottom"
+                        AutomationProperties.Name="Browse for icon"
+                        Click="BrowseIcon_Click" />
+            </Grid>
             <ComboBox x:Name="KindBox" Header="Target kind"
                       AutomationProperties.Name="Target kind">
                 <ComboBoxItem Content="URL" />

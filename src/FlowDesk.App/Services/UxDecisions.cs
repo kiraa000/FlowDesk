@@ -6,6 +6,15 @@ public enum CloseAction { Exit, Hide }
 public static class UxDecisions
 {
     public const bool InitialWindowSelection = false;
+    public static string NextWorkspaceName(IEnumerable<string> names)
+    {
+        var used = names.Select(n => n.Trim()).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        int number = 1;
+        while (used.Contains($"Workspace {number}")) number++;
+        return $"Workspace {number}";
+    }
+    public static bool DuplicateWorkspaceName(string name, IEnumerable<string> others) =>
+        !string.IsNullOrWhiteSpace(name) && others.Any(n => string.Equals(n.Trim(), name.Trim(), StringComparison.OrdinalIgnoreCase));
     public static CloseAction Close(bool explicitExit, bool endingSession, bool loaded, bool trayReady) =>
         explicitExit || endingSession || !loaded ? CloseAction.Exit
         : trayReady ? CloseAction.Hide : CloseAction.Exit;

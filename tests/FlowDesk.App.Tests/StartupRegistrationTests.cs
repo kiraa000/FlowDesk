@@ -40,7 +40,7 @@ public sealed class StartupRegistrationTests
         string expected = Environment.ProcessPath
             ?? Path.Combine(AppContext.BaseDirectory, "FlowDesk.App.exe");
 
-        Assert.Equal($"\"{expected}\"", StartupRegistration.Command);
+        Assert.Equal($"\"{expected}\" --tray", StartupRegistration.Command);
     }
 
     [Fact]
@@ -49,7 +49,29 @@ public sealed class StartupRegistrationTests
         string command = StartupRegistration.Command;
 
         Assert.StartsWith("\"", command);
-        Assert.EndsWith("\"", command);
+        Assert.EndsWith("\" --tray", command);
         Assert.Equal(2, command.Count(c => c == '"'));
+    }
+    [Fact] public void TrayArgumentMustBeAWholeArgument()
+    {
+        Assert.True(StartupRegistration.LaunchHidden(["--tray"]));
+        Assert.False(StartupRegistration.LaunchHidden(["--tray-other", "path--tray"]));
+    }
+    [Fact] public void LegacyUpgradePreservesApprovalAndSkipsDisabledOrAlreadyMigratedCommands()
+    {
+        var registry = new FakeRegistry();
+        var run = new RegistryAddress(StartupCatalog.Run, "FlowDesk");
+        var approval = new RegistryAddress(StartupCatalog.Approved + "Run", "FlowDesk");
+        const string command = "\"D:\\FlowDesk.exe\" --tray";
+        registry.Write(run, new(1, System.Text.Json.JsonSerializer.Serialize("\"D:\\previous-build\\FlowDesk.exe\"")));
+        Assert.True(StartupRegistration.UpgradeLegacyCommand(registry, command));
+        Assert.Equal(command, System.Text.Json.JsonSerializer.Deserialize<string>(registry.Read(run)!.Data));
+        Assert.Null(registry.Read(approval));
+        Assert.False(StartupRegistration.UpgradeLegacyCommand(registry, command));
+        var disabled = RegistryValue.Binary([3, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8]);
+        registry.Write(approval, disabled);
+        registry.Write(run, new(1, System.Text.Json.JsonSerializer.Serialize("\"D:\\FlowDesk.exe\"")));
+        Assert.False(StartupRegistration.UpgradeLegacyCommand(registry, command));
+        Assert.Equal(disabled, registry.Read(approval));
     }
 }

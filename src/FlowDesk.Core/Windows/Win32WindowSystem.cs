@@ -180,6 +180,7 @@ public sealed class Win32WindowSystem(IVirtualDesktops? desktops = null) : IWind
 
     public IReadOnlyList<MonitorInfo> GetMonitors()
     {
+        var metadata = DisplayConfigNames.Read();
         var list = new List<MonitorInfo>();
         EnumDisplayMonitors(0, 0, (nint hm, nint _, ref RECT _, nint _) =>
         {
@@ -187,10 +188,12 @@ public sealed class Win32WindowSystem(IVirtualDesktops? desktops = null) : IWind
             if (GetMonitorInfoW(hm, ref mi))
             {
                 int dpi = GetDpiForMonitor(hm, 0, out uint dx, out _) == 0 ? (int)dx : 96;
+                metadata.TryGetValue(mi.szDevice, out var details);
                 list.Add(new MonitorInfo(mi.szDevice,
                     PixelRect.FromLtrb(mi.rcMonitor.Left, mi.rcMonitor.Top, mi.rcMonitor.Right, mi.rcMonitor.Bottom),
                     PixelRect.FromLtrb(mi.rcWork.Left, mi.rcWork.Top, mi.rcWork.Right, mi.rcWork.Bottom),
-                    (mi.dwFlags & MONITORINFOF_PRIMARY) != 0, dpi));
+                    (mi.dwFlags & MONITORINFOF_PRIMARY) != 0, dpi,
+                    details?.FriendlyName ?? "", details?.StableId ?? "", details?.IsInternal ?? false));
             }
             return true;
         }, 0);

@@ -12,6 +12,7 @@ public interface IUserInteraction
     Task<string?> PickPathAsync(ItemKind kind);
     Task<string?> PickFileAsync(string extension);
     Task<WorkspaceItem?> NewWebsiteAsync();
+    Task<WorkspaceItem?> EditItemAsync(WorkspaceItem item);
     Task<CaptureCandidate?> PickRunningAsync(IReadOnlyList<CaptureCandidate> candidates);
     Task ShowReportAsync(RestoreReport report);
 }

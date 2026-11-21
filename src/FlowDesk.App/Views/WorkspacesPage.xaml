@@ -10,6 +10,10 @@
             <InfoBar x:Name="CalmOffer" IsOpen="{Binding Calm.OfferOpen, Mode=TwoWay}" Message="{Binding Calm.OfferText}" Severity="Informational">
                 <InfoBar.ActionButton><Button Content="Review" Command="{Binding Calm.ReviewCommand}" /></InfoBar.ActionButton>
             </InfoBar>
+            <InfoBar IsOpen="{Binding DeleteUndoOpen, Mode=TwoWay}"
+                     Message="{Binding DeleteUndoMessage}" Severity="Success">
+                <InfoBar.ActionButton><Button Content="Undo" Command="{Binding UndoDeleteCommand}" /></InfoBar.ActionButton>
+            </InfoBar>
             <SplitButton x:Name="NewWorkspace" Content="New workspace"
                          Click="NewWorkspace_Click" AccessKey="N"
                          Visibility="{Binding HasWorkspaces, Converter={StaticResource BoolVisibility}}"
@@ -32,9 +36,12 @@
                            Style="{StaticResource BodyTextBlockStyle}"
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                            TextWrapping="Wrap" />
-                <Button x:Name="EmptyStateButton" Content="Save open windows"
-                        Command="{Binding NewFromWindowsCommand}"
-                        Style="{StaticResource AccentButtonStyle}" />
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button x:Name="EmptyStateButton" Content="Save open windows"
+                            Command="{Binding NewFromWindowsCommand}"
+                            Style="{StaticResource AccentButtonStyle}" />
+                    <Button Content="Start empty" Command="{Binding NewEmptyCommand}" />
+                </StackPanel>
             </StackPanel>
             <ItemsControl ItemsSource="{Binding Workspaces}"
                           Visibility="{Binding HasWorkspaces, Converter={StaticResource BoolVisibility}}">

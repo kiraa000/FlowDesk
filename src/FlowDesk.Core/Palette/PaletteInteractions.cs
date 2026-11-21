@@ -15,6 +15,14 @@ public static class PalettePrefixes
         new("?", PaletteMode.Web, "Web", "Search or enter a URL…", "Search the web or open an address")
     });
 
+    /// <summary>One muted line for the empty Recent state, generated from <see cref="All"/>.</summary>
+    public static string Hint(Func<PaletteMode, bool> enabled)
+    {
+        string[] parts = All.Where(p => enabled(p.Mode))
+            .Select(p => $"{p.Prefix.TrimEnd()} {p.Label}").ToArray();
+        return parts.Length == 0 ? "" : "Type a prefix: " + string.Join(" · ", parts);
+    }
+
     public static PalettePrefix? Match(string text) => All.FirstOrDefault(p => text.StartsWith(p.Prefix, StringComparison.OrdinalIgnoreCase));
     public static PaletteMode Backspace(PaletteMode mode, string text) => text.Length == 0 ? PaletteMode.Commands : mode;
     public static IReadOnlyList<CommandMatch> Help(Func<PaletteMode, bool> enabled, Func<PaletteMode, Task> enter) => All

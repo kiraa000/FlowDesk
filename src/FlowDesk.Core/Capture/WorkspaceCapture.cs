@@ -124,10 +124,19 @@ public sealed class WorkspaceCapture(IWindowSystem windows, SessionTracker track
         return new SavedWindow
         {
             Rect = w.NormalRect, Show = w.Show, MonitorDevice = m?.Device ?? w.MonitorDevice,
+            MonitorStableId = !string.IsNullOrWhiteSpace(m?.StableId) ? m.StableId
+                : string.Equals(previous?.MonitorDevice, m?.Device ?? w.MonitorDevice, StringComparison.OrdinalIgnoreCase)
+                    ? previous?.MonitorStableId ?? "" : "",
+            MonitorName = m is null ? previous?.MonitorName ?? "" : MonitorLabel(m, monitors),
             MonitorBounds = m?.Bounds ?? default, MonitorWorkArea = m?.WorkArea ?? default,
             Title = w.Title, ClassName = w.ClassName, ZOrder = zOrder,
             DesktopIndex = w.DesktopIndex ?? previous?.DesktopIndex, DesktopId = w.DesktopId ?? previous?.DesktopId,
         };
+    }
+
+    private static string MonitorLabel(MonitorInfo monitor, IReadOnlyList<MonitorInfo> monitors)
+    {
+        var names = new MonitorNames(); names.Observe(monitors); return names.For(monitor.Device);
     }
 
     /// <summary>"Visual Studio Code" from the exe's version info; falls back to the exe name or the title.</summary>

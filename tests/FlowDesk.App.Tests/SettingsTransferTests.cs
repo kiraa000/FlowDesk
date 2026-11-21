@@ -14,6 +14,18 @@ public sealed class SettingsTransferTests
     private static TransferPreview Parse(string text) => SettingsTransfer.Parse(Encoding.UTF8.GetBytes(text));
     private static string Envelope(string sections, int version = 1) =>
         "{\"format\":\"flowdesk-export\",\"version\":" + version + ",\"sections\":" + sections + "}";
+    [Fact] public void MonitorMetadataIsAdditiveButExplicitNullIsRejected()
+    {
+        var (data, settings) = Sample();
+        var root = JsonNode.Parse(SettingsTransfer.Export(data, settings, new(), "test"))!;
+        var window = root["sections"]!["workspaces"]!["Items"]![0]!["Items"]![0]!["Window"]!.AsObject();
+        window.Remove("MonitorStableId"); window.Remove("MonitorName");
+        Assert.Null(Parse(root.ToJsonString()).Sections.Single(s => s.Id == "workspaces").Error);
+        window["MonitorStableId"] = "physical-id"; window["MonitorName"] = "Vendor panel";
+        Assert.Null(Parse(root.ToJsonString()).Sections.Single(s => s.Id == "workspaces").Error);
+        window["MonitorStableId"] = null;
+        Assert.NotNull(Parse(root.ToJsonString()).Sections.Single(s => s.Id == "workspaces").Error);
+    }
     private static (FlowDeskData, AppSettings) Sample()
     {
         var data = new FlowDeskData { TourCompleted = true, Workspaces = [new() { Id = "work", Name = "Work",

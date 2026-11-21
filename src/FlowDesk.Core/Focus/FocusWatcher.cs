@@ -98,6 +98,18 @@ public sealed class FocusWatcher : IDisposable
         }
     }
 
+    /// <summary>Extend a live session without weakening its rules (including Strict and paused sessions).</summary>
+    public bool AddFiveMinutes()
+    {
+        lock (_gate)
+        {
+            if (_state is null || (!_state.Paused && _state.EndsAt <= _time.GetUtcNow())) return false;
+            _state = _state with { EndsAt = _state.EndsAt + TimeSpan.FromMinutes(5) };
+            if (_state.Paused) _remainingWhenPaused += TimeSpan.FromMinutes(5);
+            return true;
+        }
+    }
+
     /// <summary>Ends the session early. Returns false in Strict mode unless <paramref name="force"/> (the UI asks twice).</summary>
     public bool Stop(bool force = false)
     {

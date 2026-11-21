@@ -1,4 +1,4 @@
-// Onboarding tour: the six steps and the movement rules, with no WinUI dependency.
+// Onboarding tour: the eight steps and the movement rules, with no WinUI dependency.
 // The shell owns the TeachingTip and page navigation; this class only decides where the tour is.
 namespace FlowDesk.App.Tour;
 
@@ -22,7 +22,7 @@ public sealed class TourStateMachine
     [
         new("welcome", "Welcome to FlowDesk",
             "FlowDesk saves your open apps, files and websites as a workspace and brings them back in one click. " +
-            "This short tour shows the four places you will use.", null, null),
+            "This short tour shows the main places you will use.", null, null),
         new("new-workspace", "Save what is open",
             "Start here: save the windows you have open now as a new workspace.", TourPage.Workspaces, "NewWorkspace"),
         new("open-workspace", "Open a workspace",
@@ -30,14 +30,22 @@ public sealed class TourStateMachine
             "Switch between workspaces as often as you like.", TourPage.Workspaces, "OpenWorkspace",
             "No workspace exists yet. Save the windows you have open here; Open will bring them back later."),
         new("layouts", "Arrange windows",
-            "Layouts arranges the open windows on the selected monitor: two columns, a sidebar, a grid or a cascade.",
+            "Layouts arranges the open windows on the selected monitor: two columns, a primary window with a sidebar, a grid or a cascade.",
             TourPage.Layouts, "LayoutsNav"),
         new("focus", "Focus sessions",
             "Focus closes distracting apps for 25, 50 or 90 minutes while keeping your allowed apps open.",
             TourPage.Focus, "FocusNav"),
+        new("palette", "Command palette",
+            "Open the command palette with its shortcut and type to switch windows, find files, run a command or search the web. " +
+            "Start with a prefix such as w for windows or f for files; the palette lists the available prefixes.",
+            TourPage.Settings, null),
+        new("quick-look-calm", "Quick Look, hot corners and Calm",
+            "Quick Look previews the file selected in File Explorer when you press Space. Hot corners run an action when you rest in a screen corner. " +
+            "Calm turns off Windows suggestions you do not want. All three are opt-in; find them in Settings and on the Calm page.",
+            TourPage.Settings, null),
         new("settings", "Make it yours",
-            "Settings has the theme, launch timeout, start with Windows, the data folder and this tour. " +
-            "You can replay it from here at any time.", TourPage.Settings, null),
+            "Settings has appearance, startup, the command palette, Quick Look and hot corners, the data folder, and this tour. " +
+            "Calm has its own page in the navigation pane. You can replay the tour from Settings at any time.", TourPage.Settings, null),
     ];
 
     private readonly List<TourStep> steps;
