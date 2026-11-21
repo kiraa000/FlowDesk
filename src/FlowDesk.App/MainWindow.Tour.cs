@@ -62,7 +62,8 @@ public sealed partial class MainWindow
 
         FrameworkElement? target = null;
         if (step.TargetId is { } targetId) target = await WaitForTourTargetAsync(targetId, token);
-        target?.StartBringIntoView();
+        // Center the target so the tip has room on either side (the default stops at the nearest edge).
+        target?.StartBringIntoView(new BringIntoViewOptions { VerticalAlignmentRatio = 0.5, AnimationDesired = false });
         if (!tourActive || token != tourGeneration || !tour.IsRunning) return;
 
         bool usingEmptyState = target is not null && target == PageElement("EmptyStateButton");

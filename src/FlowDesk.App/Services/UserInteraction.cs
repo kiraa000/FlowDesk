@@ -111,10 +111,11 @@ public sealed class UserInteraction(Window window, FrameworkElement root) : IUse
         int? currentDesktop = DesktopLabels.CurrentDesktopIndex(candidates.Select(c => c.Window));
         foreach (var candidate in candidates)
         {
-            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
-            var icon = new Image { Width = 24, Height = 24 }; IconSource.SetPath(icon, candidate.Window.ExePath);
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, Padding = new Thickness(0, 6, 0, 6) };
+            var icon = new Image { Width = 24, Height = 24, VerticalAlignment = VerticalAlignment.Center };
+            IconSource.SetPath(icon, candidate.Window.ExePath);
             row.Children.Add(icon);
-            var text = Ui.Stack();
+            var text = Ui.Stack(2); text.VerticalAlignment = VerticalAlignment.Center;
             text.Children.Add(Ui.Text(candidate.Item.Name, "BodyStrongTextBlockStyle"));
             string exe = candidate.Window.ExeName + ".exe";
             string desktop = DesktopLabels.For(candidate.Window, currentDesktop);

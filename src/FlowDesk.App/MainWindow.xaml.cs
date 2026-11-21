@@ -195,7 +195,7 @@ public sealed partial class MainWindow : Window
             var s = services.Settings;
             static ResumeBounds Bounds(RectInt32 r) => new(r.X, r.Y, r.Width, r.Height);
             var resume = WindowResumeRules.Bounds(s.X, s.Y, s.Width, s.Height, Bounds(DisplayArea.Primary.WorkArea),
-                DisplayArea.FindAll().Select(d => Bounds(d.WorkArea)));
+                AllWorkAreas().Select(Bounds));
             normalBounds = new(resume.X, resume.Y, resume.Width, resume.Height);
             AppWindow.MoveAndResize(normalBounds);
             if (s.WindowMaximized && AppWindow.Presenter is OverlappedPresenter resumePresenter) resumePresenter.Maximize();
@@ -212,6 +212,7 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception ex)
         {
+            new CrashLog().TryWrite(CrashSource.Activation, ex);
             App.ViewModels.ShowStatus("Could not load workspaces. Check the data folder and restart. " + ex.Message,
                 StatusKind.Error);
         }
@@ -370,6 +371,16 @@ public sealed partial class MainWindow : Window
         PageFrame.IsEnabled = true; Navigation.IsEnabled = true;
         focusTimer.Start(); autosaveTimer.Start(); App.ViewModels.AutoSave.Start();
     }
+    // DisplayArea.FindAll() returns a projected list whose IEnumerable cast throws InvalidCastException
+    // (Windows App SDK interop); read it by index instead of enumerating it.
+    private static List<RectInt32> AllWorkAreas()
+    {
+        var all = DisplayArea.FindAll();
+        var areas = new List<RectInt32>(all.Count);
+        for (var i = 0; i < all.Count; i++) areas.Add(all[i].WorkArea);
+        return areas;
+    }
+
     private void RememberWindow()
     {
         if (AppWindow.Presenter is OverlappedPresenter { State: OverlappedPresenterState.Minimized }) return;
@@ -380,7 +391,7 @@ public sealed partial class MainWindow : Window
         {
             static ResumeBounds Bounds(RectInt32 r) => new(r.X, r.Y, r.Width, r.Height);
             var target = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Nearest).WorkArea;
-            var relocated = WindowResumeRules.OnMonitor(Bounds(normalBounds), Bounds(target), DisplayArea.FindAll().Select(d => Bounds(d.WorkArea)));
+            var relocated = WindowResumeRules.OnMonitor(Bounds(normalBounds), Bounds(target), AllWorkAreas().Select(Bounds));
             normalBounds = new(relocated.X, relocated.Y, relocated.Width, relocated.Height);
         }
         if (normalBounds.Width > 0 && normalBounds.Height > 0)
