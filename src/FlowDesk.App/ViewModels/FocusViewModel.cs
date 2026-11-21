@@ -216,6 +216,16 @@ public partial class FocusViewModel : ObservableObject, IContextFocus
         finally { operations.Release(); }
     }
     [RelayCommand] private Task EndAsync() => EndSessionAsync();
+    [RelayCommand] private async Task AddFiveMinutesAsync()
+    {
+        await operations.WaitAsync();
+        try
+        {
+            if (await Task.Run(() => owner.Services.Focus.AddFiveMinutes())) totalSeconds += 300;
+            await RefreshAsync();
+        }
+        finally { operations.Release(); }
+    }
     public async Task<bool> EndSessionAsync(bool confirmAnyRunning = false)
     {
         await operations.WaitAsync();

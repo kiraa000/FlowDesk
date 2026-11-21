@@ -109,6 +109,29 @@ public class MatcherAndMiscTests
 
 public class FocusWatcherTests
 {
+    [Theory]
+    [InlineData(FocusStrictness.Gentle)]
+    [InlineData(FocusStrictness.Normal)]
+    [InlineData(FocusStrictness.Strict)]
+    public void ExtensionAddsFiveMinutesWithoutChangingEnforcement(FocusStrictness strictness)
+    {
+        using var watcher = Start(strictness, out _);
+        var before = watcher.State!;
+        Assert.True(watcher.AddFiveMinutes());
+        Assert.Equal(before with { EndsAt = before.EndsAt.AddMinutes(5) }, watcher.State);
+        Assert.Equal(TimeSpan.FromMinutes(30), watcher.Remaining);
+    }
+    [Fact] public void ExtensionWhilePausedSurvivesResumeAndCannotReviveExpiredSession()
+    {
+        using var watcher = Start(FocusStrictness.Normal, out _);
+        watcher.Pause(); _time.Advance(TimeSpan.FromHours(1));
+        Assert.True(watcher.AddFiveMinutes());
+        Assert.Equal(TimeSpan.FromMinutes(30), watcher.Remaining);
+        watcher.Resume(); Assert.Equal(TimeSpan.FromMinutes(30), watcher.Remaining);
+        _time.Advance(TimeSpan.FromMinutes(30));
+        Assert.False(watcher.AddFiveMinutes()); watcher.Tick();
+        Assert.Null(watcher.State); Assert.False(watcher.AddFiveMinutes());
+    }
     private readonly FakeWindowSystem _sys = new();
     private readonly FakeTimeProvider _time = new(DateTimeOffset.Parse("2026-11-10T10:00:00Z"));
 

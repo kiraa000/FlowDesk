@@ -35,6 +35,8 @@
     <Compile Include="..\..\src\FlowDesk.App\Services\FocusReturnPolicy.cs" Link="FocusReturnPolicy.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\AppSettings.cs" Link="AppSettings.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\ImportUndoState.cs" Link="ImportUndoState.cs" />
+    <Compile Include="..\..\src\FlowDesk.App\Services\WorkspaceDeleteUndo.cs" Link="WorkspaceDeleteUndo.cs" />
+    <Compile Include="..\..\src\FlowDesk.App\Services\WorkspaceItemEdits.cs" Link="WorkspaceItemEdits.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\PdfPreviewLimits.cs" Link="PdfPreviewLimits.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\SettingsTransfer.cs" Link="SettingsTransfer.cs" />
     <Compile Include="..\..\src\FlowDesk.App\Services\ImportBackup.cs" Link="ImportBackup.cs" />

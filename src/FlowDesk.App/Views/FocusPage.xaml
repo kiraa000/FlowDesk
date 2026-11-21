@@ -30,6 +30,8 @@
                         <Button Content="{Binding PauseLabel}" Command="{Binding PauseCommand}"
                                 MinWidth="88"
                                 Visibility="{Binding CanPause, Converter={StaticResource BoolVisibility}}" />
+                        <Button Content="+5 min" Command="{Binding AddFiveMinutesCommand}"
+                                AutomationProperties.Name="Extend focus session by 5 minutes" />
                         <Button Content="End session" Command="{Binding EndCommand}" AccessKey="E" />
                     </StackPanel>
                     <StackPanel Spacing="8" Visibility="{Binding CanAllowLastBlocked, Converter={StaticResource BoolVisibility}}">

@@ -29,7 +29,7 @@ internal static class DisplayConfigNames
                     if (GetSourceName(ref source) != 0 || GetTargetName(ref target) != 0) continue;
                     // Mirrored targets share a GDI source; take the first deterministically, not the last.
                     result.TryAdd(source.Name, new(target.FriendlyName.Trim(), target.DevicePath.Trim(),
-                        target.Technology is 0x80000000 or 11 or 13)); // INTERNAL, embedded DisplayPort / UDI
+                        target.Technology is 0x80000000 or 6 or 11 or 13)); // INTERNAL, LVDS, embedded DisplayPort / UDI
                 }
                 return result;
             }

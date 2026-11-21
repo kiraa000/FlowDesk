@@ -60,8 +60,14 @@ public partial class App : Application
             };
             activation.SetTarget(window.BringForward); // Show + Restore + Activate, including a tray-hidden window
             StartupRegistration.UpgradeLegacyCommand();
-            if (!StartupRegistration.LaunchHidden(Environment.GetCommandLineArgs().Skip(1))) window.Activate();
+            bool hiddenStart = StartupRegistration.LaunchHidden(Environment.GetCommandLineArgs().Skip(1));
+            if (!hiddenStart) window.Activate();
             await window.InitializeAsync();
+            // InitializeAsync reports failures inline (including an unavailable tray). Never strand a
+            // sign-in launch with no usable entry point; important startup warnings deserve visibility too.
+            if (hiddenStart && ViewModels.StatusOpen && ViewModels.StatusKind is
+                FlowDesk.App.ViewModels.StatusKind.Warning or FlowDesk.App.ViewModels.StatusKind.Error)
+                window.BringForward();
         }
         catch (Exception ex)
         {

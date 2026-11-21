@@ -43,7 +43,8 @@ public sealed class AppServices : ObservableObject, IDisposable
     private RecoverableJsonFile? settingsRecovery;
     private readonly ImportUndoState<ImportUndo> importUndoState = new();
     public event Action? ImportUndoInvalidated { add => importUndoState.Invalidated += value; remove => importUndoState.Invalidated -= value; }
-    private void InvalidateImportUndo() => importUndoState.Invalidate();
+    public event Action? StateChanged;
+    private void InvalidateImportUndo() { importUndoState.Invalidate(); StateChanged?.Invoke(); }
     internal void ArmImportUndo(ImportUndo undo) => importUndoState.Arm(undo);
 
     public AppServices()

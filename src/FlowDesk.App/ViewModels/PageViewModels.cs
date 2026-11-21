@@ -14,15 +14,41 @@ public partial class WorkspacesViewModel(AppViewModels owner) : ObservableObject
     public ObservableCollection<WorkspaceViewModel> Workspaces => owner.WorkspacesCollection;
     public bool IsEmpty => Workspaces.Count == 0;
     public bool HasWorkspaces => !IsEmpty;
+    private readonly WorkspaceDeleteUndo deleteUndo = new();
+    [ObservableProperty] public partial bool DeleteUndoOpen { get; set; }
+    [ObservableProperty] public partial string DeleteUndoMessage { get; set; } = "";
+    partial void OnDeleteUndoOpenChanged(bool value) { if (!value) deleteUndo.Invalidate(); }
+    internal void InvalidateDeleteUndo()
+    {
+        deleteUndo.Invalidate();
+        owner.Ui.Enqueue(() => { if (!deleteUndo.HasValue) DeleteUndoOpen = false; });
+    }
+    internal void OfferDeleteUndo(Workspace workspace, int index)
+    {
+        var snapshot = deleteUndo.Arm(workspace, index, DateTimeOffset.UtcNow);
+        DeleteUndoMessage = $"Deleted \"{workspace.Name}\"."; DeleteUndoOpen = true;
+        _ = ExpireDeleteUndoAsync(snapshot);
+    }
+    private async Task ExpireDeleteUndoAsync(WorkspaceDeleteUndo.Snapshot snapshot)
+    {
+        await Task.Delay(TimeSpan.FromSeconds(10));
+        if (deleteUndo.Expire(snapshot)) owner.Ui.Enqueue(() => { if (!deleteUndo.HasValue) DeleteUndoOpen = false; });
+    }
+    [RelayCommand] private async Task UndoDeleteAsync() => await owner.ExecuteAsync(() =>
+    {
+        var snapshot = deleteUndo.Take(DateTimeOffset.UtcNow); DeleteUndoOpen = false;
+        if (snapshot is not null) owner.RestoreDeletedWorkspace(snapshot.Workspace, snapshot.Index);
+        return Task.CompletedTask;
+    });
     internal void UpdateEmpty() { OnPropertyChanged(nameof(IsEmpty)); OnPropertyChanged(nameof(HasWorkspaces)); }
     [RelayCommand]
     private async Task NewFromWindowsAsync()
     {
-        owner.Capture.Name = $"Workspace {Workspaces.Count + 1}";
+        owner.Capture.Name = owner.NextWorkspaceName();
         owner.Navigate(AppPage.Capture); await owner.Capture.RefreshCommand.ExecuteAsync(null);
     }
     [RelayCommand]
-    private void NewEmpty() => owner.Edit(owner.Add(new Workspace { Name = $"Workspace {Workspaces.Count + 1}" }));
+    private void NewEmpty() => owner.Edit(owner.Add(new Workspace { Name = owner.NextWorkspaceName() }));
 }
 
 public partial class WorkspaceDetailsViewModel(AppViewModels owner) : ObservableObject

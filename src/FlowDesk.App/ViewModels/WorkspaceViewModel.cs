@@ -28,6 +28,9 @@ public partial class WorkspaceViewModel : ObservableObject
     [ObservableProperty] public partial bool AlwaysAddNewWindows { get; set; }
     public ObservableCollection<ItemViewModel> Items { get; } = [];
     public bool IsActive => owner.Services.Switcher.ActiveWorkspaceId == Model.Id;
+    public bool HasDuplicateName => UxDecisions.DuplicateWorkspaceName(Name,
+        owner.WorkspacesCollection.Where(w => !ReferenceEquals(w, this)).Select(w => w.Name));
+    internal void RefreshDuplicateName() => OnPropertyChanged(nameof(HasDuplicateName));
     public string Summary
     {
         get
@@ -64,6 +67,7 @@ public partial class WorkspaceViewModel : ObservableObject
     partial void OnNameChanged(string value)
     {
         if (!initializing && !string.IsNullOrWhiteSpace(value)) { Model.Name = value.Trim(); owner.Services.Changed(); }
+        if (!initializing) owner.RefreshDuplicateNames();
     }
     public void CommitName() { if (string.IsNullOrWhiteSpace(Name)) Name = Model.Name; }
     partial void OnDescriptionChanged(string value)
@@ -182,6 +186,16 @@ public partial class ItemViewModel : ObservableObject
         owner.RefreshBrowserNotice(workspace);
     }
     internal void RefreshPosition() => OnPropertyChanged(nameof(Position));
+    [RelayCommand]
+    private async Task EditAsync() => await owner.ExecuteAsync(async () =>
+    {
+        var edited = await owner.Ui.EditItemAsync(model);
+        if (edited is null) return;
+        int index = workspace.Model.Items.IndexOf(model);
+        if (index < 0) return;
+        workspace.Model.Items[index] = edited;
+        workspace.ReloadItems(); owner.Services.Changed(); owner.RefreshBrowserNotice(workspace);
+    });
     [RelayCommand]
     private async Task RemoveAsync() => await owner.ExecuteAsync(async () =>
     {

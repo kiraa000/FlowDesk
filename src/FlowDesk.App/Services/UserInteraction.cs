@@ -67,6 +67,44 @@ public sealed class UserInteraction(Window window, FrameworkElement root) : IUse
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return null;
         return new WorkspaceItem { Kind = ItemKind.Website, Name = name.Text.Trim(), Urls = urls };
     }
+    public async Task<WorkspaceItem?> EditItemAsync(WorkspaceItem item)
+    {
+        var content = Ui.Stack();
+        var name = new TextBox { Header = "Name", Text = item.Name, MaxLength = 120 };
+        var target = new TextBox { Header = item.Kind == ItemKind.Website ? "Links, one per line" : "Path",
+            Text = item.Kind == ItemKind.Website ? string.Join("\n", item.Urls) : item.Path ?? "",
+            AcceptsReturn = item.Kind == ItemKind.Website, TextWrapping = TextWrapping.Wrap };
+        var arguments = new TextBox { Header = "Arguments", Text = item.App?.Arguments ?? "" };
+        content.Children.Add(name);
+        if (item.Kind == ItemKind.App)
+        {
+            content.Children.Add(Ui.Text(item.App?.ExePath is { Length: > 0 } exe ? exe : item.App?.Aumid ?? "App unavailable", secondary: true));
+            content.Children.Add(arguments);
+        }
+        else content.Children.Add(target);
+        // Use the same system picker as Add. The dialog stays open and prefilled while browsing.
+        if (item.Kind is ItemKind.File or ItemKind.Folder)
+        {
+            var browse = new Button { Content = "Browse…" };
+            browse.Click += async (_, _) =>
+            {
+                try { if (await PickPathAsync(item.Kind) is { } path) target.Text = path; }
+                catch (Exception) { /* Keep the existing path; the user can type or retry. */ }
+            };
+            content.Children.Add(browse);
+        }
+        var error = Ui.Text("", secondary: true); content.Children.Add(error);
+        var dialog = Dialog("Edit item", content, "Save changes");
+        WorkspaceItem? edited = null;
+        dialog.PrimaryButtonClick += (_, args) =>
+        {
+            string? problem = WorkspaceItemEdits.Apply(item, name.Text, target.Text, arguments.Text,
+                File.Exists, Directory.Exists, out var candidate);
+            if (problem is not null) { args.Cancel = true; error.Text = problem; }
+            else edited = candidate;
+        };
+        return await dialog.ShowAsync() == ContentDialogResult.Primary ? edited : null;
+    }
     public async Task<CaptureCandidate?> PickRunningAsync(IReadOnlyList<CaptureCandidate> candidates)
     {
         var list = new ListView { SelectionMode = ListViewSelectionMode.Single, MaxHeight = 320 };
