@@ -20,9 +20,17 @@ public sealed partial class HotkeyRowViewModel : ObservableObject
     public string EditHint => Binding.IsMouseWheel ? "Mouse-wheel gestures use fixed modifiers and cannot be reassigned." : "Change this shortcut";
     public string EditAutomationName => "Edit " + Label + " shortcut";
     public bool IsCustom => KeyChord.From(Binding) != KeyChord.From(HotkeyCatalog.Find(Binding.Id)!);
+    private bool lastCanEdit;
     internal void UpdateBinding(HotkeyBinding binding)
     {
-        Binding = binding;
+        // RefreshStatus runs every second while the page is open. Raising events for unchanged values made
+        // WinRT marshal each row again and again (5.6 GB of ComWrappers holders after two days).
+        if (Keys.Count > 0 && binding == Binding)
+        {
+            if (CanEdit != lastCanEdit) { lastCanEdit = CanEdit; OnPropertyChanged(nameof(CanEdit)); }
+            return;
+        }
+        Binding = binding; lastCanEdit = CanEdit;
         var parts = binding.Shortcut.Split('+');
         Keys = parts.Select((key, index) => new ShortcutKeyCap(key, index == parts.Length - 1 ? "" : "+")).ToArray();
         OnPropertyChanged(nameof(Binding)); OnPropertyChanged(nameof(Keys)); OnPropertyChanged(nameof(IsCustom)); OnPropertyChanged(nameof(CanEdit));
@@ -109,9 +117,27 @@ public sealed partial class HotkeysViewModel : ObservableObject
         }
         HasNoMatches = Groups.Count == 0;
     }
+    private string? lastStatusKey;
+    /// <summary>The once-a-second poll: refresh only when the runtime or shortcut settings changed. Direct
+    /// callers (toggles, rebinding, busy changes) keep using <see cref="RefreshStatus"/>.</summary>
+    internal void RefreshStatusIfChanged()
+    {
+        var settings = owner.Services.Settings;
+        var runtime = owner.Services.Hotkeys.ShortcutRuntime;
+        string key = string.Join("|", runtime.Running, runtime.DesktopsAvailable, runtime.MouseHook, runtime.KeyboardHook,
+            runtime.Paused, runtime.GameMode, string.Join(",", runtime.Registration.Registered.Order(StringComparer.Ordinal)),
+            string.Join(",", runtime.Registration.Conflicts.Order(StringComparer.Ordinal)),
+            string.Join(",", settings.DisabledShortcuts ?? []), string.Join(",", (settings.ShortcutOverrides ?? new Dictionary<string, string>()).OrderBy(p => p.Key, StringComparer.Ordinal)),
+            settings.ClipboardHistoryEnabled, settings.WindowShortcutsEnabled, settings.AutoGameMode, CanEditBindings,
+            owner.Services.Hotkeys.PaletteWindowsKeyAvailable);
+        if (key == lastStatusKey) return;
+        RefreshStatus();
+        lastStatusKey = key;
+    }
     internal void RefreshStatus()
     {
         var settings = owner.Services.Settings;
+        lastStatusKey = null;
         var policy = new ShortcutPolicy(settings.DisabledShortcuts);
         var runtime = owner.Services.Hotkeys.ShortcutRuntime;
         var effective = ShortcutRebinding.Effective(settings.ShortcutOverrides).ToDictionary(b => b.Id);

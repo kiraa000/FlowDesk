@@ -414,7 +414,7 @@ public sealed partial class MainWindow : Window
             if (diagnostics is not null) await diagnostics.PollAsync();
 #endif
             await App.ViewModels.Focus.RefreshAsync();
-            if (App.ViewModels.IsHotkeysPageOpen) App.ViewModels.Hotkeys.RefreshStatus();
+            if (App.ViewModels.IsHotkeysPageOpen) App.ViewModels.Hotkeys.RefreshStatusIfChanged();
             var vm = App.ViewModels.Focus;
             TrayIcon.ToolTipText = services.Hotkeys.GameMode ? "FlowDesk — game mode (shortcuts off)" : vm.IsRunning ? $"FlowDesk · {vm.RemainingText} remaining" : "FlowDesk";
             TrayPause.Text = vm.PauseLabel == "Resume" ? "Resume focus" : "Pause focus"; TrayPause.Visibility = vm.CanPause ? Visibility.Visible : Visibility.Collapsed;
