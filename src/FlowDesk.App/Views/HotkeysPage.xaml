@@ -61,9 +61,10 @@
                              AutomationProperties.Name="Refreshing shortcut status" />
             </StackPanel>
 
-            <StackPanel Spacing="8">
+            <StackPanel Spacing="0">
                 <TextBlock Text="Game mode"
-                           Style="{StaticResource BodyStrongTextBlockStyle}"
+                           Style="{StaticResource SubtitleTextBlockStyle}"
+                           Margin="0,0,0,8"
                            Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
                 <TextBlock Text="Turns off every shortcut except the command palette and the game mode toggle. Focus enforcement and autosave keep running."
                            Style="{StaticResource CaptionTextBlockStyle}"

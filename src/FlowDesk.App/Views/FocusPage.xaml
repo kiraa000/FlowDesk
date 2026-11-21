@@ -17,9 +17,13 @@
                 <StackPanel Spacing="16">
                     <TextBlock Text="Session running" Style="{StaticResource BodyStrongTextBlockStyle}"
                                Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
-                    <TextBlock Text="{Binding RemainingText}" Style="{StaticResource DisplayTextBlockStyle}"
-                               Typography.NumeralAlignment="Tabular"
-                               Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="{Binding RemainingText}" Style="{StaticResource DisplayTextBlockStyle}"
+                                   Typography.NumeralAlignment="Tabular"
+                                   Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                        <TextBlock Text="{Binding EndTimeText}" Style="{StaticResource CaptionTextBlockStyle}"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </StackPanel>
                     <ProgressBar Value="{Binding Progress, Mode=OneWay}" Maximum="100"
                                  AutomationProperties.Name="Session progress" />
                     <TextBlock Text="{Binding SessionDescription}"

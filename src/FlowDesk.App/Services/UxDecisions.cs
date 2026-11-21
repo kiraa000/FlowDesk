@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace FlowDesk.App.Services;
 
 public enum CloseAction { Exit, Hide }
@@ -37,6 +39,27 @@ public static class UxDecisions
     public static bool SelectWindow(bool selectAll, bool canSelect) => selectAll && canSelect;
     public static bool CanStartFocus(bool running, bool blockAll, int blockedCount) =>
         !running && (blockAll || blockedCount > 0);
+    public static string TrayWorkspaceName(string name)
+    {
+        // Count text elements, not UTF-16 halves: workspace names may contain emoji.
+        var starts = StringInfo.ParseCombiningCharacters(name);
+        return starts.Length <= 40 ? name : name[..starts[39]] + "…";
+    }
+    public static string TrayFocusStartText(bool canStart, int minutes, int strictnessIndex) => !canStart
+        ? "Start focus — add a blocked app first"
+        : $"Start focus ({minutes} min{(strictnessIndex == 0 ? ", Gentle" : strictnessIndex == 2 ? ", Strict" : "")})";
+
+    public static string FocusEndTime(DateTimeOffset? endsAt, bool paused, CultureInfo culture) =>
+        endsAt is null ? "" : paused ? "Paused" : "Ends at " + endsAt.Value.ToString("t", culture);
+
+    // Inputs are local wall-clock values supplied by the caller (tests inject both now and culture).
+    public static string CalmLastChecked(DateTimeOffset checkedAt, DateTimeOffset now, CultureInfo culture)
+    {
+        var day = checkedAt.Date;
+        string when = day == now.Date ? "today" : day == now.Date.AddDays(-1) ? "yesterday"
+            : "on " + checkedAt.ToString(culture.DateTimeFormat.MonthDayPattern, culture);
+        return $"Last checked {when} at {checkedAt.ToString("t", culture)}";
+    }
     /// <summary>Calm offer: the first check offers every finding; later checks offer only findings that were not
     /// there at the last offer (e.g. Windows turned a suggestion back on). An install that never recorded the set
     /// takes today's findings as its baseline without an offer.</summary>

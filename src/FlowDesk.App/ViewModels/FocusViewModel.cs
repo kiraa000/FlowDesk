@@ -36,6 +36,7 @@ public partial class FocusViewModel : ObservableObject, IContextFocus
     [ObservableProperty] public partial bool CanPause { get; set; }
     [ObservableProperty] public partial string PauseLabel { get; set; } = "Pause";
     [ObservableProperty] public partial string RemainingText { get; set; } = "25:00";
+    [ObservableProperty] public partial string EndTimeText { get; set; } = "";
     [ObservableProperty] public partial double Progress { get; set; }
     [ObservableProperty] public partial string SessionDescription { get; set; } = "";
     public bool IsIdle => !IsRunning;
@@ -248,6 +249,8 @@ public partial class FocusViewModel : ObservableObject, IContextFocus
         IsRunning = sample.state is not null; CanPause = IsRunning && sample.state?.Strictness != FocusStrictness.Strict;
         if (sample.state is null || sample.state.Strictness != FocusStrictness.Normal) ClearLastBlocked();
         PauseLabel = sample.state?.Paused == true ? "Resume" : "Pause";
+        EndTimeText = UxDecisions.FocusEndTime(sample.state?.EndsAt.ToLocalTime(), sample.state?.Paused == true,
+            System.Globalization.CultureInfo.CurrentCulture);
         SessionDescription = sample.state?.Paused == true ? "Session paused. Apps are not being blocked."
             : sample.state?.Strictness == FocusStrictness.Gentle ? "Gentle reminders are active. Apps stay open. Closing this window keeps the session running in the tray."
             : "Blocked apps are closed politely. Closing this window keeps the session running in the tray.";

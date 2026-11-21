@@ -37,15 +37,17 @@
             <RowDefinition Height="32" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
-        <tray:TaskbarIcon x:Name="TrayIcon" ToolTipText="FlowDesk" NoLeftClickDelay="True">
+        <tray:TaskbarIcon x:Name="TrayIcon" ToolTipText="FlowDesk" NoLeftClickDelay="True" ContextMenuMode="PopupMenu">
             <tray:TaskbarIcon.IconSource>
                 <tray:GeneratedIconSource Text="&#xE916;" FontFamily="Segoe Fluent Icons" Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
             </tray:TaskbarIcon.IconSource>
             <tray:TaskbarIcon.ContextFlyout>
-                <MenuFlyout>
+                <MenuFlyout x:Name="TrayMenu">
                     <MenuFlyoutItem x:Name="TrayOpen" Text="Open FlowDesk" />
                     <MenuFlyoutItem x:Name="TrayPalette" Text="Command palette" />
+                    <MenuFlyoutSubItem x:Name="TrayWorkspaces" Text="Workspaces" AutomationProperties.Name="Workspaces" />
                     <MenuFlyoutItem x:Name="TrayPause" Text="Pause focus" />
+                    <MenuFlyoutItem x:Name="TrayStart" Text="Start focus (25 min)" AutomationProperties.Name="Start focus (25 min)" />
                     <ToggleMenuFlyoutItem x:Name="TrayGameMode" Text="Game mode" />
                     <MenuFlyoutSeparator />
                     <MenuFlyoutItem x:Name="TrayExit" Text="Exit" />

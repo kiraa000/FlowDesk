@@ -17,6 +17,7 @@ public sealed partial class CalmViewModel : ObservableObject
     private readonly IStartupFolder folder = new WindowsStartupFolder();
     private readonly CalmChanges changes;
     private readonly CalmScanSession scanSession = new();
+    private DateTimeOffset? lastCheckedAt;
     private IReadOnlyList<CalmReading> readings = [];
     private IReadOnlyList<StartupEntry> startup = [];
     public ObservableCollection<CalmGroup> Groups { get; } = [];
@@ -58,13 +59,21 @@ public sealed partial class CalmViewModel : ObservableObject
         OfferOpen = decision.Offer > 0;
     }
     [RelayCommand] private void Review() { OfferOpen = false; parent.Navigate(AppPage.Calm); }
-    internal Task EnsureScanForVisitAsync() => scanSession.EnsureAsync(() => HasScan, RunCheckAsync);
+    internal async Task EnsureScanForVisitAsync()
+    {
+        await scanSession.EnsureAsync(() => HasScan, RunCheckAsync);
+        if (lastCheckedAt is { } checkedAt)
+            LastChecked = UxDecisions.CalmLastChecked(checkedAt.ToLocalTime(), DateTimeOffset.Now,
+                System.Globalization.CultureInfo.CurrentCulture);
+    }
     [RelayCommand(AllowConcurrentExecutions = true)] private async Task RunCheckAsync() => await OperateAsync(async () =>
     {
         var result = await Task.Run(() => (Rows: CalmEvaluator.Scan(registry, CalmWindows.Build(registry)), Startup: StartupCatalog.Scan(registry, folder), Hours: CalmWindows.ActiveHours(registry)));
         readings = result.Rows; startup = result.Startup; ActiveHours = result.Hours;
         RefreshRows();
-        HasScan = true; LastChecked = "Last checked " + DateTimeOffset.Now.ToString("g");
+        var now = DateTimeOffset.Now;
+        lastCheckedAt = now;
+        HasScan = true; LastChecked = UxDecisions.CalmLastChecked(now, now, System.Globalization.CultureInfo.CurrentCulture);
     });
     private void RefreshRows()
     {

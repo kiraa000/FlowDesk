@@ -76,6 +76,10 @@ public sealed partial class MainWindow : Window
         TrayOpen.Command = new CommunityToolkit.Mvvm.Input.RelayCommand(BringForward);
         TrayIcon.LeftClickCommand = TrayOpen.Command;
         TrayPause.Command = App.ViewModels.Focus.PauseCommand;
+        TrayStart.Command = App.ViewModels.Focus.StartCommand;
+        InitializeTrayWorkspaces();
+        App.ViewModels.Focus.PropertyChanged += (_, _) => UpdateTrayFocus();
+        UpdateTrayFocus();
         TrayExit.Command = new CommunityToolkit.Mvvm.Input.AsyncRelayCommand(ExitFromTrayAsync);
         TrayPalette.Command = new CommunityToolkit.Mvvm.Input.RelayCommand(() => palette?.Open());
         TrayGameMode.Command = new CommunityToolkit.Mvvm.Input.AsyncRelayCommand(ToggleGameModeAsync);
@@ -126,6 +130,8 @@ public sealed partial class MainWindow : Window
         App.ViewModels.PropertyChanged += (_, args) =>
         {
             if (args.PropertyName != nameof(AppViewModels.IsBusy)) return;
+            UpdateTrayFocus();
+            RefreshTrayWorkspaces();
             PageFrame.IsEnabled = !App.ViewModels.IsBusy;
             foreach (NavigationViewItem item in Navigation.MenuItems) item.IsEnabled = !App.ViewModels.IsBusy;
             if (Navigation.SettingsItem is NavigationViewItem settings) settings.IsEnabled = !App.ViewModels.IsBusy;
@@ -216,7 +222,7 @@ public sealed partial class MainWindow : Window
             App.ViewModels.ShowStatus("Could not load workspaces. Check the data folder and restart. " + ex.Message,
                 StatusKind.Error);
         }
-        finally { initializing = false; }
+        finally { initializing = false; UpdateTrayFocus(); RefreshTrayWorkspaces(); }
     }
     private bool browserHelpOpen;
     private async void BrowserHelp_Click(object sender, RoutedEventArgs e)
@@ -316,21 +322,23 @@ public sealed partial class MainWindow : Window
         if (App.ViewModels.IsBusy) { App.ViewModels.ShowStatus("Wait for the current operation to finish before closing."); return; }
         if (!loaded) { allowClose = true; Close(); return; }
         closing = true;
+        RefreshTrayWorkspaces();
         PageFrame.IsEnabled = false; Navigation.IsEnabled = false;
         try
         {
             if (App.ViewModels.Advanced.HasActiveInstall)
             {
                 if (!await advancedDialogs.WaitBeforeExitAsync())
-                { closing = false; exitRequested = false; PageFrame.IsEnabled = true; Navigation.IsEnabled = true; return; }
+                { closing = false; exitRequested = false; RefreshTrayWorkspaces(); PageFrame.IsEnabled = true; Navigation.IsEnabled = true; return; }
                 await App.ViewModels.Advanced.WaitForInstallAsync();
             }
             if (!exitRequested && !await App.ViewModels.Focus.EndSessionAsync(confirmAnyRunning: true))
-            { closing = false; PageFrame.IsEnabled = true; Navigation.IsEnabled = true; return; }
+            { closing = false; RefreshTrayWorkspaces(); PageFrame.IsEnabled = true; Navigation.IsEnabled = true; return; }
         }
         catch (Exception)
         {
             closing = false; exitRequested = false; PageFrame.IsEnabled = true; Navigation.IsEnabled = true;
+            RefreshTrayWorkspaces();
             App.ViewModels.ShowStatus("Close the open dialog before exiting FlowDesk.", StatusKind.Warning); return;
         }
         // Do not let a new focus session or autosave tick start while the final persistence await is in flight.
@@ -368,6 +376,7 @@ public sealed partial class MainWindow : Window
     private void ResumeAfterFailedClose()
     {
         allowClose = false; closing = false; exitRequested = false;
+        RefreshTrayWorkspaces();
         PageFrame.IsEnabled = true; Navigation.IsEnabled = true;
         focusTimer.Start(); autosaveTimer.Start(); App.ViewModels.AutoSave.Start();
     }
@@ -428,10 +437,28 @@ public sealed partial class MainWindow : Window
             if (App.ViewModels.IsHotkeysPageOpen) App.ViewModels.Hotkeys.RefreshStatusIfChanged();
             var vm = App.ViewModels.Focus;
             TrayIcon.ToolTipText = services.Hotkeys.GameMode ? "FlowDesk — game mode (shortcuts off)" : vm.IsRunning ? $"FlowDesk · {vm.RemainingText} remaining" : "FlowDesk";
-            TrayPause.Text = vm.PauseLabel == "Resume" ? "Resume focus" : "Pause focus"; TrayPause.Visibility = vm.CanPause ? Visibility.Visible : Visibility.Collapsed;
+            UpdateTrayFocus();
         }
         catch (Exception ex) { services.LogContextFailure(ex); }
         finally { sampling = false; }
+    }
+    private void UpdateTrayFocus()
+    {
+        if (!DispatcherQueue.HasThreadAccess) { DispatcherQueue.TryEnqueue(UpdateTrayFocus); return; }
+        var vm = App.ViewModels.Focus;
+        TrayPause.Text = vm.PauseLabel == "Resume" ? "Resume focus" : "Pause focus";
+        TrayStart.Text = UxDecisions.TrayFocusStartText(vm.CanStart, vm.Duration, vm.StrictnessIndex);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(TrayStart, TrayStart.Text);
+        bool ready = !initializing && !closing && !endingSession && !exitRequested && !App.ViewModels.IsBusy;
+        TrayStart.IsEnabled = ready && vm.CanStart;
+        TrayPause.IsEnabled = ready && vm.CanPause;
+        // Native PopulateMenu ignores Visibility. Remove hidden entries from Items so Strict/idle
+        // sessions do not expose Pause, and running sessions never expose Start.
+        TrayMenu.Items.Remove(TrayPause);
+        TrayMenu.Items.Remove(TrayStart);
+        int index = TrayMenu.Items.IndexOf(TrayWorkspaces) + 1;
+        if (vm.CanPause) TrayMenu.Items.Insert(index++, TrayPause);
+        if (!vm.IsRunning) TrayMenu.Items.Insert(index, TrayStart);
     }
     private async Task ExitFromTrayAsync()
     {
