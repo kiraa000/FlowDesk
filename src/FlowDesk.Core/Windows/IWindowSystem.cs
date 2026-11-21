@@ -30,7 +30,8 @@ public sealed record WindowInfo
     public string ExeName => AppKeys.ExeName(ExePath);
 }
 
-public sealed record MonitorInfo(string Device, PixelRect Bounds, PixelRect WorkArea, bool IsPrimary, int Dpi);
+public sealed record MonitorInfo(string Device, PixelRect Bounds, PixelRect WorkArea, bool IsPrimary, int Dpi,
+    string FriendlyName = "", string StableId = "", bool IsInternal = false);
 
 public enum PlaceOutcome { Ok, WindowGone, AccessDenied, Failed }
 

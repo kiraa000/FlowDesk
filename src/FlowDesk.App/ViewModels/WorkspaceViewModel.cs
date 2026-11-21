@@ -170,7 +170,8 @@ public partial class ItemViewModel : ObservableObject
         : model.Kind is ItemKind.File or ItemKind.Folder ? model.Path ?? "Path unavailable" : model.Name;
     public string ExePath => model.App?.ExePath ?? (model.Kind == ItemKind.File ? model.Path : null) ?? "";
     public string Glyph => ItemDisplay.Glyph(model.Kind);
-    public string Position => ItemDisplay.Position(model, owner.Services.Windows.DisplayNames.For(model.Window?.MonitorDevice ?? ""));
+    public string Position => ItemDisplay.Position(model, owner.Services.Windows.DisplayNames.For(
+        model.Window?.MonitorDevice ?? "", model.Window?.MonitorStableId, model.Window?.MonitorName));
     public bool IsBrowser => BrowserRestoreHelp.IsBrowserItem(model);
     [ObservableProperty] public partial bool ReopenLastTabs { get; set; }
     partial void OnReopenLastTabsChanged(bool value)

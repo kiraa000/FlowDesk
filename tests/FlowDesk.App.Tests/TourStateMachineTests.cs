@@ -5,16 +5,16 @@ namespace FlowDesk.App.Tests;
 public sealed class TourStateMachineTests
 {
     [Fact]
-    public void DefaultTour_HasSixStepsInTheDocumentedOrder()
+    public void DefaultTour_HasEightStepsInTheDocumentedOrder()
     {
         var steps = TourStateMachine.CreateSteps();
 
-        Assert.Equal(6, steps.Count);
-        Assert.Equal(["welcome", "new-workspace", "open-workspace", "layouts", "focus", "settings"],
+        Assert.Equal(8, steps.Count);
+        Assert.Equal(["welcome", "new-workspace", "open-workspace", "layouts", "focus", "palette", "quick-look-calm", "settings"],
             steps.Select(s => s.Id));
         Assert.Equal([null, TourPage.Workspaces, TourPage.Workspaces, TourPage.Layouts, TourPage.Focus,
-            TourPage.Settings], steps.Select(s => s.Page));
-        Assert.Equal([null, "NewWorkspace", "OpenWorkspace", "LayoutsNav", "FocusNav", null],
+            TourPage.Settings, TourPage.Settings, TourPage.Settings], steps.Select(s => s.Page));
+        Assert.Equal([null, "NewWorkspace", "OpenWorkspace", "LayoutsNav", "FocusNav", null, null, null],
             steps.Select(s => s.TargetId));
         Assert.All(steps, step =>
         {
@@ -23,6 +23,25 @@ public sealed class TourStateMachineTests
         });
         Assert.Null(steps[0].FallbackBody);
         Assert.False(string.IsNullOrWhiteSpace(steps[2].FallbackBody));
+    }
+
+    [Fact]
+    public void NewSteps_CoverPaletteAndQuickLookHotCornersCalm()
+    {
+        var steps = TourStateMachine.CreateSteps();
+
+        var palette = Assert.Single(steps, step => step.Id == "palette");
+        Assert.Equal(TourPage.Settings, palette.Page);
+        Assert.Null(palette.TargetId);
+        Assert.Contains("prefix", palette.Body, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("available prefixes", palette.Body, StringComparison.OrdinalIgnoreCase);
+
+        var combined = Assert.Single(steps, step => step.Id == "quick-look-calm");
+        Assert.Equal(TourPage.Settings, combined.Page);
+        Assert.Null(combined.TargetId);
+        Assert.Contains("Quick Look", combined.Body, StringComparison.Ordinal);
+        Assert.Contains("Hot corners", combined.Body, StringComparison.Ordinal);
+        Assert.Contains("Calm", combined.Body, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -48,32 +67,32 @@ public sealed class TourStateMachineTests
         Assert.True(tour.IsRunning);
         Assert.Equal(0, tour.StepIndex);
         Assert.Equal(1, tour.StepNumber);
-        Assert.Equal("Step 1 of 6", tour.StepLabel);
+        Assert.Equal("Step 1 of 8", tour.StepLabel);
         Assert.True(tour.IsFirst);
         Assert.False(tour.IsLast);
         Assert.Equal("welcome", tour.Current.Id);
     }
 
     [Fact]
-    public void Next_WalksAllSixSteps_ThenFinishesOnce()
+    public void Next_WalksAllEightSteps_ThenFinishesOnce()
     {
         var tour = new TourStateMachine();
         int finished = 0;
         tour.Finished += () => finished++;
         tour.Start();
 
-        for (int number = 1; number <= 6; number++)
+        for (int number = 1; number <= 8; number++)
         {
             Assert.True(tour.IsRunning);
             Assert.Equal(number, tour.StepNumber);
-            Assert.Equal($"Step {number} of 6", tour.StepLabel);
-            if (number < 6) tour.Next();
+            Assert.Equal($"Step {number} of 8", tour.StepLabel);
+            if (number < 8) tour.Next();
         }
 
         tour.Next();
 
         Assert.False(tour.IsRunning);
-        Assert.Equal(6, tour.StepNumber);
+        Assert.Equal(8, tour.StepNumber);
         Assert.Equal(1, finished);
     }
 

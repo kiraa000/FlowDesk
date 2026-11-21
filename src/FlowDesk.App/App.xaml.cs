@@ -59,7 +59,8 @@ public partial class App : Application
                 window = null;
             };
             activation.SetTarget(window.BringForward); // Show + Restore + Activate, including a tray-hidden window
-            window.Activate();
+            StartupRegistration.UpgradeLegacyCommand();
+            if (!StartupRegistration.LaunchHidden(Environment.GetCommandLineArgs().Skip(1))) window.Activate();
             await window.InitializeAsync();
         }
         catch (Exception ex)

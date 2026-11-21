@@ -20,8 +20,30 @@ public static class StartupRegistration
         {
             string exe = Environment.ProcessPath
                 ?? Path.Combine(AppContext.BaseDirectory, "FlowDesk.App.exe");
-            return $"\"{exe}\"";
+            return $"\"{exe}\" --tray";
         }
+    }
+
+    public static bool LaunchHidden(IEnumerable<string> arguments) =>
+        arguments.Any(a => string.Equals(a, "--tray", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Upgrade only the recognized legacy command; never change approval or re-enable a disabled entry.</summary>
+    public static bool UpgradeLegacyCommand() => UpgradeLegacyCommand(new WindowsRegistryAccess(), Command);
+    public static bool UpgradeLegacyCommand(IRegistryAccess registry, string command)
+    {
+        try
+        {
+            if (!IsEnabled(registry)) return false;
+            var address = new RegistryAddress(RunKeyPath, ValueName);
+            var stored = registry.Read(address);
+            string? text = stored is null ? null : System.Text.Json.JsonSerializer.Deserialize<string>(stored.Data);
+            string legacy = command.EndsWith(" --tray", StringComparison.Ordinal) ? command[..^7] : command;
+            if (!string.Equals(text?.Trim(), legacy, StringComparison.OrdinalIgnoreCase)) return false;
+            registry.Write(address, new((int)RegistryValueKind.String, System.Text.Json.JsonSerializer.Serialize(command)));
+            return true;
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or SecurityException or IOException or System.Text.Json.JsonException)
+        { return false; }
     }
 
     /// <summary>A Run command must exist AND StartupApproved must not disable it.</summary>

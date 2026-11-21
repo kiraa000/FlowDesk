@@ -356,7 +356,7 @@ internal sealed partial class CommandPaletteWindow : Window
     }
     private void ResizeForResults(int count)
     {
-        double height = count == 0 ? 152 : Math.Min(564, 144 + Math.Min(8, count) * 52);
+        double height = count == 0 ? 152 : Math.Min(564, 148 + Math.Min(8, count) * 52);
         ResizeForHeight(height);
     }
     private PaletteRect? lastPlacement;
@@ -422,6 +422,7 @@ internal sealed partial class CommandPaletteWindow : Window
     }
     private void UpdateHint()
     {
+        UpdatePrefixHint();
         if (answer.Visible && panel is null)
         {
             if (StatusText.Text != "AI answer") SetStatus("AI answer");
@@ -433,6 +434,13 @@ internal sealed partial class CommandPaletteWindow : Window
             ? row.Match.Item.KeyboardHint : Mode == PaletteMode.Commands ? "↑ ↓ to select" : "Backspace on empty search · Commands";
         ActionsButton.IsEnabled = panel is not null || (resultsCurrent && row?.Match.Item.Actions.Count > 0);
         HelpButton.Visibility = panel is null && Mode == PaletteMode.Commands && SearchBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+    private void UpdatePrefixHint()
+    {
+        bool visible = !answer.Visible && panel is null && Mode == PaletteMode.Commands &&
+            string.IsNullOrWhiteSpace(SearchBox.Text);
+        PrefixHint.Text = visible ? PalettePrefixes.Hint(ModeEnabled) : "";
+        PrefixHint.Visibility = PrefixHint.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
     }
     private void Actions_Click(object sender, RoutedEventArgs e) => ToggleActions();
     private void Help_Click(object sender, RoutedEventArgs e) { SetMode(PaletteMode.Help); SearchBox.Focus(FocusState.Programmatic); }

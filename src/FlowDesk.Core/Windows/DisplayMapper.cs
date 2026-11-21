@@ -14,13 +14,17 @@ public static class DisplayMapper
         if (monitors.Count == 0) return saved.Rect;
 
         // Same monitor, same geometry: the saved rect is exact.
-        var same = monitors.FirstOrDefault(m => m.Device == saved.MonitorDevice && m.Bounds == saved.MonitorBounds && m.WorkArea == saved.MonitorWorkArea);
-        if (same is not null) return KeepVisible(saved.Rect, same.WorkArea);
+        var stable = string.IsNullOrWhiteSpace(saved.MonitorStableId) ? null : monitors.FirstOrDefault(m =>
+            string.Equals(m.StableId, saved.MonitorStableId, StringComparison.OrdinalIgnoreCase));
+        var same = monitors.FirstOrDefault(m => string.Equals(m.Device, saved.MonitorDevice, StringComparison.OrdinalIgnoreCase)
+            && m.Bounds == saved.MonitorBounds && m.WorkArea == saved.MonitorWorkArea);
 
         // Otherwise pick a target monitor and scale the rect from the old work area into its work area.
-        var target = monitors.FirstOrDefault(m => m.Device == saved.MonitorDevice)
+        var target = stable ?? same ?? monitors.FirstOrDefault(m => string.Equals(m.Device, saved.MonitorDevice, StringComparison.OrdinalIgnoreCase))
                      ?? BestOverlap(saved.Rect, monitors)
-                     ?? monitors.FirstOrDefault(m => m.IsPrimary) ?? monitors[0];
+                      ?? monitors.FirstOrDefault(m => m.IsPrimary) ?? monitors[0];
+        if (target.Bounds == saved.MonitorBounds && target.WorkArea == saved.MonitorWorkArea)
+            return KeepVisible(saved.Rect, target.WorkArea);
         var from = saved.MonitorWorkArea.IsEmpty ? target.WorkArea : saved.MonitorWorkArea;
         return KeepVisible(Scale(saved.Rect, from, target.WorkArea), target.WorkArea);
     }

@@ -69,6 +69,8 @@ public sealed class SavedWindow
     public WindowShow Show { get; set; }
     /// <summary>Monitor device name at save time, e.g. \\.\DISPLAY1.</summary>
     public string MonitorDevice { get; set; } = "";
+    public string MonitorStableId { get; set; } = "";
+    public string MonitorName { get; set; } = "";
     /// <summary>Monitor bounds and work area at save time, to detect a changed display setup.</summary>
     public PixelRect MonitorBounds { get; set; }
     public PixelRect MonitorWorkArea { get; set; }

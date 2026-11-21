@@ -128,7 +128,8 @@ public static class SettingsTransfer
                     value.Items.Any(w => w is null || string.IsNullOrWhiteSpace(w.Id) || string.IsNullOrWhiteSpace(w.Name) || w.Description is null || w.Glyph is null || w.Color is null || w.Items is null ||
                         w.Items.Any(i => i is null || string.IsNullOrWhiteSpace(i.Id) || i.Urls is null || i.Urls.Any(u => u is null) || !Enum.IsDefined(i.Kind) || i.Name is null ||
                             (i.App is not null && i.App.ExePath is null) ||
-                            (i.Window is not null && (!Enum.IsDefined(i.Window.Show) || i.Window.Title is null || i.Window.ClassName is null || i.Window.MonitorDevice is null))))) throw new JsonException();
+                            (i.Window is not null && (!Enum.IsDefined(i.Window.Show) || i.Window.Title is null || i.Window.ClassName is null || i.Window.MonitorDevice is null ||
+                                i.Window.MonitorStableId is null || i.Window.MonitorName is null))))) throw new JsonException();
                 if (value.Items.Any(w => w.Items.Select(i => i.Id).Distinct(StringComparer.Ordinal).Count() != w.Items.Count)) throw new JsonException();
                 if (value.Items.Select(w => w.Id).Distinct(StringComparer.Ordinal).Count() != value.Items.Count) throw new JsonException();
                 preview.Workspaces = value; return CountText.Format(value.Items.Count, "workspace");
