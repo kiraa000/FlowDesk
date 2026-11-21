@@ -37,6 +37,7 @@ public static class SettingsTransfer
     // Deliberately explicit: adding an AppSettings property never opts it into transfer.
     private static readonly string[] Allowed = [
         "Theme", "MinimizePrevious", "LaunchTimeoutSeconds", "WindowShortcutsEnabled", "DisabledShortcuts", "ShortcutOverrides",
+        "AutoGameMode", "WindowMaximized", "LastPage",
         "QuickLookEnabled", "ClipboardHistoryEnabled", "PaletteWindowsKey", "PaletteWindowsEnabled", "PaletteFilesEnabled",
         "PaletteEdgeBookmarks", "PaletteChromeBookmarks", "PaletteFirefoxBookmarks", "PaletteCalculatorEnabled", "PaletteSystemEnabled",
         "PaletteWebEnabled", "PaletteWebFallback", "PaletteWebEngine", "PaletteWebTemplate", "HotCornersEnabled", "HotCornerTopLeft",
@@ -145,6 +146,7 @@ public static class SettingsTransfer
                 var safe = Filter(JsonNode.Parse(node.GetRawText())!.AsObject());
                 if (safe.TryGetPropertyValue("ShortcutOverrides", out var overrides) && overrides is not JsonObject) throw new JsonException();
                 var value = safe.Deserialize<AppSettings>(JsonStore.Options) ?? throw new JsonException();
+                if (value.LastPage is not ("Workspaces" or "Capture" or "Settings" or "Layouts" or "Advanced" or "Focus" or "Calm" or "Hotkeys" or "Details")) throw new JsonException();
                 if (value.Theme is not ("System" or "Light" or "Dark") || value.DisabledShortcuts is null || value.ShortcutOverrides is null || value.Ai is null ||
                     !Enum.IsDefined(value.PaletteWebEngine) || !Enum.IsDefined(value.Ai.Provider) || value.TerminalProgram is null || value.PaletteWebTemplate is null ||
                     !Enum.IsDefined(value.HotCornerTopLeft) || !Enum.IsDefined(value.HotCornerTopRight) || !Enum.IsDefined(value.HotCornerBottomLeft) || !Enum.IsDefined(value.HotCornerBottomRight) ||

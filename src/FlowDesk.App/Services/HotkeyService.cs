@@ -31,6 +31,29 @@ public sealed class HotkeyService(string dataDirectory, VirtualDesktopService? s
     private Action? _clipboard;
     private bool _clipboardEnabled;
     private bool _paletteWindowsKey;
+    private GameModeState _gameMode = new();
+    public bool GameMode => Volatile.Read(ref _gameMode).Enabled;
+    public event Action<bool>? GameModeChanged;
+    public Action? ToggleGameModeRequested { get; set; }
+    public Task SetGameModeAsync(bool enabled) => ChangeGameModeAsync(state => state.SetManual(enabled));
+    public Task ToggleGameModeAsync() => ChangeGameModeAsync(state => state.SetManual(!state.Enabled));
+    public Task SampleGameModeAsync(bool automatic, bool game) => ChangeGameModeAsync(state => state.Sample(automatic, game));
+    private async Task ChangeGameModeAsync(Func<GameModeState, GameModeState> transition)
+    {
+        bool changed = false, enabled = false;
+        await _gate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (_disposed) return;
+            var next = transition(_gameMode);
+            changed = next.Enabled != _gameMode.Enabled;
+            if (changed && _host?.IsRunning == true)
+                await _host.ConfigureBindingsAsync(EffectiveDisabled(), _overrides, gameMode: next.Enabled).ConfigureAwait(false);
+            Volatile.Write(ref _gameMode, next); enabled = next.Enabled;
+            if (changed) GameModeChanged?.Invoke(enabled);
+        }
+        finally { _gate.Release(); }
+    }
     public bool PaletteWindowsKeyAvailable => _host?.PaletteWindowsKeyAvailable == true;
     public async Task SetPaletteWindowsKeyAsync(bool enabled)
     {
@@ -76,7 +99,7 @@ public sealed class HotkeyService(string dataDirectory, VirtualDesktopService? s
         {
             var host = Volatile.Read(ref _host);
             return new(_shortcutsRequested && host?.IsRunning == true, DesktopsAvailable, host?.WheelHookAvailable == true,
-                host?.KeyboardHookAvailable == true, host?.BindingStatus ?? ShortcutRegistrationSnapshot.Empty, host?.IsPaused == true);
+                host?.KeyboardHookAvailable == true, host?.BindingStatus ?? ShortcutRegistrationSnapshot.Empty, host?.IsPaused == true, GameMode);
         }
     }
     public async Task SetDisabledShortcutsAsync(IEnumerable<string>? ids, bool? clipboardEnabled = null)
@@ -271,7 +294,8 @@ public sealed class HotkeyService(string dataDirectory, VirtualDesktopService? s
         HotkeyHost? host = null;
         host = new HotkeyHost(new Win32WindowOps(), _desktops, Notify,
             () => _terminal.Open(TerminalProgram?.Invoke(), Notify),
-            () => RequestReload(host!), _shortcutsRequested, _quickLook, _hotCorners, EffectiveDisabled(), _palette, _clipboard, _overrides);
+            () => RequestReload(host!), _shortcutsRequested, _quickLook, _hotCorners, EffectiveDisabled(), _palette, _clipboard, _overrides,
+            () => ToggleGameModeRequested?.Invoke(), GameMode);
         host.SetPaletteWindowsKey(_paletteWindowsKey);
         try
         {

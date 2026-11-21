@@ -146,7 +146,8 @@ public sealed class PaletteTests
         var policy = new ShortcutPolicy([]);
         var paletteOnly = policy.ForModules(false, true);
         Assert.True(paletteOnly.CanRegister(HotkeyCatalog.Find(HotkeyCatalog.PaletteId)!, false));
-        Assert.All(HotkeyCatalog.All.Where(b => b.Id != HotkeyCatalog.PaletteId), b => Assert.False(paletteOnly.Enabled(b.Id)));
+        Assert.All(HotkeyCatalog.All.Where(b => !GameModeRules.Retained(b.Id)), b => Assert.False(paletteOnly.Enabled(b.Id)));
+        Assert.True(paletteOnly.Enabled(HotkeyCatalog.GameModeToggleId));
         Assert.False(policy.ForModules(true, false).Enabled(HotkeyCatalog.PaletteId));
         Assert.False(new ShortcutPolicy([HotkeyCatalog.PaletteId]).ForModules(false, true).Enabled(HotkeyCatalog.PaletteId));
     }

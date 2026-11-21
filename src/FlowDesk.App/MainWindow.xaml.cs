@@ -23,6 +23,10 @@ public sealed partial class MainWindow : Window
     private bool exitRequested, endingSession;
     private readonly SessionEndHook sessionEnd;
     private CommandPaletteService? palette;
+    private GameModeFlyout? gameFlyout;
+    private readonly DispatcherTimer gameTimer = new() { Interval = TimeSpan.FromSeconds(2) };
+    private bool gameSampling;
+    private RectInt32 normalBounds;
     private readonly AdvancedDialogs advancedDialogs;
 #if DEBUG
     private Task002Diagnostics? diagnostics;
@@ -55,16 +59,17 @@ public sealed partial class MainWindow : Window
                     App.ViewModels.ShowStatus("App allowed for 5 minutes. Open it again to continue.");
                 else App.ViewModels.ShowStatus("That allowance is no longer available.");
             }, BringForward);
-        services.Hotkeys.Notify = message => DispatcherQueue.TryEnqueue(() => notifications.ShowMessage(message));
+        services.Hotkeys.Notify = message => DispatcherQueue.TryEnqueue(() => { if (!services.Hotkeys.GameMode) notifications.ShowMessage(message); });
         services.Focus.AppBlocked += (_, e) => DispatcherQueue.TryEnqueue(() =>
         {
-            notifications.Blocked(e);
+            if (!services.Hotkeys.GameMode) notifications.Blocked(e);
             App.ViewModels.ShowStatus(e.Action == FlowDesk.Core.Focus.BlockAction.Warned
                 ? $"{e.AppName} is on your blocked list" : $"{e.AppName} was closed for this focus session.");
         });
         services.Focus.SessionEnded += (_, _) => DispatcherQueue.TryEnqueue(async () =>
         {
-            notifications.Complete(); App.ViewModels.ShowStatus("Focus session complete", StatusKind.Success);
+            if (!services.Hotkeys.GameMode) notifications.Complete(); else notifications.ClearSession();
+            App.ViewModels.ShowStatus("Focus session complete", StatusKind.Success);
             await UpdateFocusAsync();
         });
         App.ViewModels.Focus.SessionChanged += notifications.ClearSession;
@@ -73,6 +78,26 @@ public sealed partial class MainWindow : Window
         TrayPause.Command = App.ViewModels.Focus.PauseCommand;
         TrayExit.Command = new CommunityToolkit.Mvvm.Input.AsyncRelayCommand(ExitFromTrayAsync);
         TrayPalette.Command = new CommunityToolkit.Mvvm.Input.RelayCommand(() => palette?.Open());
+        TrayGameMode.Command = new CommunityToolkit.Mvvm.Input.AsyncRelayCommand(ToggleGameModeAsync);
+        services.Hotkeys.ToggleGameModeRequested = () => DispatcherQueue.TryEnqueue(async () => await ToggleGameModeAsync());
+        services.Hotkeys.GameModeChanged += enabled => DispatcherQueue.TryEnqueue(async () =>
+        {
+            if (allowClose || endingSession) return;
+            TrayGameMode.IsChecked = enabled;
+            TrayIcon.ToolTipText = enabled ? "FlowDesk — game mode (shortcuts off)" : "FlowDesk";
+            App.ViewModels.Hotkeys.RefreshStatus();
+            try { gameFlyout ??= new(); await gameFlyout.ShowStateAsync(enabled, services.Settings.Theme); }
+            catch (Exception ex) { services.LogContextFailure(ex); }
+        });
+        gameTimer.Tick += async (_, _) =>
+        {
+            if (gameSampling || closing || endingSession || exitRequested) return;
+            gameSampling = true;
+            try { await services.Hotkeys.SampleGameModeAsync(services.Settings.AutoGameMode,
+                services.Settings.AutoGameMode && HotCornerNative.FullScreenGameRunning()); }
+            catch (Exception ex) { services.LogContextFailure(ex); }
+            finally { gameSampling = false; }
+        };
         services.HotCorners.OpenPalette = () => palette?.Open();
         TrayPalette.KeyboardAcceleratorTextOverride = services.Settings.EffectiveShortcut(HotkeyCatalog.PaletteId).Shortcut;
         App.ViewModels.Settings.PropertyChanged += (_, args) =>
@@ -87,6 +112,7 @@ public sealed partial class MainWindow : Window
             services.QuickLook?.Dispose();
             services.HotCorners?.Dispose();
             palette?.Dispose();
+            gameTimer.Stop(); gameFlyout?.Shutdown();
             sessionEnd.Dispose(); focusTimer.Stop(); autosaveTimer.Stop(); notifications.Dispose(); TrayIcon.Dispose();
             if (endingSession)
                 _ = Task.Run(() => { services.Focus.Dispose(); services.Hotkeys.Dispose(); services.Dispose(); });
@@ -112,6 +138,12 @@ public sealed partial class MainWindow : Window
             presenter.PreferredMinimumWidth = 720; presenter.PreferredMinimumHeight = 520;
         }
         Navigation.IsEnabled = false; AppWindow.Closing += OnClosing;
+        AppWindow.Changed += (_, args) =>
+        {
+            if (!initializing && (args.DidPositionChange || args.DidSizeChange) &&
+                AppWindow.Presenter is OverlappedPresenter { State: OverlappedPresenterState.Restored })
+                normalBounds = new(AppWindow.Position.X, AppWindow.Position.Y, AppWindow.Size.Width, AppWindow.Size.Height);
+        };
     }
     public void BringForward()
     {
@@ -126,7 +158,7 @@ public sealed partial class MainWindow : Window
             await App.ViewModels.LoadAsync(); loaded = true;
             notifications.Initialize();
             palette = new(services, App.ViewModels, DispatcherQueue, BringForward, ExitFromTrayAsync,
-                notice => { App.ViewModels.ShowPaletteNotice(notice); if (!notifications.ShowMessage(notice.Message)) BringForward(); },
+                notice => { App.ViewModels.ShowPaletteNotice(notice); if (!services.Hotkeys.GameMode && !notifications.ShowMessage(notice.Message)) BringForward(); },
                 () => !initializing && !closing && !endingSession && !exitRequested);
             try { await palette.InitializeAsync(); }
             catch (Exception ex) { new CrashLog().TryWrite(CrashSource.Activation, ex); App.ViewModels.ShowStatus("Command palette shortcut could not start. Check Settings.", StatusKind.Warning); }
@@ -160,13 +192,21 @@ public sealed partial class MainWindow : Window
             // Resuming after Start keeps the activation generation valid for its first published status.
             await App.ViewModels.ResumeActiveWorkspaceAsync();
             autosaveTimer.Start();
-            var s = services.Settings; var area = DisplayArea.Primary.WorkArea;
-            int width = Math.Clamp(s.Width, 720, Math.Max(720, area.Width));
-            int height = Math.Clamp(s.Height, 520, Math.Max(520, area.Height));
-            int x = Math.Clamp(s.X ?? area.X + 80, area.X, Math.Max(area.X, area.X + area.Width - width));
-            int y = Math.Clamp(s.Y ?? area.Y + 80, area.Y, Math.Max(area.Y, area.Y + area.Height - height));
-            AppWindow.MoveAndResize(new RectInt32(x, y, width, height));
-            Navigation.IsEnabled = true; Navigate(AppPage.Workspaces);
+            var s = services.Settings;
+            static ResumeBounds Bounds(RectInt32 r) => new(r.X, r.Y, r.Width, r.Height);
+            var resume = WindowResumeRules.Bounds(s.X, s.Y, s.Width, s.Height, Bounds(DisplayArea.Primary.WorkArea),
+                DisplayArea.FindAll().Select(d => Bounds(d.WorkArea)));
+            normalBounds = new(resume.X, resume.Y, resume.Width, resume.Height);
+            AppWindow.MoveAndResize(normalBounds);
+            if (s.WindowMaximized && AppWindow.Presenter is OverlappedPresenter resumePresenter) resumePresenter.Maximize();
+            var resumePage = Enum.Parse<AppPage>(WindowResumeRules.Page(s.LastPage));
+            Navigation.IsEnabled = true; Navigate(resumePage);
+            if (resumePage == AppPage.Capture)
+            {
+                App.ViewModels.Capture.Name = $"Workspace {services.Data.Workspaces.Count + 1}";
+                await App.ViewModels.Capture.RefreshCommand.ExecuteAsync(null);
+            }
+            gameTimer.Start();
             await App.ViewModels.Calm.FirstCheckAsync();
             if (!services.Data.TourCompleted) App.ViewModels.RequestTour();
         }
@@ -212,6 +252,7 @@ public sealed partial class MainWindow : Window
     private void Navigate(AppPage page)
     {
         page = App.ViewModels.ResolvePage(page);
+        if (loaded) services.Settings.LastPage = page.ToString();
         App.ViewModels.SetCurrentPage(page);
         App.ViewModels.Details.Workspace?.CommitName();
         navigating = true;
@@ -309,6 +350,7 @@ public sealed partial class MainWindow : Window
             void Cleanup(Action action) { try { action(); } catch (Exception ex) { services.LogContextFailure(ex); } }
             Cleanup(() => services.HotCorners?.Dispose());
             Cleanup(() => palette?.Dispose());
+            Cleanup(() => { gameTimer.Stop(); gameFlyout?.Shutdown(); gameFlyout = null; });
             try { await Task.Run(() => services.Focus.Dispose()); } catch (Exception ex) { services.LogContextFailure(ex); }
             Cleanup(() => services.QuickLook?.Dispose());
             try { await services.Hotkeys.StopAllAsync(); } catch (Exception ex) { services.LogContextFailure(ex); }
@@ -332,14 +374,27 @@ public sealed partial class MainWindow : Window
     {
         if (AppWindow.Presenter is OverlappedPresenter { State: OverlappedPresenterState.Minimized }) return;
         var s = services.Settings;
-        s.Width = AppWindow.Size.Width; s.Height = AppWindow.Size.Height;
-        s.X = AppWindow.Position.X; s.Y = AppWindow.Position.Y;
+        s.WindowMaximized = AppWindow.Presenter is OverlappedPresenter { State: OverlappedPresenterState.Maximized };
+        if (!s.WindowMaximized) normalBounds = new(AppWindow.Position.X, AppWindow.Position.Y, AppWindow.Size.Width, AppWindow.Size.Height);
+        else
+        {
+            static ResumeBounds Bounds(RectInt32 r) => new(r.X, r.Y, r.Width, r.Height);
+            var target = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Nearest).WorkArea;
+            var relocated = WindowResumeRules.OnMonitor(Bounds(normalBounds), Bounds(target), DisplayArea.FindAll().Select(d => Bounds(d.WorkArea)));
+            normalBounds = new(relocated.X, relocated.Y, relocated.Width, relocated.Height);
+        }
+        if (normalBounds.Width > 0 && normalBounds.Height > 0)
+        {
+            s.Width = normalBounds.Width; s.Height = normalBounds.Height;
+            s.X = normalBounds.X; s.Y = normalBounds.Y;
+        }
     }
     private void OnSessionEnd()
     {
         services.HotCorners?.Dispose();
         palette?.Dispose();
         endingSession = true; allowClose = true;
+        gameTimer.Stop(); gameFlyout?.Shutdown(); gameFlyout = null;
         focusTimer.Stop(); autosaveTimer.Stop();
         // StopAsync invalidates the generation synchronously before its first await.
         _ = App.ViewModels.AutoSave.StopAsync();
@@ -361,8 +416,8 @@ public sealed partial class MainWindow : Window
             await App.ViewModels.Focus.RefreshAsync();
             if (App.ViewModels.IsHotkeysPageOpen) App.ViewModels.Hotkeys.RefreshStatus();
             var vm = App.ViewModels.Focus;
-            TrayIcon.ToolTipText = vm.IsRunning ? $"FlowDesk · {vm.RemainingText} remaining" : "FlowDesk";
-            TrayPause.Text = vm.PauseLabel; TrayPause.Visibility = vm.CanPause ? Visibility.Visible : Visibility.Collapsed;
+            TrayIcon.ToolTipText = services.Hotkeys.GameMode ? "FlowDesk — game mode (shortcuts off)" : vm.IsRunning ? $"FlowDesk · {vm.RemainingText} remaining" : "FlowDesk";
+            TrayPause.Text = vm.PauseLabel == "Resume" ? "Resume focus" : "Pause focus"; TrayPause.Visibility = vm.CanPause ? Visibility.Visible : Visibility.Collapsed;
         }
         catch (Exception ex) { services.LogContextFailure(ex); }
         finally { sampling = false; }
@@ -386,5 +441,12 @@ public sealed partial class MainWindow : Window
         }
         finally { closing = false; App.ViewModels.IsBusy = false; }
         Close();
+    }
+    private async Task ToggleGameModeAsync()
+    {
+        if (initializing || closing || endingSession || allowClose) return;
+        try { await services.Hotkeys.ToggleGameModeAsync(); }
+        catch (Exception ex) { services.LogContextFailure(ex); App.ViewModels.ShowStatus("Game mode could not be changed.", StatusKind.Warning); }
+        finally { TrayGameMode.IsChecked = services.Hotkeys.GameMode; }
     }
 }

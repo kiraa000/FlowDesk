@@ -19,6 +19,7 @@
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
                     <TextBox Header="Filter shortcuts"
                              PlaceholderText="Name or keys"
@@ -27,7 +28,12 @@
                     <Button Grid.Column="1" Content="Turn all on"
                             Command="{Binding TurnAllOnCommand}"
                             VerticalAlignment="Bottom" MinHeight="32" />
-                    <Button Grid.Column="2" Command="{Binding RefreshCommand}"
+                    <Button Grid.Column="2" Content="Turn all off"
+                            Command="{Binding TurnAllOffCommand}"
+                            VerticalAlignment="Bottom" MinHeight="32"
+                            AutomationProperties.Name="Turn all shortcuts off except the command palette and the game mode toggle"
+                            ToolTipService.ToolTip="Turns off every shortcut except the command palette and the game mode toggle." />
+                    <Button Grid.Column="3" Command="{Binding RefreshCommand}"
                             VerticalAlignment="Bottom" MinHeight="32" Width="32" Padding="0"
                             AutomationProperties.Name="Refresh shortcut status"
                             ToolTipService.ToolTip="Refresh shortcut status">
@@ -53,6 +59,61 @@
                 <ProgressBar IsIndeterminate="True"
                              Visibility="{Binding IsBusy, Converter={StaticResource BoolVisibility}}"
                              AutomationProperties.Name="Refreshing shortcut status" />
+            </StackPanel>
+
+            <StackPanel Spacing="8">
+                <TextBlock Text="Game mode"
+                           Style="{StaticResource BodyStrongTextBlockStyle}"
+                           Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                <TextBlock Text="Turns off every shortcut except the command palette and the game mode toggle. Focus enforcement and autosave keep running."
+                           Style="{StaticResource CaptionTextBlockStyle}"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           TextWrapping="Wrap" />
+                <Border Padding="0,8" BorderThickness="0,0,0,1"
+                        BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                            <TextBlock Text="Turn on game mode"
+                                       Style="{StaticResource BodyTextBlockStyle}"
+                                       Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                            <TextBlock Text="Keeps only the command palette and the game mode toggle available."
+                                       Style="{StaticResource CaptionTextBlockStyle}"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       TextWrapping="Wrap" />
+                        </StackPanel>
+                        <ToggleSwitch Grid.Column="1"
+                                      IsOn="{Binding GameMode, Mode=TwoWay}"
+                                      OnContent="On" OffContent="Off"
+                                      VerticalAlignment="Center"
+                                      AutomationProperties.Name="Turn on game mode" />
+                    </Grid>
+                </Border>
+                <Border Padding="0,8">
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                            <TextBlock Text="Turn on automatically during full-screen games"
+                                       Style="{StaticResource BodyTextBlockStyle}"
+                                       Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                            <TextBlock Text="Turns game mode off again when the game ends; a game mode you turn on yourself stays on."
+                                       Style="{StaticResource CaptionTextBlockStyle}"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       TextWrapping="Wrap" />
+                        </StackPanel>
+                        <ToggleSwitch Grid.Column="1"
+                                      IsOn="{Binding AutoGameMode, Mode=TwoWay}"
+                                      OnContent="On" OffContent="Off"
+                                      VerticalAlignment="Center"
+                                      AutomationProperties.Name="Turn on game mode automatically during full-screen games" />
+                    </Grid>
+                </Border>
             </StackPanel>
 
             <ItemsControl ItemsSource="{Binding Groups}">

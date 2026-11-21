@@ -18,6 +18,9 @@ public sealed class AppSettings
     public int Height { get; set; } = 720;
     public int? X { get; set; }
     public int? Y { get; set; }
+    public bool WindowMaximized { get; set; }
+    public string LastPage { get; set; } = "Workspaces";
+    public bool AutoGameMode { get; set; }
     /// <summary>The workspace whose last Open succeeded; resumed on startup. Null means none.</summary>
     public string? ActiveWorkspaceId { get; set; }
     public Dictionary<string, string> FocusIconPaths { get; set; } = [];

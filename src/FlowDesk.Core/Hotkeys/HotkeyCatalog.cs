@@ -31,6 +31,7 @@ public static class HotkeyCatalog
     public const uint ModControl = 0x0002;
     public const string PaletteId = "command-palette";
     public const string ClipboardId = "clipboard-history";
+    public const string GameModeToggleId = "game-mode-toggle";
     public const uint ModShift = 0x0004;
     public const uint ModWin = 0x0008;
     public const string PauseToggleId = "pause-toggle";
@@ -65,6 +66,7 @@ public static class HotkeyCatalog
         // as a normal conflict (error 1409), and the status text surfaces it; no special-casing is needed.
         bindings.Add(new(PaletteId, ModWin | ModAlt, 0x20, false, false, "Win+Alt+Space", "Open command palette"));
         bindings.Add(new(ClipboardId, ModWin | ModAlt, 0x56, false, false, "Win+Alt+V", "Open clipboard history"));
+        bindings.Add(new(GameModeToggleId, ModWin | ModAlt, 0x50, false, false, "Win+Alt+P", "Turn game mode on or off"));
         for (int n = 1; n <= 5; n++)
         {
             bindings.Add(new($"desktop-switch-{n}", ModAlt, (uint)('0' + n), Repeat: false, Pausable: false,

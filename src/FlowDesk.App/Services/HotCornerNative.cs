@@ -8,6 +8,8 @@ namespace FlowDesk.App.Services;
 internal sealed record HotCornerEnvironment(CornerPoint Point, CornerBounds[] Monitors, nint Foreground, string? Blocked);
 internal static class HotCornerNative
 {
+    // QUNS_RUNNING_D3D_FULL_SCREEN only: busy/presentation also match ordinary video players.
+    public static bool FullScreenGameRunning() => SHQueryUserNotificationState(out int state) >= 0 && state == 3;
     public static HotCornerEnvironment Sample(HotCornerMouseSnapshot mouse)
     {
         var monitors = new List<CornerBounds>();

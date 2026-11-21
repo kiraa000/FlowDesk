@@ -70,6 +70,22 @@ public sealed partial class HotkeysViewModel : ObservableObject
     [ObservableProperty] public partial bool IsBusy { get; set; }
     [ObservableProperty] public partial string QuickLookSummary { get; set; } = "";
     [ObservableProperty] public partial string HotCornersSummary { get; set; } = "";
+    public bool GameMode
+    {
+        get => owner.Services.Hotkeys.GameMode;
+        set { if (value != GameMode) _ = SetGameModeAsync(value); }
+    }
+    private async Task SetGameModeAsync(bool enabled)
+    {
+        try { await owner.Services.Hotkeys.SetGameModeAsync(enabled); }
+        catch (Exception) { owner.ShowStatus("Game mode could not be changed. Your previous state was kept.", StatusKind.Warning); }
+        RefreshStatus();
+    }
+    public bool AutoGameMode
+    {
+        get => owner.Services.Settings.AutoGameMode;
+        set { owner.Services.Settings.AutoGameMode = value; owner.Services.Changed(); OnPropertyChanged(); }
+    }
     public HotkeysViewModel(AppViewModels owner)
     {
         this.owner = owner;
@@ -79,7 +95,7 @@ public sealed partial class HotkeysViewModel : ObservableObject
     partial void OnFilterChanged(string value) => RebuildGroups();
     partial void OnIsBusyChanged(bool value)
     {
-        RefreshCommand.NotifyCanExecuteChanged(); TurnAllOnCommand.NotifyCanExecuteChanged(); RefreshStatus();
+        RefreshCommand.NotifyCanExecuteChanged(); TurnAllOnCommand.NotifyCanExecuteChanged(); TurnAllOffCommand.NotifyCanExecuteChanged(); RefreshStatus();
     }
     private bool CanEditBindings => !IsBusy && !owner.Settings.PaletteBusy && !owner.Settings.WindowShortcutsBusy;
     private bool CanApply => CanEditBindings && owner.Services.Settings.WindowShortcutsEnabled;
@@ -103,15 +119,16 @@ public sealed partial class HotkeysViewModel : ObservableObject
         {
             row.UpdateBinding(effective[row.Binding.Id]);
             bool clipboard = row.Binding.Id == HotkeyCatalog.ClipboardId;
-            bool module = row.Binding.Id == HotkeyCatalog.PaletteId || (clipboard ? settings.ClipboardHistoryEnabled : settings.WindowShortcutsEnabled);
-            var moduleRuntime = runtime with { Running = row.Binding.Id is HotkeyCatalog.PaletteId or HotkeyCatalog.ClipboardId || runtime.Running };
+            bool module = GameModeRules.Retained(row.Binding.Id) || (clipboard ? settings.ClipboardHistoryEnabled : settings.WindowShortcutsEnabled);
+            var moduleRuntime = runtime with { Running = GameModeRules.Retained(row.Binding.Id) || clipboard || runtime.Running };
             bool canToggle = CanEditBindings && module && (!clipboard || settings.ClipboardHistoryEnabled);
             row.Apply(policy.Enabled(row.Binding.Id) && (!clipboard || settings.ClipboardHistoryEnabled), canToggle, ShortcutPresentation.Status(row.Binding, module, policy, moduleRuntime));
         }
         int enabled = rows.Count(r => r.IsOn);
         int conflicts = rows.Count(r => r.IsConflict);
-        Summary = $"{enabled} of {rows.Count} on · {CountText.Format(conflicts, "conflict")}" + (runtime.Paused ? " · paused" : "");
-        RefreshCommand.NotifyCanExecuteChanged(); TurnAllOnCommand.NotifyCanExecuteChanged();
+        Summary = $"{enabled} of {rows.Count} on · {CountText.Format(conflicts, "conflict")}" + (runtime.GameMode ? " · game mode" : runtime.Paused ? " · paused" : "");
+        RefreshCommand.NotifyCanExecuteChanged(); TurnAllOnCommand.NotifyCanExecuteChanged(); TurnAllOffCommand.NotifyCanExecuteChanged();
+        OnPropertyChanged(nameof(GameMode)); OnPropertyChanged(nameof(AutoGameMode));
         RefreshOtherInput();
         owner.Settings.RefreshPaletteSettings();
     }
@@ -124,7 +141,7 @@ public sealed partial class HotkeysViewModel : ObservableObject
     }
     internal void Change(HotkeyRowViewModel row, bool enabled)
     {
-        bool independent = row.Binding.Id is HotkeyCatalog.PaletteId or HotkeyCatalog.ClipboardId;
+        bool independent = GameModeRules.Retained(row.Binding.Id) || row.Binding.Id == HotkeyCatalog.ClipboardId;
         if (!CanEditBindings || (!independent && !owner.Services.Settings.WindowShortcutsEnabled) ||
             (row.Binding.Id == HotkeyCatalog.ClipboardId && !owner.Services.Settings.ClipboardHistoryEnabled)) { RefreshStatus(); return; }
         var ids = new HashSet<string>(new ShortcutPolicy(owner.Services.Settings.DisabledShortcuts).DisabledIds, StringComparer.Ordinal);
@@ -135,6 +152,8 @@ public sealed partial class HotkeysViewModel : ObservableObject
     private Task RefreshAsync() => ApplyAsync(owner.Services.Settings.DisabledShortcuts, persist: false);
     [RelayCommand(CanExecute = nameof(CanApply))]
     private Task TurnAllOnAsync() => ApplyAsync([], persist: true);
+    [RelayCommand(CanExecute = nameof(CanEditBindings))]
+    private Task TurnAllOffAsync() => ApplyAsync(GameModeRules.TurnAllOffIds, persist: true, independent: true);
     [RelayCommand] private void OpenSettings() => owner.Navigate(AppPage.Settings);
     public async Task<string?> SaveEditAsync(string id, KeyChord candidate, ShortcutResolution resolution)
     {

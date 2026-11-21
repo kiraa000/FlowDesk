@@ -288,12 +288,12 @@ public sealed class HotkeyCatalogTests
     {
         var all = HotkeyCatalog.All;
 
-        Assert.Equal(40, all.Count);
+        Assert.Equal(41, all.Count);
         Assert.Equal(10, all.Count(binding => binding.IsDesktop));
         Assert.Equal(8, all.Count(binding => binding.Id.StartsWith("snap-", StringComparison.Ordinal)));
         Assert.Equal(8, all.Count(binding => binding.Id.StartsWith("focus-", StringComparison.Ordinal)));
         Assert.Equal(4, all.Count(binding => binding.IsMouseWheel));
-        Assert.Equal(36, HotkeyCatalog.Registerable.Count());
+        Assert.Equal(37, HotkeyCatalog.Registerable.Count());
         Assert.Equal(all.Count, all.Select(binding => binding.Id).Distinct().Count());
     }
 
@@ -306,6 +306,7 @@ public sealed class HotkeyCatalogTests
         {
             (HotkeyCatalog.PaletteId, alt | HotkeyCatalog.ModWin, 0x20, false, false),
             (HotkeyCatalog.ClipboardId, alt | HotkeyCatalog.ModWin, 0x56, false, false),
+            (HotkeyCatalog.GameModeToggleId, alt | HotkeyCatalog.ModWin, 0x50, false, false),
             ("desktop-switch-1", alt, 0x31, false, false),
             ("desktop-switch-2", alt, 0x32, false, false),
             ("desktop-switch-3", alt, 0x33, false, false),

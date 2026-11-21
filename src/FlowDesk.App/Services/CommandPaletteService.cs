@@ -394,6 +394,8 @@ internal sealed class CommandPaletteService : IDisposable
             if (PaletteActionRules.Applies("pause-shortcuts", state))
                 Add("pause-shortcuts", services.Hotkeys.ShortcutRuntime.Paused ? "Resume window shortcuts" : "Pause window shortcuts",
                     () => { services.Hotkeys.TogglePause(); return Task.CompletedTask; }, "\uE769");
+            Add("game-mode", services.Hotkeys.GameMode ? "Turn off game mode" : "Turn on game mode",
+                async () => { EnsureIdle(); await services.Hotkeys.ToggleGameModeAsync(); }, "\uE7FC");
             Add("quit", "Quit FlowDesk", async () => { EnsureIdle(); showMain(); await quit(); }, "\uE7E8", "Quit");
         }
         Volatile.Write(ref actions, list.ToArray());

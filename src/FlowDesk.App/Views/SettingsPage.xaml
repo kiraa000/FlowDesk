@@ -37,6 +37,14 @@
                            Width="140" AutomationProperties.Name="Launch timeout in seconds" />
             </settings:SettingsCard>
             <TextBlock Text="Shortcuts" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,24,0,8" />
+            <settings:SettingsCard Header="Game mode"
+                Description="Turns off shortcuts and gestures except the command palette and game-mode toggle. Focus and autosave keep running.">
+                <ToggleSwitch IsOn="{x:Bind Hotkeys.GameMode, Mode=TwoWay}" AutomationProperties.Name="Game mode" />
+            </settings:SettingsCard>
+            <settings:SettingsCard Header="Turn on game mode automatically while a full-screen game runs"
+                Description="Turns off again when Windows leaves full-screen game mode. A game mode you turn on yourself stays on.">
+                <ToggleSwitch IsOn="{x:Bind Hotkeys.AutoGameMode, Mode=TwoWay}" AutomationProperties.Name="Automatic game mode" />
+            </settings:SettingsCard>
             <settings:SettingsCard Header="Window shortcuts">
                 <settings:SettingsCard.Description>
                     <StackPanel Spacing="2">

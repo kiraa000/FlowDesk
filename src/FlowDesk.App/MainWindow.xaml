@@ -45,7 +45,8 @@
                 <MenuFlyout>
                     <MenuFlyoutItem x:Name="TrayOpen" Text="Open FlowDesk" />
                     <MenuFlyoutItem x:Name="TrayPalette" Text="Command palette" />
-                    <MenuFlyoutItem x:Name="TrayPause" Text="Pause" />
+                    <MenuFlyoutItem x:Name="TrayPause" Text="Pause focus" />
+                    <ToggleMenuFlyoutItem x:Name="TrayGameMode" Text="Game mode" />
                     <MenuFlyoutSeparator />
                     <MenuFlyoutItem x:Name="TrayExit" Text="Exit" />
                 </MenuFlyout>

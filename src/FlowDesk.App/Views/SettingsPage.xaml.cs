@@ -6,6 +6,7 @@ namespace FlowDesk.App.Views;
 
 public sealed partial class SettingsPage : Page
 {
+    public ViewModels.HotkeysViewModel Hotkeys => App.ViewModels.Hotkeys;
     private bool ready, changing, dialogOpen;
     public SettingsPage()
     {
