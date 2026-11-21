@@ -283,10 +283,14 @@ public sealed partial class MainWindow : Window
         }
         finally { navigating = false; }
     }
-    private void ApplyTheme() => Root.RequestedTheme = services.Settings.Theme switch
+    private void ApplyTheme()
     {
-        "Light" => ElementTheme.Light, "Dark" => ElementTheme.Dark, _ => ElementTheme.Default
-    };
+        Root.RequestedTheme = services.Settings.Theme switch
+        {
+            "Light" => ElementTheme.Light, "Dark" => ElementTheme.Dark, _ => ElementTheme.Default
+        };
+        NativeMenuTheme.Apply(services.Settings.Theme);
+    }
     private void UpdateCaptionColors()
     {
         if (TitleText.Foreground is not SolidColorBrush text) return;
