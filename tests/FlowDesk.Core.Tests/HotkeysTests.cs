@@ -306,7 +306,7 @@ public sealed class HotkeyCatalogTests
         {
             (HotkeyCatalog.PaletteId, alt | HotkeyCatalog.ModWin, 0x20, false, false),
             (HotkeyCatalog.ClipboardId, alt | HotkeyCatalog.ModWin, 0x56, false, false),
-            (HotkeyCatalog.GameModeToggleId, alt | HotkeyCatalog.ModWin, 0x50, false, false),
+            (HotkeyCatalog.GameModeToggleId, alt | HotkeyCatalog.ModControl, 0x47, false, false),
             ("desktop-switch-1", alt, 0x31, false, false),
             ("desktop-switch-2", alt, 0x32, false, false),
             ("desktop-switch-3", alt, 0x33, false, false),

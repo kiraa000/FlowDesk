@@ -66,7 +66,7 @@ public static class HotkeyCatalog
         // as a normal conflict (error 1409), and the status text surfaces it; no special-casing is needed.
         bindings.Add(new(PaletteId, ModWin | ModAlt, 0x20, false, false, "Win+Alt+Space", "Open command palette"));
         bindings.Add(new(ClipboardId, ModWin | ModAlt, 0x56, false, false, "Win+Alt+V", "Open clipboard history"));
-        bindings.Add(new(GameModeToggleId, ModWin | ModAlt, 0x50, false, false, "Win+Alt+P", "Turn game mode on or off"));
+        bindings.Add(new(GameModeToggleId, ModControl | ModAlt, 0x47, false, false, "Ctrl+Alt+G", "Turn game mode on or off")); // no Win key: gaming keyboards often lock it
         for (int n = 1; n <= 5; n++)
         {
             bindings.Add(new($"desktop-switch-{n}", ModAlt, (uint)('0' + n), Repeat: false, Pausable: false,
