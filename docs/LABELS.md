@@ -21,6 +21,7 @@ Rules of use:
 | `feature` | `#a2eeef` | New feature or improvement request. |
 | `docs` | `#0075ca` | Documentation, help text or release notes. |
 | `polish` | `#c5def5` | Small UI, wording or consistency improvement. |
+| `testing` | `#0e8a16` | A test task: check a feature that was not tested live yet. |
 
 ## Severity labels
 
