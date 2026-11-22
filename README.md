@@ -7,7 +7,8 @@ with one click: it relaunches the apps, files, folders and websites, and moves e
 
 Built with C#, .NET 10 and WinUI 3 (Windows App SDK), unpackaged and self-contained.
 
-Current version: **FlowDesk 1.1.0**. New here? Read [GETTING-STARTED.md](GETTING-STARTED.md) (install, use, develop, release).
+Current version: **FlowDesk 1.2.0**. New here? Read [GETTING-STARTED.md](GETTING-STARTED.md) (install, use, develop, release).
+See [release notes](docs/RELEASE-NOTES-1.2.0.md) for what changed and important behaviour changes.
 
 ## Features
 
@@ -18,7 +19,7 @@ Current version: **FlowDesk 1.1.0**. New here? Read [GETTING-STARTED.md](GETTING
   workspace's positions.
 - **Focus:** 25 / 50 / 90 minute sessions with blocked and allowed apps. Gentle (reminder), Normal (closes the
   app, "Allow 5 minutes" from the notification) or Strict (closes it every time). Keeps running in the tray.
-- **Onboarding tour:** six teaching tips through workspaces, layouts, focus and settings. It opens on first run
+- **Onboarding tour:** eight teaching tips through workspaces, layouts, focus, the palette and Calm Windows. It opens on first run
   and can be replayed from Settings; Back, Next, Skip and Escape work throughout.
 - **Settings:** system/light/dark theme, minimize on switch, 10-60 second launch timeout, start with Windows,
   the terminal program for Alt+Enter, the data folder and the app version.
@@ -28,6 +29,16 @@ Current version: **FlowDesk 1.1.0**. New here? Read [GETTING-STARTED.md](GETTING
 - **Quick Look (optional, off by default):** select a file in File Explorer or on the desktop and press **Space** to
   preview it; **Space** or **Esc** closes the preview, **Enter** opens the file, and arrow keys keep moving the
   selection while the preview follows.
+- **Command palette:** search apps, windows, files and bookmarks; calculate, convert units, run commands, search the web or explicitly submit an AI question.
+- **Hot corners:** choose actions for screen corners, with a dwell delay and full-screen safeguards.
+- **Hotkeys:** view, enable and rebind shortcuts, with conflict and live availability information.
+- **Calm Windows:** check Windows suggestions and distractions, apply chosen changes and undo them from a local journal.
+- **Advanced:** opt-in tool detection and installation with explicit consent.
+- **Contexts:** attach audio output, Do Not Disturb and Focus preferences to a workspace.
+- **Clipboard history:** opt-in, memory-only text history available through the palette, with guarded paste-back.
+- **Settings transfer:** export and preview imports, choose Add or Replace, and undo an import before the next change.
+- **Game mode:** suspend shortcuts other than the palette, with a Ctrl+Alt+G toggle and on-screen status.
+- **Desktop conveniences:** friendly monitor names, workspace delete undo and item editing, Focus extensions, and tray workspace/Focus actions.
 - Mica, light/dark theme, keyboard support, Windows notifications.
 
 ## Window shortcuts (optional)
