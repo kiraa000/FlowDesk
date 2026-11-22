@@ -33,6 +33,12 @@ public sealed class AppSettings
     public List<string> BrowserRestoreNoticesSeen { get; set; } = [];
     /// <summary>Optional global Alt window shortcuts. Off by default, also for files written before this existed.</summary>
     public bool WindowShortcutsEnabled { get; set; }
+    /// <summary>
+    /// Resize the windows that touch the one being resized, shared-border style. On unless turned off; absent
+    /// in older files means on. Off keeps Alt+Shift+Wheel growing around the centre and moves only the
+    /// active window's border for Alt+Ctrl+arrows.
+    /// </summary>
+    public bool ResizeTouchingWindowsTogether { get; set; } = true;
     public bool AdvancedModeEnabled { get; set; }
     public DateTimeOffset? AdvancedModeAgreedAt { get; set; }
     public List<string> DisabledShortcuts { get; set; } = [];

@@ -288,12 +288,13 @@ public sealed class HotkeyCatalogTests
     {
         var all = HotkeyCatalog.All;
 
-        Assert.Equal(41, all.Count);
+        Assert.Equal(45, all.Count);
         Assert.Equal(10, all.Count(binding => binding.IsDesktop));
         Assert.Equal(8, all.Count(binding => binding.Id.StartsWith("snap-", StringComparison.Ordinal)));
         Assert.Equal(8, all.Count(binding => binding.Id.StartsWith("focus-", StringComparison.Ordinal)));
+        Assert.Equal(4, all.Count(binding => binding.Id.StartsWith("edge-resize-", StringComparison.Ordinal)));
         Assert.Equal(4, all.Count(binding => binding.IsMouseWheel));
-        Assert.Equal(37, HotkeyCatalog.Registerable.Count());
+        Assert.Equal(41, HotkeyCatalog.Registerable.Count());
         Assert.Equal(all.Count, all.Select(binding => binding.Id).Distinct().Count());
     }
 
@@ -333,6 +334,10 @@ public sealed class HotkeyCatalogTests
             ("focus-left-arrow", both, 0x25, true, true),
             ("focus-down-arrow", both, 0x28, true, true),
             ("focus-right-arrow", both, 0x27, true, true),
+            ("edge-resize-left", alt | HotkeyCatalog.ModControl, 0x25, true, true),
+            ("edge-resize-right", alt | HotkeyCatalog.ModControl, 0x27, true, true),
+            ("edge-resize-up", alt | HotkeyCatalog.ModControl, 0x26, true, true),
+            ("edge-resize-down", alt | HotkeyCatalog.ModControl, 0x28, true, true),
             ("maximize-toggle", alt, 0x46, false, true),
             ("minimize", alt, 0x4D, false, true),
             ("next-window", alt, 0x51, false, true),
@@ -360,11 +365,46 @@ public sealed class HotkeyCatalogTests
         foreach (var binding in HotkeyCatalog.All)
         {
             bool directional = binding.Id.StartsWith("snap-", StringComparison.Ordinal)
-                || binding.Id.StartsWith("focus-", StringComparison.Ordinal);
+                || binding.Id.StartsWith("focus-", StringComparison.Ordinal)
+                || binding.Id.StartsWith("edge-resize-", StringComparison.Ordinal);
             Assert.Equal(directional || binding.IsMouseWheel, binding.Repeat);
             Assert.Equal(directional
                 || binding.Id is "maximize-toggle" or "minimize" or "next-window" or "center" or "search-wheel", binding.Pausable);
             Assert.Equal(0u, binding.Modifiers & 0x4000u);
+        }
+    }
+
+    [Fact]
+    public void EdgeResizeBindingsDefaultToAltCtrlArrowsWithoutConflicts()
+    {
+        var expected = new (string Id, uint Key, WindowDirection Direction)[]
+        {
+            ("edge-resize-left", 0x25, WindowDirection.Left),
+            ("edge-resize-right", 0x27, WindowDirection.Right),
+            ("edge-resize-up", 0x26, WindowDirection.Up),
+            ("edge-resize-down", 0x28, WindowDirection.Down),
+        };
+
+        foreach (var (id, key, direction) in expected)
+        {
+            var binding = HotkeyCatalog.Find(id)!;
+            Assert.Equal(HotkeyCatalog.ModAlt | HotkeyCatalog.ModControl, binding.Modifiers);
+            Assert.Equal(key, binding.VirtualKey);
+            Assert.Equal(direction, binding.Direction);
+            Assert.True(binding.Repeat);
+            Assert.True(binding.Pausable);
+            Assert.False(binding.IsMouseWheel);
+            Assert.Equal(ShortcutGroup.WindowCommands, ShortcutPresentation.Group(binding));
+            Assert.True(new ShortcutPolicy([]).Enabled(id));
+            Assert.False(new ShortcutPolicy([id]).Enabled(id));
+            Assert.False(GameModeRules.Retained(id)); // suspended in game mode like the other window shortcuts
+
+            var chord = KeyChord.From(binding);
+            Assert.Null(chord.ValidationError);
+            var check = ShortcutRebinding.Evaluate(HotkeyCatalog.All, id, chord);
+            Assert.False(check.Blocked);
+            Assert.Null(check.Windows); // Alt+Ctrl+arrows are not a Windows default
+            Assert.Empty(check.Others); // no duplicate FlowDesk default
         }
     }
 

@@ -78,6 +78,11 @@
             </settings:SettingsCard>
             <StackPanel Spacing="8" Margin="0,4,0,8"
                         Visibility="{Binding WindowShortcuts, Converter={StaticResource BoolVisibility}}">
+                <settings:SettingsCard Header="Resize touching windows together"
+                    Description="Resizing the active window also resizes the windows that touch it, so they keep a shared border. Off resizes only the active window.">
+                    <ToggleSwitch IsOn="{Binding ResizeTouchingWindowsTogether, Mode=TwoWay}"
+                                  AutomationProperties.Name="Resize touching windows together" />
+                </settings:SettingsCard>
                 <Button Content="Choose file…" Command="{Binding ChooseShortcutsDllCommand}" MinHeight="32"
                         HorizontalAlignment="Left"
                         AutomationProperties.Name="Choose VirtualDesktopAccessor.dll"

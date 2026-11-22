@@ -241,6 +241,7 @@ public partial class SettingsViewModel(AppViewModels owner) : ObservableObject
     [ObservableProperty] public partial double LaunchTimeout { get; set; } = AppSettings.DefaultLaunchTimeoutSeconds;
     [ObservableProperty] public partial bool StartWithWindows { get; set; }
     [ObservableProperty] public partial bool WindowShortcuts { get; set; }
+    [ObservableProperty] public partial bool ResizeTouchingWindowsTogether { get; set; } = true;
     [ObservableProperty] public partial bool QuickLook { get; set; }
     [ObservableProperty] public partial string QuickLookConflict { get; set; } = "";
     public bool HasQuickLookConflict => QuickLookConflict.Length > 0;
@@ -265,6 +266,7 @@ public partial class SettingsViewModel(AppViewModels owner) : ObservableObject
         LaunchTimeout = AppSettings.ClampLaunchTimeout(owner.Services.Settings.LaunchTimeoutSeconds);
         StartWithWindows = StartupRegistration.IsEnabled();
         WindowShortcuts = owner.Services.Settings.WindowShortcutsEnabled;
+        ResizeTouchingWindowsTogether = owner.Services.Settings.ResizeTouchingWindowsTogether;
         QuickLook = owner.Services.Settings.QuickLookEnabled;
         RefreshPaletteSettings();
         LoadHotCornerSettings();
@@ -331,6 +333,13 @@ public partial class SettingsViewModel(AppViewModels owner) : ObservableObject
         owner.RefreshInputPages();
         owner.Services.Changed();
         _ = ApplyWindowShortcutsAsync(value);
+    }
+
+    partial void OnResizeTouchingWindowsTogetherChanged(bool value)
+    {
+        if (loading) return;
+        owner.Services.Settings.ResizeTouchingWindowsTogether = value;
+        owner.Services.Changed();
     }
 
     /// <summary>Refreshes the lines under the toggle from the live host and backend.</summary>

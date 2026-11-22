@@ -111,6 +111,13 @@ reliable list, not a perfect app.
 
 - [ ] Turn **Window shortcuts** on. Try Alt+1…5, Alt+Shift+1…5, Alt+W/A/S/D, Alt+Shift+W/A/S/D, Alt+F, Alt+M,
       Alt+Q, Alt+Shift+Space, Alt+Enter and Alt+Shift+0. Turn the feature off and check they stop.
+- [ ] With two snapped windows, press Alt+Ctrl+Left/Right/Up/Down: the shared border moves in the arrow's
+      direction and both windows resize. At the screen border the same key moves the opposite edge instead.
+- [ ] Turn **Resize touching windows together** off: the same keys move only the active window's border, and
+      Alt+Shift+Wheel grows or shrinks around the centre again even when another window touches.
+- [ ] Touching-window resize ignores windows on another monitor and minimized, maximized, tool or corner-only
+      windows. An elevated window that refuses to move stops the line without overlapping; pause and game mode
+      suspend the keys. Drag a shared border with the mouse and check the neighbour follows.
 - [ ] Turn an individual shortcut off and on from the Hotkeys page. **Edit** captures new keys, **Save** applies
       them, and Escape cancels.
 - [ ] **Reset all shortcuts** restores the defaults. The filter matches by name and by key. **Turn all on** and

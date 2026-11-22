@@ -36,7 +36,8 @@ public static class SettingsTransfer
     private static readonly JsonSerializerOptions ExportOptions = new(JsonStore.Options) { IgnoreReadOnlyProperties = true };
     // Deliberately explicit: adding an AppSettings property never opts it into transfer.
     private static readonly string[] Allowed = [
-        "Theme", "MinimizePrevious", "LaunchTimeoutSeconds", "WindowShortcutsEnabled", "DisabledShortcuts", "ShortcutOverrides",
+        "Theme", "MinimizePrevious", "LaunchTimeoutSeconds", "WindowShortcutsEnabled", "ResizeTouchingWindowsTogether",
+        "DisabledShortcuts", "ShortcutOverrides",
         "AutoGameMode", "WindowMaximized", "LastPage",
         "QuickLookEnabled", "ClipboardHistoryEnabled", "PaletteWindowsKey", "PaletteWindowsEnabled", "PaletteFilesEnabled",
         "PaletteEdgeBookmarks", "PaletteChromeBookmarks", "PaletteFirefoxBookmarks", "PaletteCalculatorEnabled", "PaletteSystemEnabled",

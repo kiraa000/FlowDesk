@@ -2,6 +2,11 @@
 
 Notable changes to FlowDesk, written for users. This file follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### New
+- Alt+Ctrl+Left/Right/Up/Down move the active window's border and resize the windows that touch it, so snapped layouts keep fitting. **Resize touching windows together** in Settings > Window shortcuts is on by default and also applies to Alt+Shift+Wheel.
+
 ## [1.2.0] - 2026-11-22
 
 ### New

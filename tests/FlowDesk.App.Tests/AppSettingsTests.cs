@@ -88,6 +88,26 @@ public sealed class AppSettingsTests
     }
 
     [Fact]
+    public void ResizeTouchingWindowsIsOnByDefaultAndForOlderSettingsFiles()
+    {
+        Assert.True(new AppSettings().ResizeTouchingWindowsTogether);
+
+        var older = JsonSerializer.Deserialize<AppSettings>("""{ "Theme": "Dark" }""")!;
+        Assert.True(older.ResizeTouchingWindowsTogether);
+    }
+
+    [Fact]
+    public void ResizeTouchingWindowsRoundTripsWhenTurnedOff()
+    {
+        var settings = new AppSettings { ResizeTouchingWindowsTogether = false };
+        string json = JsonSerializer.Serialize(settings);
+        Assert.Contains("\"ResizeTouchingWindowsTogether\":false", json);
+
+        var roundTrip = JsonSerializer.Deserialize<AppSettings>(json)!;
+        Assert.False(roundTrip.ResizeTouchingWindowsTogether);
+    }
+
+    [Fact]
     public void BrowserNoticeAcknowledgementIsStoredOnce()
     {
         var settings = new AppSettings();

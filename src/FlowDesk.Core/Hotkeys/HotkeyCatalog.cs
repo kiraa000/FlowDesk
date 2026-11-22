@@ -96,6 +96,11 @@ public static class HotkeyCatalog
         AddFocus(bindings, "focus-down-arrow", 0x28, WindowDirection.Down, "Alt+Shift+Down", "Focus the window below");
         AddFocus(bindings, "focus-right-arrow", 0x27, WindowDirection.Right, "Alt+Shift+Right", "Focus the window to the right");
 
+        AddEdgeResize(bindings, "edge-resize-left", 0x25, WindowDirection.Left, "Alt+Ctrl+Left", "Move the active window's border left (touching windows resize with it)");
+        AddEdgeResize(bindings, "edge-resize-right", 0x27, WindowDirection.Right, "Alt+Ctrl+Right", "Move the active window's border right (touching windows resize with it)");
+        AddEdgeResize(bindings, "edge-resize-up", 0x26, WindowDirection.Up, "Alt+Ctrl+Up", "Move the active window's border up (touching windows resize with it)");
+        AddEdgeResize(bindings, "edge-resize-down", 0x28, WindowDirection.Down, "Alt+Ctrl+Down", "Move the active window's border down (touching windows resize with it)");
+
         bindings.Add(new("maximize-toggle", ModAlt, 0x46, Repeat: false, Pausable: true,
             "Alt+F", "Maximize or restore the active window"));
         bindings.Add(new("minimize", ModAlt, 0x4D, Repeat: false, Pausable: true,
@@ -131,4 +136,8 @@ public static class HotkeyCatalog
     private static void AddFocus(
         List<HotkeyBinding> bindings, string id, uint virtualKey, WindowDirection direction, string shortcut, string label) =>
         bindings.Add(new(id, ModAlt | ModShift, virtualKey, Repeat: true, Pausable: true, shortcut, label, Direction: direction));
+
+    private static void AddEdgeResize(
+        List<HotkeyBinding> bindings, string id, uint virtualKey, WindowDirection direction, string shortcut, string label) =>
+        bindings.Add(new(id, ModAlt | ModControl, virtualKey, Repeat: true, Pausable: true, shortcut, label, Direction: direction));
 }

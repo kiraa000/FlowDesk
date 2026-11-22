@@ -45,7 +45,9 @@ See [release notes](docs/RELEASE-NOTES-1.2.0.md) for what changed and important 
 
 Turn them on in Settings > **Window shortcuts**. The same section sets the terminal program used by Alt+Enter:
 leave the field blank to use Windows Terminal when it is available, otherwise Command Prompt (FlowDesk adds no
-arguments); **Use default** clears a custom program.
+arguments); **Use default** clears a custom program. **Resize touching windows together** (on by default) makes a
+resize also move the windows that share the border, so snapped layouts keep fitting; turn it off to resize only the
+active window.
 
 | Shortcut | Action |
 | --- | --- |
@@ -61,7 +63,8 @@ arguments); **Use default** clears a custom program.
 | Alt+Shift+R | Reload the shortcut engine and re-check the desktop library |
 | Alt+Shift+E | Pause window shortcuts |
 | Alt+Shift+0 | Toggle pause/resume for window shortcuts |
-| Alt+Shift+Wheel | Resize the active window |
+| Alt+Ctrl+Left / Right / Up / Down | Move the active window's border left / right / up / down; touching windows resize with it |
+| Alt+Shift+Wheel | Resize the active window (touching windows resize with it) |
 | Win+Wheel | Switch to the previous/next virtual desktop (wheel up/down) |
 | Win+Shift+Wheel | Move the active window to the previous/next desktop and follow it |
 | Win+Alt+Wheel | Search open windows: wheel up cycles, wheel down undoes or minimizes |

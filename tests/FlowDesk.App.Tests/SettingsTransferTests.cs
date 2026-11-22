@@ -173,6 +173,19 @@ public sealed class SettingsTransferTests
         var plan = SettingsTransfer.Merge(new(), new(), Parse(SettingsTransfer.Export(new(), s, new(), "test")), new());
         Assert.Equal(s.ShortcutOverrides, plan.Settings.ShortcutOverrides); Assert.Empty(plan.Warnings);
     }
+
+    [Fact] public void ResizeTouchingWindowsIsExportedImportedAndKeptWhenAnOlderExportOmitsIt()
+    {
+        var exported = SettingsTransfer.Export(new(), new AppSettings { ResizeTouchingWindowsTogether = false }, new(), "test");
+        Assert.False(JsonNode.Parse(exported)!["sections"]!["settings"]!["ResizeTouchingWindowsTogether"]!.GetValue<bool>());
+        var imported = SettingsTransfer.Merge(new(), new(), Parse(exported), new());
+        Assert.False(imported.Settings.ResizeTouchingWindowsTogether);
+
+        var older = Parse(Envelope("""{"settings":{"Theme":"Dark"}}"""));
+        Assert.Null(older.Sections.Single(s => s.Id == "settings").Error);
+        var kept = SettingsTransfer.Merge(new(), new AppSettings { ResizeTouchingWindowsTogether = false }, older, new());
+        Assert.False(kept.Settings.ResizeTouchingWindowsTogether);
+    }
     [Fact] public void DeselectingAllSectionsLeavesDataEqual()
     {
         var (data, settings) = Sample();
