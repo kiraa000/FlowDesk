@@ -79,8 +79,6 @@ function WaitForSingleObject(Handle: THandle; Milliseconds: LongWord): LongWord;
   external 'WaitForSingleObject@kernel32.dll stdcall';
 function CloseHandle(Handle: THandle): Boolean;
   external 'CloseHandle@kernel32.dll stdcall';
-function GetLastError: LongWord;
-  external 'GetLastError@kernel32.dll stdcall';
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
@@ -110,7 +108,7 @@ begin
         if WaitResult <> 0 then
           Result := 'FlowDesk is still exiting. Please close FlowDesk and try again.';
       end
-      else if GetLastError <> 87 then { ERROR_INVALID_PARAMETER means the PID already exited }
+      else if DLLGetLastError <> 87 then { Inno captures this immediately after OpenProcess; PID already gone = 87 }
         Result := 'FlowDesk could not be checked. Please close FlowDesk and try again.';
       Exit;
     end;
