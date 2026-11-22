@@ -7,8 +7,8 @@ with one click: it relaunches the apps, files, folders and websites, and moves e
 
 Built with C#, .NET 10 and WinUI 3 (Windows App SDK), unpackaged and self-contained.
 
-Current version: **FlowDesk 1.2.0**. New here? Read [GETTING-STARTED.md](GETTING-STARTED.md) (install, use, develop, release).
-See [release notes](docs/RELEASE-NOTES-1.2.0.md) for what changed and important behaviour changes.
+Current version: **FlowDesk 1.2.1**. New here? Read [GETTING-STARTED.md](GETTING-STARTED.md) (install, use, develop, release).
+See [release notes](docs/RELEASE-NOTES-1.2.1.md) for what changed and important behaviour changes.
 
 ## Features
 

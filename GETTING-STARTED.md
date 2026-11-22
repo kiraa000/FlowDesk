@@ -17,12 +17,16 @@ close distracting apps.
 ### 1.2 Install
 
 1. Open the [Releases page](https://github.com/kiraa000/FlowDesk/releases) and download
-   `FlowDesk-1.2.0-win-x64-setup.exe` from the newest release.
+   `FlowDesk-1.2.1-win-x64-setup.exe` from the newest release.
 2. Run it. You do **not** need administrator rights.
 3. Windows may show **"Windows protected your PC"** (SmartScreen). This is normal: the app is not code-signed.
    Click **More info**, then **Run anyway**.
 4. Keep the default folder (`%LOCALAPPDATA%\Programs\FlowDesk`). Tick "desktop shortcut" if you want one.
 5. Click **Finish**. FlowDesk starts and shows a short tour (8 steps). You can replay it later from Settings.
+
+Updates: from 1.2.1 on, FlowDesk checks for a new version once a day and offers **Install now**. The update is
+checked against its SHA256 checksum, installs silently and restarts FlowDesk. Turn this off with
+**Check for updates** in Settings > About. Version 1.2.0 cannot update itself: install 1.2.1 by hand once.
 
 Requirements: Windows 11, 64-bit (Windows 10 version 2004 or newer should work but is not tested). Nothing else
 needs to be installed; the setup contains everything.
@@ -221,11 +225,14 @@ time: a second start just brings the running one to the front.
        -PublishOutput "builds\FlowDesk-1.0.1" `
        -InstallerOutput "builds\installer-1.0.1"
    ```
+   The script also writes `SHA256SUMS.txt` next to the setup.
 4. Install the new setup over the old version once and check that your workspaces are still there.
-5. Tag, push and publish the release:
+5. Tag, push and publish the release. **Upload both files**: the in-app updater only offers releases that have
+   the setup named `FlowDesk-<version>-win-x64-setup.exe` and a `SHA256SUMS.txt` that lists it. Do not mark
+   the release as a draft or pre-release, or the updater ignores it.
    ```powershell
    git tag -a v1.0.1 -m "FlowDesk 1.0.1"
    git push origin main
    git push origin v1.0.1
-   gh release create v1.0.1 "builds\installer-1.0.1\FlowDesk-1.0.1-win-x64-setup.exe" --title "1.0.1" --notes "What changed..."
+   gh release create v1.0.1 "builds\installer-1.0.1\FlowDesk-1.0.1-win-x64-setup.exe" "builds\installer-1.0.1\SHA256SUMS.txt" --title "FlowDesk 1.0.1" --notes-file "docs\RELEASE-NOTES-1.0.1.md"
    ```

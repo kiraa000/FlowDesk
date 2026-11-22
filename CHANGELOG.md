@@ -4,9 +4,18 @@ Notable changes to FlowDesk, written for users. This file follows [Keep a Change
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-11-22
+
 ### New
+- FlowDesk checks for a new version once a day and shows **Install now / Release notes / Not now** when one is available (also in the tray menu). The update downloads only from this project's GitHub releases, is checked against its SHA256 checksum, installs silently and restarts FlowDesk. Nothing installs without your click. Turn it off with **Check for updates** in Settings > About.
 - Alt+Ctrl+Left/Right/Up/Down move the active window's border and resize the windows that touch it, so snapped layouts keep fitting. **Resize touching windows together** in Settings > Window shortcuts is on by default and also applies to Alt+Shift+Wheel.
 - Dragging a shared border with the mouse resizes the touching windows when you release the mouse button.
+
+### Fixed
+- After a shortcut that game mode blocks, the next Ctrl+Alt+G that turns game mode off was ignored and needed a second press. It now works on the first press.
+
+### Privacy
+- The daily version check is an anonymous request to the public GitHub releases API. It sends no user data and can be turned off.
 
 ## [1.2.0] - 2026-11-22
 
@@ -47,4 +56,5 @@ Notable changes to FlowDesk, written for users. This file follows [Keep a Change
 - If an unreadable data/settings file cannot be safely set aside, saving is disabled for that run with a warning rather than overwriting it.
 - Imported workspace items with network/UNC or reparse-point paths are skipped with a warning.
 
+[1.2.1]: https://github.com/kiraa000/FlowDesk/releases/tag/v1.2.1
 [1.2.0]: https://github.com/kiraa000/FlowDesk/releases/tag/v1.2.0
