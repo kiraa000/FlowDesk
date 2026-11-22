@@ -220,7 +220,7 @@ public sealed class AutoSaveCoordinator
                 : _changedAt is not null ? AutoSaveState.Pending
                 : _lastSavedAt is not null ? AutoSaveState.Saved
                 : AutoSaveState.Watching;
-            if (_failed) message = "Window positions could not be saved. Autosave will retry.";
+            if (_failed) message = "Window positions could not be saved. FlowDesk will retry.";
         }
         _host.DismissOffer(generation);
         Publish(state, message);
@@ -355,7 +355,7 @@ public sealed class AutoSaveCoordinator
             _host.DismissOffer(generation);
             if (outcome == AddWindowOutcome.PersistenceFailed)
                 PublishCurrent(id, generation, AutoSaveState.Failed,
-                    "The window was added, but its workspace item could not be saved. Autosave will retry.");
+                    "The window was added, but its workspace item could not be saved. FlowDesk will retry.");
             return outcome;
         }
         finally { _work.Release(); }
@@ -422,7 +422,7 @@ public sealed class AutoSaveCoordinator
                 {
                     lock (_sync) _failed = true;
                     PublishCurrent(id, generation, AutoSaveState.Failed,
-                        "A window was added, but its workspace item could not be saved. Autosave will retry.");
+                        "A window was added, but its workspace item could not be saved. FlowDesk will retry.");
                 }
             }
             return;
@@ -498,7 +498,7 @@ public sealed class AutoSaveCoordinator
             {
                 _failed = true;
                 state = AutoSaveState.Failed;
-                message = "Window positions could not be saved. Autosave will retry.";
+                message = "Window positions could not be saved. FlowDesk will retry.";
             }
         }
         PublishCurrent(id, generation, state, message);

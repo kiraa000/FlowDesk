@@ -38,7 +38,7 @@
             </settings:SettingsCard>
             <TextBlock Text="Shortcuts" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,24,0,8" />
             <settings:SettingsCard Header="Game mode"
-                Description="Turns off shortcuts and gestures except the command palette and game-mode toggle. Focus and autosave keep running.">
+                Description="Turns off shortcuts and gestures except the command palette and game-mode toggle. Focus and keeping the active workspace up to date continue in the background.">
                 <ToggleSwitch IsOn="{x:Bind Hotkeys.GameMode, Mode=TwoWay}" AutomationProperties.Name="Game mode" />
             </settings:SettingsCard>
             <settings:SettingsCard Header="Turn on game mode automatically while a full-screen game runs"
@@ -62,6 +62,14 @@
                                    Style="{StaticResource CaptionTextBlockStyle}"
                                    Foreground="{ThemeResource SystemFillColorCautionBrush}"
                                    TextWrapping="Wrap" />
+                        <TextBlock Text="View and change keys on the Hotkeys page."
+                                   Style="{StaticResource CaptionTextBlockStyle}"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   TextWrapping="Wrap" />
+                        <HyperlinkButton Content="Open Hotkeys"
+                                         Command="{Binding ManageShortcutsCommand}"
+                                         Visibility="{Binding WindowShortcuts, Converter={StaticResource BoolVisibility}}"
+                                         AutomationProperties.Name="Open the Hotkeys page" />
                     </StackPanel>
                 </settings:SettingsCard.Description>
                 <ToggleSwitch IsOn="{Binding WindowShortcuts, Mode=TwoWay}"
@@ -410,7 +418,11 @@
                 <Button Content="Show the tour again" Command="{Binding ReplayTourCommand}" MinHeight="32" />
             </settings:SettingsCard>
             <settings:SettingsCard Header="About" Description="{Binding VersionText}">
-                <Button Content="Open log folder" Command="{Binding OpenLogFolderCommand}" MinHeight="32" />
+                <StackPanel Spacing="8">
+                    <Button Content="Open log folder" Command="{Binding OpenLogFolderCommand}" MinHeight="32" />
+                    <HyperlinkButton Content="Release notes and updates"
+                                     Command="{Binding OpenReleaseNotesCommand}" />
+                </StackPanel>
             </settings:SettingsCard>
         </StackPanel>
     </ScrollViewer>

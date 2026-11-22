@@ -489,6 +489,16 @@ public partial class SettingsViewModel(AppViewModels owner) : ObservableObject
     }
     [RelayCommand] private void ReplayTour() => owner.RequestTour();
     [RelayCommand]
+    private void OpenReleaseNotes()
+    {
+        try { AdvancedToolService.OpenLink(AppLinks.Releases); }
+        catch (Exception)
+        {
+            owner.ShowStatus("Release notes could not be opened. Try again from your browser at " + AppLinks.Releases,
+                StatusKind.Error);
+        }
+    }
+    [RelayCommand]
     private void OpenDataFolder()
     {
         try

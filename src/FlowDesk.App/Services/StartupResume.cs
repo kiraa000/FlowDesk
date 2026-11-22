@@ -44,7 +44,7 @@ public static class StartupResume
         }
         catch (Exception ex)
         {
-            reportError("Autosave could not resume for " + workspace.Name + ". " + ex.Message);
+            reportError("Keeping the workspace up to date could not resume for " + workspace.Name + ". " + ex.Message);
             return StartupResumeOutcome.Failed;
         }
     }

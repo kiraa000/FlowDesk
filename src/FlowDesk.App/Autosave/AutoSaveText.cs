@@ -12,12 +12,12 @@ public static class AutoSaveText
 
         // The current toggle wins over a queued/stale Off status after off -> on.
         if (!enabled)
-            return savedAt is { } offSaved ? $"Autosave off · saved {Age(offSaved, now)}" : "Autosave off";
-        if (status?.State == AutoSaveState.Failed) return "Autosave on · not saved";
-        if (status?.State == AutoSaveState.Pending) return "Autosave on · changes pending";
+            return savedAt is { } offSaved ? $"Keep up to date off · saved {Age(offSaved, now)}" : "Keep up to date off";
+        if (status?.State == AutoSaveState.Failed) return "Keep up to date on · not saved";
+        if (status?.State == AutoSaveState.Pending) return "Keep up to date on · changes pending";
         return savedAt is { } saved
-            ? $"Autosave on · saved {Age(saved, now)}"
-            : "Autosave on · not saved yet";
+            ? $"Keep up to date on · saved {Age(saved, now)}"
+            : "Keep up to date on · not saved yet";
     }
 
     private static string Age(DateTimeOffset saved, DateTimeOffset now)

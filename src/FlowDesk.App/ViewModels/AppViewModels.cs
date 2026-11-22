@@ -228,7 +228,7 @@ public partial class AppViewModels : ObservableObject
         }
         catch (Exception ex)
         {
-            ShowStatus("Autosave could not start watching this workspace. " + ex.Message, StatusKind.Error);
+            ShowStatus("FlowDesk could not start keeping this workspace up to date. " + ex.Message, StatusKind.Error);
         }
     }
     internal void ApplyTheme() => ThemeChanged?.Invoke();
@@ -324,7 +324,7 @@ public partial class AppViewModels : ObservableObject
             activeWorkspace = null;
             AutoSave.Coordinator.Deactivate();
             if (showWarning && actualId is not null)
-                ShowStatus("Autosave stopped because the active workspace could not be found.", StatusKind.Warning);
+                ShowStatus("Keeping the workspace up to date stopped because the active workspace could not be found.", StatusKind.Warning);
             return;
         }
 
@@ -342,7 +342,7 @@ public partial class AppViewModels : ObservableObject
         {
             activeWorkspace = null;
             AutoSave.Coordinator.Deactivate();
-            ShowStatus("Autosave stopped because open windows could not be read. " + ex.Message,
+            ShowStatus("Keeping the workspace up to date stopped because open windows could not be read. " + ex.Message,
                 showWarning ? StatusKind.Error : StatusKind.Warning);
         }
     }

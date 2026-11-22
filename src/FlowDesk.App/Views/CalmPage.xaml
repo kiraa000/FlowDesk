@@ -6,7 +6,7 @@
     <ScrollViewer HorizontalScrollBarVisibility="Disabled" IsTabStop="False">
         <StackPanel Margin="32,24" MaxWidth="1000" Spacing="24">
             <StackPanel Spacing="4">
-                <TextBlock Text="Calm" Style="{StaticResource TitleTextBlockStyle}"
+                <TextBlock Text="Calm Windows" Style="{StaticResource TitleTextBlockStyle}"
                            Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
                 <TextBlock Text="Choose what Windows shows. Every FlowDesk change can be undone."
                            Style="{StaticResource BodyTextBlockStyle}"

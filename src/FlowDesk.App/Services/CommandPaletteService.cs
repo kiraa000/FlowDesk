@@ -326,7 +326,8 @@ internal sealed class CommandPaletteService : IDisposable
         {
             if (page == AppPage.Hotkeys && !vm.IsHotkeysVisible) continue;
             if (page == AppPage.Advanced && !vm.IsAdvancedVisible) continue;
-            Add("page-" + page, "Open FlowDesk · " + page, () => { EnsureIdle(); showMain(); vm.Navigate(page); return Task.CompletedTask; }, "\uE80F", "Open");
+            Add("page-" + page, "Open FlowDesk · " + (page == AppPage.Calm ? "Calm Windows" : page.ToString()),
+                () => { EnsureIdle(); showMain(); vm.Navigate(page); return Task.CompletedTask; }, "\uE80F", "Open");
         }
         foreach (var tool in FlowDesk.Core.Advanced.AdvancedTools.PaletteTools(vm.IsAdvancedVisible,
             vm.Advanced.Tools.Where(t => t.Installed).Select(t => t.Tool.Id)))

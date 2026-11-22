@@ -78,7 +78,7 @@ public partial class AutoSaveViewModel : ObservableObject
         if (outcome == AddWindowOutcome.NotEligible)
             _owner.ShowStatus("That window is no longer available.", StatusKind.Information);
         else if (outcome == AddWindowOutcome.PersistenceFailed)
-            _owner.ShowStatus("The window was added, but its workspace item could not be saved. Autosave will retry.",
+            _owner.ShowStatus("The window was added, but its workspace item could not be saved. FlowDesk will retry.",
                 StatusKind.Warning);
     }
 

@@ -77,7 +77,7 @@
                 <NavigationViewItem Content="Focus" Tag="Focus">
                     <NavigationViewItem.Icon><FontIcon Glyph="&#xE916;" /></NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItem Content="Calm" Tag="Calm">
+                <NavigationViewItem Content="Calm Windows" Tag="Calm">
                     <NavigationViewItem.Icon><FontIcon Glyph="&#xE8BE;" /></NavigationViewItem.Icon>
                 </NavigationViewItem>
                 <NavigationViewItem Content="Hotkeys" Tag="Hotkeys"
