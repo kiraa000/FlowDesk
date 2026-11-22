@@ -44,6 +44,7 @@ public sealed partial class MainWindow : Window
         try { if (File.Exists(iconPath)) TrayIcon.UpdateIcon(new System.Drawing.Icon(iconPath, 32, 32)); }
         catch (Exception) { }
         App.ViewModels = new(services, new UserInteraction(this, Root));
+        InitializeUpdater();
         InitializeTransfer();
         advancedDialogs = new(Root);
         advancedDialogs.TakeReturnFocus = () => (PageFrame.Content as AdvancedPage)?.TakeDialogFocusReturn();
@@ -113,6 +114,7 @@ public sealed partial class MainWindow : Window
         autosaveTimer.Tick += (_, _) => App.ViewModels.RefreshAutoSaveAge();
         Closed += (_, _) =>
         {
+            updater?.Dispose();
             services.QuickLook?.Dispose();
             services.HotCorners?.Dispose();
             palette?.Dispose();
@@ -213,6 +215,7 @@ public sealed partial class MainWindow : Window
                 await App.ViewModels.Capture.RefreshCommand.ExecuteAsync(null);
             }
             gameTimer.Start();
+            updater?.Start();
             await App.ViewModels.Calm.FirstCheckAsync();
             if (!services.Data.TourCompleted) App.ViewModels.RequestTour();
         }
@@ -302,9 +305,13 @@ public sealed partial class MainWindow : Window
     }
     private async void OnClosing(AppWindow sender, AppWindowClosingEventArgs args)
     {
-        StopTour();
         if (allowClose) return;
         args.Cancel = true;
+        await CloseRequestedAsync();
+    }
+    private async Task CloseRequestedAsync()
+    {
+        StopTour();
         if (closing) return;
         if (initializing) { App.ViewModels.ShowStatus("Wait for FlowDesk to finish starting before closing."); return; }
         var action = UxDecisions.Close(exitRequested, endingSession, loaded, trayReady);
@@ -357,6 +364,15 @@ public sealed partial class MainWindow : Window
             {
                 ResumeAfterFailedClose(); return;
             }
+            if (updateInstaller is not null)
+            {
+                // Persist through the normal close path BEFORE starting setup. The installer waits for
+                // this PID, so Restart Manager cannot race our save/hook/tray cleanup.
+                if (updater?.HandoffAllowed != true || !updateInstaller.Launch())
+                { ResumeAfterFailedClose(); return; }
+                updateLaunched = true;
+            }
+            updater?.Stop();
             // Once teardown starts, finish it even if one service fails. Never reopen an interactive
             // window with half its dependencies disposed or skip the later hook cleanup.
             tearingDown = true;
@@ -415,6 +431,7 @@ public sealed partial class MainWindow : Window
     }
     private void OnSessionEnd()
     {
+        updater?.Stop();
         services.HotCorners?.Dispose();
         palette?.Dispose();
         endingSession = true; allowClose = true;

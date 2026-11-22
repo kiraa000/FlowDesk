@@ -49,7 +49,8 @@
                     <MenuFlyoutItem x:Name="TrayPause" Text="Pause focus" />
                     <MenuFlyoutItem x:Name="TrayStart" Text="Start focus (25 min)" AutomationProperties.Name="Start focus (25 min)" />
                     <ToggleMenuFlyoutItem x:Name="TrayGameMode" Text="Game mode" />
-                    <MenuFlyoutSeparator />
+                    <MenuFlyoutItem x:Name="TrayInstallUpdate" Text="Install update" />
+                    <MenuFlyoutSeparator x:Name="TrayUpdateSeparator" />
                     <MenuFlyoutItem x:Name="TrayExit" Text="Exit" />
                 </MenuFlyout>
             </tray:TaskbarIcon.ContextFlyout>
@@ -98,6 +99,27 @@
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
                 <StackPanel Grid.Row="0" Spacing="8" Margin="32,12,32,0">
+                <InfoBar x:Name="UpdateInfoBar" AutomationProperties.AutomationId="UpdateInfoBar"
+                    IsOpen="False" IsClosable="False" Severity="Informational" Title="Update">
+                    <InfoBar.Content>
+                        <StackPanel Spacing="8" Margin="0,8,0,0">
+                            <ProgressBar x:Name="UpdateProgress" Visibility="Collapsed" Maximum="100" />
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button x:Name="UpdateInstallButton" Content="Install now"
+                                    Style="{StaticResource AccentButtonStyle}" Click="UpdateInstall_Click"
+                                    AutomationProperties.Name="Install the available update" />
+                                <HyperlinkButton x:Name="UpdateNotesButton" Content="Release notes"
+                                    Click="UpdateReleaseNotes_Click"
+                                    AutomationProperties.Name="Open release notes for this update" />
+                                <Button x:Name="UpdateLaterButton" Content="Not now" Click="UpdateNotNow_Click"
+                                    AutomationProperties.Name="Skip this update version" />
+                                <Button x:Name="UpdateCancelButton" Content="Cancel" Click="UpdateCancel_Click"
+                                    Visibility="Collapsed"
+                                    AutomationProperties.Name="Cancel the update download" />
+                            </StackPanel>
+                        </StackPanel>
+                    </InfoBar.Content>
+                </InfoBar>
                 <Border
                     Visibility="{Binding StatusOpen, Converter={StaticResource BoolVisibility}}">
                 <InfoBar AutomationProperties.AutomationId="AppStatusBar" IsOpen="{Binding StatusOpen, Mode=TwoWay}"

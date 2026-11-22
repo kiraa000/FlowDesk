@@ -44,6 +44,7 @@ public sealed class AppServices : ObservableObject, IDisposable
     private readonly ImportUndoState<ImportUndo> importUndoState = new();
     public event Action? ImportUndoInvalidated { add => importUndoState.Invalidated += value; remove => importUndoState.Invalidated -= value; }
     public event Action? StateChanged;
+    public event Action? SettingsReplaced;
     private void InvalidateImportUndo() { importUndoState.Invalidate(); StateChanged?.Invoke(); }
     internal void ArmImportUndo(ImportUndo undo) => importUndoState.Arm(undo);
 
@@ -198,6 +199,7 @@ public sealed class AppServices : ObservableObject, IDisposable
                 throw;
             }
             Data = plan.Data; Settings = plan.Settings;
+            SettingsReplaced?.Invoke();
             Hotkeys.SetResizeTouchingWindowsTogether(Settings.ResizeTouchingWindowsTogether);
             return new(backup, beforeData, beforeSettings);
         }
@@ -214,6 +216,7 @@ public sealed class AppServices : ObservableObject, IDisposable
             await Task.Run(undo.Backup.Restore);
             InvalidateImportUndo();
             Data = undo.Data; Settings = undo.Settings;
+            SettingsReplaced?.Invoke();
             Hotkeys.SetResizeTouchingWindowsTogether(Settings.ResizeTouchingWindowsTogether);
         }
         finally { writer.Release(); transferring = false; }

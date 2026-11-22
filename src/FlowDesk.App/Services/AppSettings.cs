@@ -39,6 +39,12 @@ public sealed class AppSettings
     /// active window's border for Alt+Ctrl+arrows.
     /// </summary>
     public bool ResizeTouchingWindowsTogether { get; set; } = true;
+    /// <summary>Look for a newer FlowDesk release in the background. On by default, including for older files.</summary>
+    public bool CheckForUpdates { get; set; } = true;
+    /// <summary>Release version the user chose "Not now" for. Per machine; never exported.</summary>
+    public string? SkippedUpdateVersion { get; set; }
+    /// <summary>Last completed update check. Per machine; never exported.</summary>
+    public DateTimeOffset? LastUpdateCheck { get; set; }
     public bool AdvancedModeEnabled { get; set; }
     public DateTimeOffset? AdvancedModeAgreedAt { get; set; }
     public List<string> DisabledShortcuts { get; set; } = [];

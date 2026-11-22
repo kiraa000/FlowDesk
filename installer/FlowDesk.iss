@@ -58,8 +58,65 @@ Name: "{autodesktop}\FlowDesk"; Filename: "{app}\FlowDesk.App.exe"; WorkingDir: 
 
 [Run]
 Filename: "{app}\FlowDesk.App.exe"; Description: "Launch FlowDesk"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\FlowDesk.App.exe"; Flags: nowait skipifnotsilent; Check: RelaunchRequested
 
 [Code]
+function RelaunchRequested: Boolean;
+var
+  I: Integer;
+begin
+  Result := False;
+  for I := 1 to ParamCount do
+    if CompareText(ParamStr(I), '/RELAUNCH') = 0 then Result := True;
+end;
+
+{ FlowDesk uses Windows App SDK AppInstance, not a named Win32 mutex. Do not invent AppMutex.
+  The in-app handoff supplies its PID; wait for normal persistence/cleanup before replacing files.
+  Restart Manager (CloseApplications=yes) still handles ordinary interactive upgrades. }
+function OpenProcess(Access: LongWord; InheritHandle: Boolean; ProcessId: LongWord): THandle;
+  external 'OpenProcess@kernel32.dll stdcall';
+function WaitForSingleObject(Handle: THandle; Milliseconds: LongWord): LongWord;
+  external 'WaitForSingleObject@kernel32.dll stdcall';
+function CloseHandle(Handle: THandle): Boolean;
+  external 'CloseHandle@kernel32.dll stdcall';
+function GetLastError: LongWord;
+  external 'GetLastError@kernel32.dll stdcall';
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  I, Pid: Integer;
+  Value: String;
+  Parent: THandle;
+  WaitResult: LongWord;
+begin
+  Result := '';
+  if not RelaunchRequested then Exit;
+  for I := 1 to ParamCount do
+  begin
+    Value := ParamStr(I);
+    if CompareText(Copy(Value, 1, 13), '/FLOWDESKPID=') = 0 then
+    begin
+      Pid := StrToIntDef(Copy(Value, 14, MaxInt), 0);
+      if Pid <= 0 then
+      begin
+        Result := 'Invalid FlowDesk process id.';
+        Exit;
+      end;
+      Parent := OpenProcess($00100000, False, Pid); { SYNCHRONIZE only }
+      if Parent <> 0 then
+      begin
+        WaitResult := WaitForSingleObject(Parent, 60000);
+        CloseHandle(Parent);
+        if WaitResult <> 0 then
+          Result := 'FlowDesk is still exiting. Please close FlowDesk and try again.';
+      end
+      else if GetLastError <> 87 then { ERROR_INVALID_PARAMETER means the PID already exited }
+        Result := 'FlowDesk could not be checked. Please close FlowDesk and try again.';
+      Exit;
+    end;
+  end;
+end;
+
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   Command: String;

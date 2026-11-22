@@ -36,7 +36,7 @@ public static class SettingsTransfer
     private static readonly JsonSerializerOptions ExportOptions = new(JsonStore.Options) { IgnoreReadOnlyProperties = true };
     // Deliberately explicit: adding an AppSettings property never opts it into transfer.
     private static readonly string[] Allowed = [
-        "Theme", "MinimizePrevious", "LaunchTimeoutSeconds", "WindowShortcutsEnabled", "ResizeTouchingWindowsTogether",
+        "Theme", "MinimizePrevious", "LaunchTimeoutSeconds", "CheckForUpdates", "WindowShortcutsEnabled", "ResizeTouchingWindowsTogether",
         "DisabledShortcuts", "ShortcutOverrides",
         "AutoGameMode", "WindowMaximized", "LastPage",
         "QuickLookEnabled", "ClipboardHistoryEnabled", "PaletteWindowsKey", "PaletteWindowsEnabled", "PaletteFilesEnabled",
@@ -211,6 +211,9 @@ public static class SettingsTransfer
             var overlay = Object(settings);
             foreach (var pair in importedSettings) overlay[pair.Key] = pair.Value?.DeepClone();
             settings = overlay.Deserialize<AppSettings>(JsonStore.Options)!;
+            // Skipped version and last check time are per machine; importing must not replace them.
+            settings.SkippedUpdateVersion = local.SkippedUpdateVersion;
+            settings.LastUpdateCheck = local.LastUpdateCheck;
             if (settings.Ai.Provider != local.Ai.Provider || settings.Ai.BaseUrl != local.Ai.BaseUrl)
                 warnings.Add("AI endpoint was not imported; set it in Settings if you want it");
             settings.Ai = settings.Ai with { Provider = local.Ai.Provider, BaseUrl = local.Ai.BaseUrl };

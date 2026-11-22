@@ -257,6 +257,9 @@ public partial class SettingsViewModel(AppViewModels owner) : ObservableObject
     public bool WindowShortcutsCanToggle => !WindowShortcutsBusy;
     /// <summary>One line for the About card, read from the app assembly.</summary>
     public string VersionText { get; } = $"FlowDesk {AppVersion.Display}";
+    /// <summary>Raised after the user turns update checks on or off; the update coordinator decides what to do.</summary>
+    public event Action? UpdatePreferenceChanged;
+    [ObservableProperty] public partial bool CheckForUpdates { get; set; } = true;
     private bool loading;
     internal void Load()
     {
@@ -268,6 +271,7 @@ public partial class SettingsViewModel(AppViewModels owner) : ObservableObject
         WindowShortcuts = owner.Services.Settings.WindowShortcutsEnabled;
         ResizeTouchingWindowsTogether = owner.Services.Settings.ResizeTouchingWindowsTogether;
         QuickLook = owner.Services.Settings.QuickLookEnabled;
+        CheckForUpdates = owner.Services.Settings.CheckForUpdates;
         RefreshPaletteSettings();
         LoadHotCornerSettings();
         TerminalProgram = owner.Services.Settings.TerminalProgram ?? "";
@@ -462,6 +466,13 @@ public partial class SettingsViewModel(AppViewModels owner) : ObservableObject
     {
         owner.Services.Settings.Theme = value; owner.ApplyTheme();
         if (!loading) owner.Services.Changed();
+    }
+    partial void OnCheckForUpdatesChanged(bool value)
+    {
+        if (loading) return;
+        owner.Services.Settings.CheckForUpdates = value;
+        owner.Services.Changed();
+        UpdatePreferenceChanged?.Invoke();
     }
     partial void OnMinimizePreviousChanged(bool value)
     {

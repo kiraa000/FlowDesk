@@ -154,3 +154,9 @@ if ($setup.Length -le 0) {
 }
 
 Write-Host ("Installer: {0} ({1:N1} MB)" -f $setup.FullName, ($setup.Length / 1MB))
+
+# sha256sum-compatible manifest next to the installer, so the in-app updater can verify this build.
+$manifestHash = (Get-FileHash -LiteralPath $setup.FullName -Algorithm SHA256).Hash.ToUpperInvariant()
+$manifestPath = Join-Path $installerPath "SHA256SUMS.txt"
+[System.IO.File]::WriteAllText($manifestPath, $manifestHash + "  " + $setup.Name + "`n", [System.Text.Encoding]::ASCII)
+Write-Host "SHA256 manifest: $manifestPath"
