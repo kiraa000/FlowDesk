@@ -40,6 +40,13 @@ using the fixture in `tools/smoke-fixture/`. `Verify-Task002.ps1` needs a Debug 
 `FLOWDESK_TASK002_DIAGNOSTICS=1` (debug-only hooks, not compiled into Release). Screenshot scripts write to
 `artifacts/screenshots/` (git-ignored).
 
+## Bug hunt
+
+Before a release the team runs a whole-app bug hunt. Read [docs/BUG-HUNT.md](docs/BUG-HUNT.md) for the setup,
+safety rules and the checklist for each area. Report what you find with the **Bug report** issue form
+([bug_report.yml](.github/ISSUE_TEMPLATE/bug_report.yml)); it asks for the version, the area, repeatable steps and
+an optional crash log. The label set the team uses is in [docs/LABELS.md](docs/LABELS.md).
+
 ## Privacy
 
 Don't commit personal data: no user names, e-mail addresses, `C:\Users\...` paths, or saved workspace files.

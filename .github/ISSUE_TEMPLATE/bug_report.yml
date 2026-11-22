@@ -1,0 +1,113 @@
+name: Bug report
+description: Report something in FlowDesk that does not work as expected.
+title: "[Bug]: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing FlowDesk. Please search existing issues first, then fill in as much as you can.
+        The bug hunt guide in `docs/BUG-HUNT.md` explains how to test safely and what a good report contains.
+  - type: input
+    id: flowdesk-version
+    attributes:
+      label: FlowDesk version
+      description: Settings > About shows the version.
+      placeholder: "1.2.0"
+    validations:
+      required: true
+  - type: input
+    id: windows-version
+    attributes:
+      label: Windows version
+      description: Settings > System > About in Windows (or run `winver`).
+      placeholder: "Windows 11 24H2, build 26100"
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of FlowDesk does this affect?
+      options:
+        - Workspaces
+        - Layouts/tiling
+        - Focus
+        - Calm Windows
+        - Hotkeys/window shortcuts
+        - Command palette
+        - Quick Look
+        - Hot corners
+        - Clipboard
+        - Contexts
+        - Advanced
+        - Settings/import-export
+        - Tray
+        - Installer
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: List the exact steps. Say which workspace, windows and settings you used.
+      placeholder: |
+        1. Open Notepad and File Explorer.
+        2. Save them as a workspace named "Test".
+        3. Close both windows and open the workspace.
+        4. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+      description: What should have happened?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened instead?
+      description: Include the exact message or visible result.
+    validations:
+      required: true
+  - type: dropdown
+    id: frequency
+    attributes:
+      label: How often does it happen?
+      options:
+        - Every time
+        - Most of the time
+        - Sometimes
+        - Once / cannot reproduce
+    validations:
+      required: true
+  - type: checkboxes
+    id: crash-log
+    attributes:
+      label: Crash log
+      description: If FlowDesk crashed, open Settings > About > Open log folder, then attach the newest file by dragging it into this issue.
+      options:
+        - label: I attached the newest log file.
+          required: false
+        - label: FlowDesk did not crash, so there is no log to attach.
+          required: false
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots or recording
+      description: Drag screenshots or a short recording here. Blur anything personal.
+      placeholder: "Drag files here, or write what you saw."
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and this is not a duplicate.
+          required: true
+        - label: I removed personal information (names, account details, file paths, window titles) from screenshots and attachments.
+          required: true

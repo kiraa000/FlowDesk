@@ -1,0 +1,60 @@
+name: Feature request
+description: Suggest a new feature or an improvement for FlowDesk.
+title: "[Feature]: "
+labels: ["feature"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the problem first, then the change you would like. Small, specific requests are easier to judge.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of FlowDesk would change?
+      options:
+        - Workspaces
+        - Layouts/tiling
+        - Focus
+        - Calm Windows
+        - Hotkeys/window shortcuts
+        - Command palette
+        - Quick Look
+        - Hot corners
+        - Clipboard
+        - Contexts
+        - Advanced
+        - Settings/import-export
+        - Tray
+        - Installer
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: What are you trying to do, and what gets in the way today?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: What would you like FlowDesk to do?
+      description: Describe the smallest change that would help.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you tried
+      description: Other apps, settings or workarounds, and why they are not enough.
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and this is not already requested.
+          required: true

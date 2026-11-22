@@ -17,12 +17,12 @@ close distracting apps.
 ### 1.2 Install
 
 1. Open the [Releases page](https://github.com/kiraa000/FlowDesk/releases) and download
-   `FlowDesk-1.1.0-win-x64-setup.exe` from the newest release.
+   `FlowDesk-1.2.0-win-x64-setup.exe` from the newest release.
 2. Run it. You do **not** need administrator rights.
 3. Windows may show **"Windows protected your PC"** (SmartScreen). This is normal: the app is not code-signed.
    Click **More info**, then **Run anyway**.
 4. Keep the default folder (`%LOCALAPPDATA%\Programs\FlowDesk`). Tick "desktop shortcut" if you want one.
-5. Click **Finish**. FlowDesk starts and shows a short tour (6 steps). You can replay it later from Settings.
+5. Click **Finish**. FlowDesk starts and shows a short tour (8 steps). You can replay it later from Settings.
 
 Requirements: Windows 11, 64-bit (Windows 10 version 2004 or newer should work but is not tested). Nothing else
 needs to be installed; the setup contains everything.
@@ -38,7 +38,7 @@ needs to be installed; the setup contains everything.
 Tips:
 - Make a second workspace (for example "Study"). Switching **Coding → Study → Coding** puts Coding back exactly as
   you left it. By default the windows of the workspace you leave are minimized (Settings → "Minimize on switch").
-- FlowDesk **autosaves** the active workspace: if you move a window, the new position is kept.
+- FlowDesk **keeps the active workspace up to date**: if you move a window, the new position is kept.
 - Click a workspace to edit it: rename it, remove items, or add apps, files, folders and website links.
 - Browsers: FlowDesk cannot read your tabs. A browser item reopens the browser; turn on the browser's own
   "Continue where you left off" setting to get your tabs back. Website items open their saved links.
