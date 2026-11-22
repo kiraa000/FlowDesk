@@ -183,6 +183,82 @@ public sealed class UpdateTransport : IDisposable
         return handle;
     }
 
+    /// <summary>
+    /// Local startup maintenance, including when network update checks are off. Traverse only our
+    /// version/GUID layout, pin each ancestor, and never recurse into unknown directories or links.
+    /// A running setup (or another app instance's download) may retain its files until the next start.
+    /// </summary>
+    public static void PruneDownloads(string tempPath, Action<Exception>? log = null, CancellationToken token = default)
+    {
+        Exception? failure = null;
+        void BestEffort(Action action)
+        {
+            token.ThrowIfCancellationRequested();
+            try { action(); }
+            catch (IOException ex) { failure ??= ex; }
+            catch (UnauthorizedAccessException ex) { failure ??= ex; }
+        }
+        void PruneLeaf(string leaf)
+        {
+            bool empty;
+            using (var pin = LockDirectory(leaf))
+            {
+                foreach (string entry in Directory.EnumerateFileSystemEntries(leaf))
+                    BestEffort(() =>
+                    {
+                        var attrs = File.GetAttributes(entry);
+                        if ((attrs & (FileAttributes.ReparsePoint | FileAttributes.Directory)) == 0)
+                            File.Delete(entry);
+                    });
+                empty = !Directory.EnumerateFileSystemEntries(leaf).Any();
+            }
+            // The parent stays pinned; a late replacement can only cause a nonrecursive delete failure.
+            if (empty) { token.ThrowIfCancellationRequested(); Directory.Delete(leaf); }
+        }
+        void PruneVersion(string version)
+        {
+            bool empty;
+            using (var pin = LockDirectory(version))
+            {
+                foreach (string leaf in Directory.EnumerateDirectories(version))
+                {
+                    token.ThrowIfCancellationRequested();
+                    if (Guid.TryParseExact(Path.GetFileName(leaf), "N", out _))
+                        BestEffort(() => PruneLeaf(leaf));
+                }
+                empty = !Directory.EnumerateFileSystemEntries(version).Any();
+            }
+            if (empty) { token.ThrowIfCancellationRequested(); Directory.Delete(version); }
+        }
+        try
+        {
+            BestEffort(() =>
+            {
+                string temp = Path.GetFullPath(tempPath);
+                using var tempPin = LockDirectory(temp);
+                string root = Path.Combine(temp, "FlowDesk-Update");
+                if (!Directory.Exists(root)) return; // Cleanup must not create a new staging tree.
+                bool empty;
+                using (var rootPin = LockDirectory(root))
+                {
+                    foreach (string version in Directory.EnumerateDirectories(root))
+                    {
+                        token.ThrowIfCancellationRequested();
+                        if (UpdateVersion.TryParse(Path.GetFileName(version), out _))
+                            BestEffort(() => PruneVersion(version));
+                    }
+                    empty = !Directory.EnumerateFileSystemEntries(root).Any();
+                }
+                if (empty) { token.ThrowIfCancellationRequested(); Directory.Delete(root); }
+            });
+        }
+        finally
+        {
+            // One privacy-safe diagnostic at most; never surface cleanup problems in the update UI.
+            if (failure is not null) log?.Invoke(failure);
+        }
+    }
+
     private static void PruneOldDownloads(string root, string current)
     {
         foreach (var path in Directory.EnumerateDirectories(root))

@@ -12,21 +12,24 @@ public sealed class UpdateCoordinator : IDisposable
     private readonly Action persist;
     private readonly Action<Exception> log;
     private readonly Func<VerifiedInstaller, Task<bool>> handoff;
+    private readonly Func<CancellationToken, Task> prune;
     private readonly UpdateVersion? current;
     private readonly CancellationTokenSource lifetime = new();
     private CancellationTokenSource? operation;
     private Task? loop;
-    private bool stopped, checking;
+    private bool stopped, checking, pruning, startupPruneAttempted;
     public UpdateState State { get; private set; } = new(null, false, null, null);
     public event Action? StateChanged;
-    public bool CanInstall => !stopped && settings().CheckForUpdates && State.Pending is not null && !State.Busy;
+    public bool CanInstall => !stopped && !pruning && settings().CheckForUpdates && State.Pending is not null && !State.Busy;
     public bool HandoffAllowed => !stopped && settings().CheckForUpdates && State.Busy && operation is { IsCancellationRequested: false };
     public Uri? ReleaseNotes => State.Pending?.ReleaseNotes ?? new Uri(AppLinks.Releases);
 
     public UpdateCoordinator(UpdateTransport transport, string runningVersion, Func<AppSettings> settings,
-        Action persist, Action<Exception> log, Func<VerifiedInstaller, Task<bool>> handoff)
+        Action persist, Action<Exception> log, Func<VerifiedInstaller, Task<bool>> handoff,
+        Func<CancellationToken, Task>? prune = null)
     {
         this.transport = transport; this.settings = settings; this.persist = persist; this.log = log; this.handoff = handoff;
+        this.prune = prune ?? (token => Task.Run(() => UpdateTransport.PruneDownloads(Path.GetTempPath(), log, token), token));
         UpdateVersion.TryParse(runningVersion, out current);
     }
 
@@ -36,6 +39,7 @@ public sealed class UpdateCoordinator : IDisposable
         try
         {
             await Task.Delay(TimeSpan.FromSeconds(30), lifetime.Token);
+            await PruneAtStartupAsync();
             while (!stopped)
             {
                 await CheckIfDueAsync(DateTimeOffset.UtcNow);
@@ -45,6 +49,28 @@ public sealed class UpdateCoordinator : IDisposable
         }
         catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
         catch (Exception ex) { log(ex); }
+    }
+
+    public async Task PruneAtStartupAsync()
+    {
+        if (stopped || startupPruneAttempted) return;
+        startupPruneAttempted = true;
+        // UI-owned exclusion is set before the first await. If an install already owns the tree,
+        // leave it entirely alone this run. Conversely InstallAsync cannot begin while pruning.
+        if (State.Busy) return;
+        pruning = true;
+        try
+        {
+            if (State.Pending is not null) SetState(State); // refresh CanInstall on notice/tray
+            await prune(lifetime.Token);
+        }
+        catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
+        catch (Exception ex) { log(ex); }
+        finally
+        {
+            pruning = false;
+            if (!stopped && State.Pending is not null) SetState(State);
+        }
     }
 
     public async Task CheckIfDueAsync(DateTimeOffset now)
