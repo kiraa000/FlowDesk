@@ -98,6 +98,7 @@ public sealed class AppServices : ObservableObject, IDisposable
             return (data, settings, warning);
         });
         Data = loaded.data; Settings = loaded.settings; RecoveryMessage = loaded.warning;
+        Hotkeys.SetResizeTouchingWindowsTogether(Settings.ResizeTouchingWindowsTogether);
         Settings.DisabledShortcuts = new FlowDesk.Core.Hotkeys.ShortcutPolicy(Settings.DisabledShortcuts).DisabledIds.ToList();
         Settings.ShortcutOverrides = FlowDesk.Core.Hotkeys.ShortcutRebinding.Normalize(Settings.ShortcutOverrides, message =>
         {
@@ -112,6 +113,7 @@ public sealed class AppServices : ObservableObject, IDisposable
     public void Changed(bool immediate = false)
     {
         if (transferring) return;
+        Hotkeys.SetResizeTouchingWindowsTogether(Settings.ResizeTouchingWindowsTogether);
         InvalidateImportUndo();
         debounce?.Cancel(); debounce = new();
         pending = PersistAsync(SnapshotData(), JsonSerializer.Serialize(Settings, JsonStore.Options), immediate, debounce.Token);
@@ -196,6 +198,7 @@ public sealed class AppServices : ObservableObject, IDisposable
                 throw;
             }
             Data = plan.Data; Settings = plan.Settings;
+            Hotkeys.SetResizeTouchingWindowsTogether(Settings.ResizeTouchingWindowsTogether);
             return new(backup, beforeData, beforeSettings);
         }
         finally { writer.Release(); transferring = false; }
@@ -211,6 +214,7 @@ public sealed class AppServices : ObservableObject, IDisposable
             await Task.Run(undo.Backup.Restore);
             InvalidateImportUndo();
             Data = undo.Data; Settings = undo.Settings;
+            Hotkeys.SetResizeTouchingWindowsTogether(Settings.ResizeTouchingWindowsTogether);
         }
         finally { writer.Release(); transferring = false; }
     }

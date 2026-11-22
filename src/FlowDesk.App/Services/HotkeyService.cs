@@ -31,6 +31,12 @@ public sealed class HotkeyService(string dataDirectory, VirtualDesktopService? s
     private Action? _clipboard;
     private bool _clipboardEnabled;
     private bool _paletteWindowsKey;
+    private bool _resizeTogether = true;
+    public void SetResizeTouchingWindowsTogether(bool enabled)
+    {
+        Volatile.Write(ref _resizeTogether, enabled);
+        Volatile.Read(ref _host)?.SetResizeTouchingWindowsTogether(enabled);
+    }
     private GameModeState _gameMode = new();
     public bool GameMode => Volatile.Read(ref _gameMode).Enabled;
     public event Action<bool>? GameModeChanged;
@@ -297,6 +303,7 @@ public sealed class HotkeyService(string dataDirectory, VirtualDesktopService? s
             () => RequestReload(host!), _shortcutsRequested, _quickLook, _hotCorners, EffectiveDisabled(), _palette, _clipboard, _overrides,
             () => ToggleGameModeRequested?.Invoke(), GameMode);
         host.SetPaletteWindowsKey(_paletteWindowsKey);
+        host.SetResizeTouchingWindowsTogether(Volatile.Read(ref _resizeTogether));
         try
         {
             await host.StartAsync().ConfigureAwait(false);

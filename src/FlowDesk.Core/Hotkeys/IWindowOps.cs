@@ -21,8 +21,26 @@ public interface IWindowOps
 
     /// <summary>True for the shell classes the shortcuts must never act on.</summary>
     bool IsShellWindow(long handle);
+    bool IsOwnWindow(long handle) => false;
 
     WindowMetrics GetMetrics(long handle);
+
+    /// <summary>Visible frame and invisible border insets. Null means the window cannot be resized safely.</summary>
+    EdgeWindow? GetEdgeWindow(long handle)
+    {
+        var m = GetMetrics(handle);
+        return m.Exists && !m.IsMaximized && !m.IsMinimized ? new(handle, m.Rect) : null;
+    }
+    /// <summary>Fast frame-only read for the WinEvent callback; must not send messages to another process.</summary>
+    PixelRect? GetVisibleFrame(long handle) => GetEdgeWindow(handle)?.Frame;
+
+    /// <summary>Ordered shrink-before-grow batch; implementations must not activate or reorder windows.</summary>
+    bool MoveBatch(IReadOnlyList<KeyValuePair<long, PixelRect>> moves)
+    {
+        bool success = true;
+        foreach (var move in moves) success &= Move(move.Key, move.Value);
+        return success;
+    }
 
     /// <summary>ShowWindowAsync(SW_RESTORE).</summary>
     void Restore(long handle);

@@ -23,6 +23,7 @@ public sealed class HotkeyHost : IDisposable
     private const uint WM_CONFIGURE_HOTCORNERS = 0x800D;
     private const uint WM_CONFIGURE_BINDINGS = 0x800E;
     private const uint WM_CONFIGURE_WINDOWS_KEY = 0x8010;
+    private const uint WM_CONFIGURE_EDGE_RESIZE = 0x8011;
     private const int WH_MOUSE_LL = 14;
     private const int ERROR_CLASS_ALREADY_EXISTS = 1410;
     private const int WH_KEYBOARD_LL = 13;
@@ -42,6 +43,51 @@ public sealed class HotkeyHost : IDisposable
     private readonly IVirtualDesktops? _desktops;
     private readonly Action<string>? _notify;
     private readonly WindowShortcutActions _actions;
+    private readonly IWindowOps _windows;
+    private bool _resizeTogether = true;
+    private EdgeResizeDragHook? _resizeDragHook;
+    private WindowShortcutActions.DragSnapshot? _resizeDrag; // serialized worker only
+    private long _resizeDragVersion;
+    private long _resizeSnapshotVersion;
+
+    public void SetResizeTouchingWindowsTogether(bool enabled)
+    {
+        if (Volatile.Read(ref _resizeTogether) == enabled) return;
+        Volatile.Write(ref _resizeTogether, enabled);
+        Interlocked.Increment(ref _resizeDragVersion);
+        if (_hwnd != 0) HotkeyNativeMethods.PostMessageW(_hwnd, WM_CONFIGURE_EDGE_RESIZE, 0, 0);
+    }
+    private void ConfigureResizeDragHook()
+    {
+        _resizeDragHook?.Dispose(); _resizeDragHook = null;
+        Interlocked.Increment(ref _resizeDragVersion);
+        if (_windowShortcuts && Volatile.Read(ref _resizeTogether) && !_gameMode && Volatile.Read(ref _stopping) == 0)
+            _resizeDragHook = new EdgeResizeDragHook(OnResizeDrag);
+    }
+    private void OnResizeDrag(bool starting, long handle)
+    {
+        if (!_windowShortcuts || !_resizeTogether || _gameMode || _sessionBlocked || Volatile.Read(ref _stopping) != 0) return;
+        var frame = _windows.GetVisibleFrame(handle);
+        if (frame is null) return;
+        long version = starting ? Interlocked.Increment(ref _resizeDragVersion) : Volatile.Read(ref _resizeDragVersion);
+        Enqueue(() =>
+        {
+            if (version != Volatile.Read(ref _resizeDragVersion) || !_resizeTogether || _gameMode || _sessionBlocked || _actions.IsPaused) return;
+            _actions.ResizeTouchingWindowsTogether = true;
+            if (starting)
+            {
+                _resizeDrag = null;
+                // Anchor to the fast event-time read, not the later worker measurement.
+                _resizeDrag = _actions.BeginResizeDrag(handle, frame);
+                _resizeSnapshotVersion = version;
+            }
+            else
+            {
+                var snapshot = _resizeDrag; _resizeDrag = null;
+                if (_resizeSnapshotVersion == version && snapshot?.Active.Handle == handle && _windows.GetVisibleFrame(handle) == frame) _actions.EndResizeDrag(snapshot);
+            }
+        });
+    }
     private readonly MultiPressQueue _multiPress = new(new TimerOneShotScheduler());
     private readonly BlockingCollection<Action> _queue = new();
     private readonly CancellationTokenSource _cts = new();
@@ -106,6 +152,7 @@ public sealed class HotkeyHost : IDisposable
         IReadOnlyDictionary<string, string>? shortcutOverrides = null, Action? toggleGameMode = null, bool gameMode = false)
     {
         _desktops = desktops;
+        _windows = windows;
         _notify = notify;
         _actions = new WindowShortcutActions(windows, desktops, new CancellableDelay());
         _hookProc = MouseHookProc;
@@ -186,6 +233,7 @@ public sealed class HotkeyHost : IDisposable
                     _keyboard.Seed(IsDown); _repeatGate.Reset(); _inputOwnership.Reset();
                     _loneWindows.Reset(); _quickLookTrigger = new();
                     Volatile.Write(ref _gameMode, change.GameMode);
+                    ConfigureResizeDragHook();
                     _hotCorners?.SetHookAvailable(!change.GameMode && _hook != 0 && _sessionNotificationsRegistered);
                 }
                 while (HotkeyNativeMethods.PeekMessageW(out _, _hwnd, WM_HOTKEY, WM_HOTKEY, 1)) { }
@@ -407,6 +455,7 @@ public sealed class HotkeyHost : IDisposable
             WheelHookAvailable = _hook != 0;
             WinWheelHookAvailable = _hook != 0 && _keyboardHook != 0;
             RegisterBindings();
+            ConfigureResizeDragHook();
             _ready.TrySetResult(true);
 
             while (Volatile.Read(ref _stopping) == 0 &&
@@ -422,6 +471,8 @@ public sealed class HotkeyHost : IDisposable
         }
         finally
         {
+            _resizeDragHook?.Dispose(); _resizeDragHook = null;
+            Interlocked.Increment(ref _resizeDragVersion);
             _hotCorners?.SetHookAvailable(false);
             lock (_hotCornerGate)
             {
@@ -537,6 +588,7 @@ public sealed class HotkeyHost : IDisposable
             _notify?.Invoke(paused ? "Window shortcuts paused" : "Window shortcuts on");
             return;
         }
+        _actions.ResizeTouchingWindowsTogether = Volatile.Read(ref _resizeTogether);
         _actions.Execute(binding, _cts.Token);
     }
 
@@ -737,7 +789,9 @@ public sealed class HotkeyHost : IDisposable
         if (Volatile.Read(ref _gameMode) || !policy.IsCurrent(Volatile.Read(ref _policy)) || !policy.AllowsWheel(gesture, Volatile.Read(ref _desktopBindingsAvailable))) return;
         switch (gesture)
         {
-            case WheelGesture.Resize: _actions.ResizeWindow(up, _cts.Token); break;
+            case WheelGesture.Resize:
+                _actions.ResizeTouchingWindowsTogether = Volatile.Read(ref _resizeTogether);
+                _actions.ResizeWindow(up, _cts.Token); break;
             case WheelGesture.Desktop: _actions.DesktopWheel(up, false, _cts.Token); break;
             case WheelGesture.MoveDesktop: _actions.DesktopWheel(up, true, _cts.Token); break;
             case WheelGesture.Search:
@@ -754,7 +808,7 @@ public sealed class HotkeyHost : IDisposable
         _repeatGate.Reset();
         _inputOwnership.Reset();
         _loneWindows.Reset();
-        if (reason is 2 or 4 or 6 or 7) { _sessionBlocked = true; _hotCorners?.SetSessionBlocked(true); }
+        if (reason is 2 or 4 or 6 or 7) { _sessionBlocked = true; Interlocked.Increment(ref _resizeDragVersion); _hotCorners?.SetSessionBlocked(true); }
         else if (reason is 1 or 3 or 5 or 8 or 0xF) { _sessionBlocked = false; _hotCorners?.SetSessionBlocked(false); }
         if (Volatile.Read(ref _stopping) != 0 || !_keyboard.ReseedForSessionChange(reason, IsDown)) return;
         // A session boundary starts fresh bookkeeping, even if the snapshot still includes Win.
@@ -825,6 +879,8 @@ public sealed class HotkeyHost : IDisposable
         { try { cornerHost.ApplyHotCornerHookChange(); } catch (Exception) { } return 0; }
         if (message == WM_CONFIGURE_WINDOWS_KEY && _current is { } windowsKeyHost)
         { try { windowsKeyHost.ApplyWindowsKeyHookChange(); } catch (Exception) { } return 0; }
+        if (message == WM_CONFIGURE_EDGE_RESIZE && _current is { } resizeHost)
+        { try { resizeHost.ConfigureResizeDragHook(); } catch (Exception) { } return 0; }
         if (message == WM_WTSSESSION_CHANGE && _current is { } sessionHost)
         {
             try { sessionHost.OnSessionChange((uint)wParam); } catch (Exception) { /* never cross a native callback */ }
