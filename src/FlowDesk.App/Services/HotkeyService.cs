@@ -308,6 +308,7 @@ public sealed class HotkeyService(string dataDirectory, VirtualDesktopService? s
         {
             await host.StartAsync().ConfigureAwait(false);
             _host = host;
+            host.SetResizeTouchingWindowsTogether(Volatile.Read(ref _resizeTogether));
         }
         catch
         {

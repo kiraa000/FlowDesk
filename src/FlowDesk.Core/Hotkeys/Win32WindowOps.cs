@@ -60,7 +60,10 @@ public sealed class Win32WindowOps : IWindowOps
     public bool MoveBatch(IReadOnlyList<KeyValuePair<long, PixelRect>> moves)
     {
         if (moves.Count == 0) return true;
-        if (moves.Any(p => GetEdgeWindow(p.Key) is null)) return false;
+        var valid = moves.Where(p => GetEdgeWindow(p.Key) is { Fixed: false }).ToArray();
+        bool allValid = valid.Length == moves.Count;
+        moves = valid;
+        if (moves.Count == 0) return allValid;
         nint batch = BeginDeferWindowPos(moves.Count);
         if (batch != 0)
         {
@@ -70,12 +73,12 @@ public sealed class Win32WindowOps : IWindowOps
                 batch = DeferWindowPos(batch, (nint)p.Key, 0, r.X, r.Y, r.Width, r.Height, 0x214); // NOZORDER | NOACTIVATE | NOOWNERZORDER
                 if (batch == 0) break;
             }
-            if (batch != 0 && EndDeferWindowPos(batch)) return true;
+            if (batch != 0 && EndDeferWindowPos(batch)) return allValid;
         }
         // Deferred batches can fail (or partially apply cross-process). Read-back is authoritative;
         // ordered sequential fallback is idempotent and the bounded verifier repairs/refuses it.
-        bool success = true;
-        foreach (var p in moves) success &= GetEdgeWindow(p.Key) is not null && Move(p.Key, p.Value);
+        bool success = allValid;
+        foreach (var p in moves) success &= GetEdgeWindow(p.Key) is { Fixed: false } && Move(p.Key, p.Value);
         return success;
     }
 

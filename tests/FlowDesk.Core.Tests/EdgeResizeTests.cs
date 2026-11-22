@@ -267,6 +267,20 @@ public sealed class EdgeResizeTests
     }
 
     [Fact]
+    public void PartlyOffscreenLeftArrowDoesNotReverseDirection()
+    {
+        var area = Area();
+        var active = W(1, R(-50, 100, 500, 600)); // left edge is 50 px off-screen, beyond the 12 px tolerance
+
+        var plan = EdgeResize.Keyboard(active, area, [], WindowDirection.Left);
+
+        var line = Assert.Single(plan.Lines);
+        Assert.Equal(WindowDirection.Left, line.Edge);
+        Assert.Equal(0, line.Delta);
+        Assert.Empty(plan.Frames);
+    }
+
+    [Fact]
     public void WindowOnAnotherMonitorIsIgnored()
     {
         var area = Area();
@@ -550,6 +564,19 @@ public sealed class EdgeResizeTests
         var cleared = new List<long>();
 
         Assert.False(EdgeResizeApplication.Apply(ops, plan, cleared.Add, Area()));
+
+        Assert.Empty(ops.Batches);
+        Assert.Empty(cleared);
+    }
+
+    [Fact]
+    public void ApplyPreflightSkipsWhenAFixedStateChanged()
+    {
+        var (ops, _, neighbour, plan) = ClampScenario();
+        ops.Edges[neighbour] = ops.Edges[neighbour] with { Fixed = true };
+        var cleared = new List<long>();
+
+        Assert.False(EdgeResizeApplication.Apply(ops, plan, cleared.Add));
 
         Assert.Empty(ops.Batches);
         Assert.Empty(cleared);

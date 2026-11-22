@@ -47,7 +47,7 @@ Turn them on in Settings > **Window shortcuts**. The same section sets the termi
 leave the field blank to use Windows Terminal when it is available, otherwise Command Prompt (FlowDesk adds no
 arguments); **Use default** clears a custom program. **Resize touching windows together** (on by default) makes a
 resize also move the windows that share the border, so snapped layouts keep fitting; turn it off to resize only the
-active window.
+active window. Dragging a shared border with the mouse updates the touching windows when you release the button.
 
 | Shortcut | Action |
 | --- | --- |

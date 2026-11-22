@@ -110,6 +110,8 @@ public static class EdgeResize
             if (w.Fixed) { low = Math.Max(low, 0); high = Math.Min(high, 0); }
         }
         int delta = low <= high ? Math.Clamp(requestedDelta, low, high) : 0;
+        // A partly off-screen or undersized frame must not make an arrow reverse direction.
+        if (Math.Sign(delta) != Math.Sign(requestedDelta) || Math.Abs((long)delta) > Math.Abs((long)requestedDelta)) delta = 0;
         return new(edge, origin, delta, members, low, high);
     }
 

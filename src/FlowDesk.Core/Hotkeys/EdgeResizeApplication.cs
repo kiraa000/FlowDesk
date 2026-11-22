@@ -11,7 +11,7 @@ public static class EdgeResizeApplication
         if (plan.Frames.Count == 0) return true;
         foreach (var w in plan.Windows.Values)
         {
-            if (windows.GetEdgeWindow(w.Handle) is not { } now || now.Insets != w.Insets || now.Scale != w.Scale ||
+            if (windows.GetEdgeWindow(w.Handle) is not { } now || now.Fixed != w.Fixed || now.Insets != w.Insets || now.Scale != w.Scale ||
                 (w.Handle != draggedHandle && now.Frame != w.Frame) ||
                 (workArea is { } area && (windows.GetMetrics(w.Handle).WorkArea != area || !EdgeResize.SameMonitor(now.Frame, area)))) return false;
         }

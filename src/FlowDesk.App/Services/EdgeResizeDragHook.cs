@@ -1,5 +1,4 @@
 using System.Runtime.InteropServices;
-using FlowDesk.Core.Model;
 
 namespace FlowDesk.App.Services;
 
@@ -8,6 +7,7 @@ internal sealed class EdgeResizeDragHook : IDisposable
 {
     private readonly WinEventProc _callback;
     private nint _hook;
+    public bool Installed => _hook != 0;
     private delegate void WinEventProc(nint hook, uint eventId, nint hwnd, int objectId, int childId, uint thread, uint time);
     public EdgeResizeDragHook(Action<bool, long> changed)
     {

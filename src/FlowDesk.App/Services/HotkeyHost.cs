@@ -62,7 +62,10 @@ public sealed class HotkeyHost : IDisposable
         _resizeDragHook?.Dispose(); _resizeDragHook = null;
         Interlocked.Increment(ref _resizeDragVersion);
         if (_windowShortcuts && Volatile.Read(ref _resizeTogether) && !_gameMode && Volatile.Read(ref _stopping) == 0)
+        {
             _resizeDragHook = new EdgeResizeDragHook(OnResizeDrag);
+            if (!_resizeDragHook.Installed) LogHookUnavailable("Shared-border drag hook");
+        }
     }
     private void OnResizeDrag(bool starting, long handle)
     {
