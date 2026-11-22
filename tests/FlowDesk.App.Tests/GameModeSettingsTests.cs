@@ -6,6 +6,28 @@ namespace FlowDesk.App.Tests;
 
 public sealed class GameModeSettingsTests
 {
+    // Same source-copy pattern as Task031WiringTests; structural guard only, no native hooks.
+    private static string Source(params string[] path) => File.ReadAllText(Path.Combine(
+        new[] { AppContext.BaseDirectory, "AppSources" }.Concat(path).ToArray()));
+
+    [Fact]
+    public void GameModeBoundarySeedsFromHookStateBeforeTheGateReset()
+    {
+        var host = Source("Services", "HotkeyHost.cs");
+        var start = host.IndexOf("private void ApplyBindingChange()", StringComparison.Ordinal);
+        var end = host.IndexOf("private sealed record HotCornerHookChange", start, StringComparison.Ordinal);
+        Assert.True(start >= 0 && end > start);
+        var apply = host[start..end];
+        var seed = apply.IndexOf(
+            "_boundaryHeld.Seed(key => _repeatGate.IsDown(key) || _boundaryHeld.Contains((uint)key));",
+            StringComparison.Ordinal);
+        Assert.True(seed >= 0, "the game-mode boundary must seed hook state unioned with earlier held keys");
+        Assert.True(apply.IndexOf("_repeatGate.Reset();", StringComparison.Ordinal) > seed,
+            "the held set must be sampled before the repeat gate is reset");
+        Assert.True(apply.IndexOf("_inputOwnership.Reset();", StringComparison.Ordinal) > seed);
+        Assert.DoesNotContain("_boundaryHeld.Seed(IsDown);", apply);
+    }
+
     [Fact]
     public void NewSettingsRoundTripAndRuntimeModeIsNotStored()
     {

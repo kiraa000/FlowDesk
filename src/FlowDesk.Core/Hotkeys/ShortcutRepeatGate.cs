@@ -9,6 +9,8 @@ public sealed class ShortcutRepeatGate
     private readonly Dictionary<uint, long> holds = [];
     private readonly Dictionary<string, long> accepted = new(StringComparer.Ordinal);
     private long sequence;
+    /// <summary>Hook-observed state, including releases suppressed before Windows processes them.</summary>
+    public bool IsDown(int key) => down.Contains((uint)key);
     public void Observe(uint key, bool isDown)
     {
         if (isDown) { if (down.Add(key)) holds[key] = ++sequence; }

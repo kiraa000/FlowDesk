@@ -232,7 +232,13 @@ public sealed class HotkeyHost : IDisposable
                     // Mask the already-forwarded Win/Alt hold before clearing ownership. Never inject
                     // modifier ups: the user's physical ups must still reach the foreground application.
                     if (_keyboard.Modifiers.Win || _keyboard.Modifiers.Alt) SendAltMenuMask();
-                    _boundaryHeld.Seed(IsDown);
+                    // Our hook observes the physical/injected up before paired-up suppression.
+                    // Async OS state can still say "down" for that suppressed up; reseeding
+                    // from it resurrects the released toggle and rejects the next fresh press.
+                    // Snapshot before resetting the gate, while all state is on this thread.
+                    // Preserve still-held keys from an earlier boundary if another mode
+                    // transition occurs before their up (the repeat gate was reset meanwhile).
+                    _boundaryHeld.Seed(key => _repeatGate.IsDown(key) || _boundaryHeld.Contains((uint)key));
                     _keyboard.Seed(IsDown); _repeatGate.Reset(); _inputOwnership.Reset();
                     _loneWindows.Reset(); _quickLookTrigger = new();
                     Volatile.Write(ref _gameMode, change.GameMode);
