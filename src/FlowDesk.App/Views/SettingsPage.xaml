@@ -427,14 +427,12 @@
                     <Button Content="Open log folder" Command="{Binding OpenLogFolderCommand}" MinHeight="32" />
                     <HyperlinkButton Content="Release notes and updates"
                                      Command="{Binding OpenReleaseNotesCommand}" />
-                    <StackPanel Orientation="Horizontal" Spacing="12">
-                        <TextBlock Text="Check for updates" VerticalAlignment="Center"
-                                   Style="{StaticResource BodyTextBlockStyle}"
-                                   Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
-                        <ToggleSwitch IsOn="{Binding CheckForUpdates, Mode=TwoWay}"
-                                      AutomationProperties.Name="Check for updates" />
-                    </StackPanel>
                 </StackPanel>
+            </settings:SettingsCard>
+            <settings:SettingsCard Header="Check for updates"
+                Description="Look for a new FlowDesk version once a day. Updates install only when you click Install now.">
+                <ToggleSwitch IsOn="{Binding CheckForUpdates, Mode=TwoWay}"
+                              AutomationProperties.Name="Check for updates" />
             </settings:SettingsCard>
         </StackPanel>
     </ScrollViewer>
